@@ -12,10 +12,10 @@
 | 层 | 选型 |
 |---|---|
 | 后端 | Spring Boot 4.1.1 · JDK 17 · **Spring MVC** |
-| 数据访问 | **MyBatis-Plus**（⚠️ 对 Boot 4.1.1 的兼容性**待实测**，不通过则退 Spring Data JPA） |
+| 数据访问 | **MyBatis-Plus** 3.5.17 —— ✅ 已在 Boot 4.1.1 上验证通过 |
 | 数据库 | MySQL 8 —— 复用本机共用容器，库名 `its_mygo` |
-| 缓存 | Redis 7 —— 复用本机共用容器，key 前缀 `its-mygo:` |
-| 表结构迁移 | Flyway（不用 `ddl-auto`） |
+| 缓存 | Redis 7 —— 复用本机共用容器，key 前缀 `its-mygo:`（**必须带 TTL**） |
+| 表结构迁移 | Flyway 12.4.0 —— **须用 `spring-boot-starter-flyway`**，详见 [HANDOFF §5.1](HANDOFF.md) |
 | 安全 | Spring Security + JWT（密码 BCrypt） |
 | 客服链路 | 原生 `grpc-java` + `protobuf-maven-plugin`（不用 starter，Boot 4 未适配） |
 | API 文档 | springdoc-openapi |
@@ -56,10 +56,20 @@
 |---|---|
 | 需求分析 + 技术选型 | ✅ 完成（2026-10-12） |
 | 本地中间件就绪 | ✅ 完成（2026-10-12） |
-| M0 骨架 | ⬜ 未开始 |
-| M1 账号体系 → M7 查订单环回 | ⬜ 未开始 |
+| **M0 骨架** | ✅ **完成**（2026-10-12）—— 4 个自动化测试全绿 |
+| M1 账号体系 | ⬜ 未开始 |
+| M2 商品与分类 → M7 查订单环回 | ⬜ 未开始 |
 
 各里程碑的可验收产物见 [docs/decisions-ecommerce.md](docs/decisions-ecommerce.md) §4。
+
+## 本地运行
+
+```bash
+docker start mysql          # 共用 MySQL 容器无 restart policy，需手动拉起
+./mvnw spring-boot:run
+```
+
+凭据放项目根目录的 `.env`（从 `.env.example` 复制填写），该文件已被 `.gitignore` 排除。
 
 ## 文档
 

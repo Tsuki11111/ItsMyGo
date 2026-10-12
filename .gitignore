@@ -4,6 +4,11 @@ target/
 !**/src/main/**/target/
 !**/src/test/**/target/
 
+### 本地凭据（本仓库是公开仓库，绝不入库）###
+.env
+.env.*
+!.env.example
+
 ### STS ###
 .apt_generated
 .classpath

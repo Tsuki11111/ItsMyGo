@@ -1,0 +1,14 @@
+CREATE TABLE users
+(
+    id         BIGINT       NOT NULL AUTO_INCREMENT COMMENT '用户 ID',
+    username   VARCHAR(32)  NOT NULL COMMENT '登录名',
+    password   VARCHAR(100) NOT NULL COMMENT 'BCrypt 哈希',
+    nickname   VARCHAR(32)  NOT NULL DEFAULT '' COMMENT '昵称',
+    phone      VARCHAR(20)  NOT NULL DEFAULT '' COMMENT '手机号',
+    status     TINYINT      NOT NULL DEFAULT 1 COMMENT '1 正常 / 0 禁用',
+    created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_username (username)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4 COMMENT '用户';
