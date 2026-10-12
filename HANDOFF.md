@@ -193,6 +193,20 @@ HikariPool 会推迟到首次使用时才初始化。日志里 `Started ItsMyGoA
 `order_item` 必须冗余存下单时的**商品名、单价、图片**。
 商品后续改价，历史订单不能跟着变。
 
+### 5.5 `git push` 报错但实际成功（本机网络特征，遇见别慌）
+
+本项目已**两次**出现「push 返回错误，但远端其实已经更新成功」：
+
+| 时间 | 报错 | 实际结果 |
+|---|---|---|
+| 2026-10-12 首次推送 | `remote: Your repository is disabled`（403） | 提交已上传，远端 ref 已建 |
+| 2026-10-12 M0 推送 | `cannot lock ref 'refs/heads/main': is at <新值> but expected <旧值>` | 已在远端，本地与远端一致 |
+
+疑似与**本机到 GitHub 的网络链路**有关（响应被截断或延迟）。
+
+**排查规矩**：push 报错后**先 `git fetch origin`、再看 `git status -sb`** 确认真实状态。
+**绝不因为报错就 `--force` 强推** —— 那才是真会丢东西的操作。
+
 ---
 
 ## 6. 历史记录
