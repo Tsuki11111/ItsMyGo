@@ -71,8 +71,16 @@
 
 ## 本地运行
 
+中间件复用本机已有容器，**开工前先确认它们都在跑**（Docker Desktop 重启后不保证自动拉起）：
+
 ```bash
-docker start mysql          # 共用 MySQL 容器无 restart policy，需手动拉起
+docker ps --filter "name=^(mysql|redis|minio)$" --format "table {{.Names}}\t{{.Status}}"
+docker start mysql redis minio     # 缺哪个就拉哪个
+```
+
+然后启动应用：
+
+```bash
 ./mvnw spring-boot:run
 ```
 

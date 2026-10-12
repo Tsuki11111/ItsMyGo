@@ -126,15 +126,32 @@ src/main/java/com/tsuk1/itsmygo/
 
 ### 4.3 共用中间件（**本项目不另起容器**）
 
-| 中间件 | 容器 | 连接 | 本项目隔离方式 |
-|---|---|---|---|
-| MySQL | `mysql`（mysql:8.0，**需手动 start**） | `localhost:3306` | 独立 database `its_mygo` |
-| Redis | `redis`（redis:7-alpine，运行中） | `localhost:6379` | key 前缀 `its-mygo:` |
-| MinIO | `minio`（运行中） | `localhost:9000`（Console `:9001`） | 独立 bucket `its-mygo-product-images` |
+**开工前先确认这三个容器都在跑** —— 它们不在本项目任何 Compose 里，
+Docker Desktop 重启后不保证自动拉起：
+
+```bash
+docker ps --filter "name=^(mysql|redis|minio)$" --format "table {{.Names}}\t{{.Status}}"
+```
+
+缺哪个就拉哪个（已在运行的会提示 "already running"，无害）：
+
+```bash
+docker start mysql redis minio
+```
+
+| 容器 | restart policy | 实际行为 |
+|---|---|---|
+| `mysql` | `unless-stopped` | 一般能自动起；**但被显式 stop 过就不会** —— 它曾停摆两个月（2026-10-12 才拉起） |
+| `redis` | `no` | **不会**自动起，必须手动 |
+| `minio` | `no` | **不会**自动起，必须手动 |
+
+| 中间件 | 连接 | 本项目隔离方式 |
+|---|---|---|
+| MySQL 8.0（`mysql`） | `localhost:3306` | 独立 database `its_mygo` |
+| Redis 7（`redis`） | `localhost:6379` | key 前缀 `its-mygo:` |
+| MinIO（`minio`） | `localhost:9000`（Console `:9001`） | 独立 bucket `its-mygo-product-images` |
 
 - `mysql` 容器里还有 `dw` / `meta` / `pharma_db` 三个**别的项目**的库，**不要动**
-- `mysql` 与 `rag_helper` 那批容器一样**不设 restart policy**，
-  Docker Desktop 重启后要手动 `docker start mysql`
 - **MinIO 是 rag_helper 在用的实例**：它的 bucket 是 `rag-helper-knowledge-files`
   （已配公网只读策略），本项目**不许读写它**；本项目一律用 `its-mygo-product-images`
 - MinIO 凭据与 rag_helper 共用（在容器环境变量里），M2 落地对象存储时写进 `.env`
