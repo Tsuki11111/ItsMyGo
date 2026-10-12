@@ -24,27 +24,30 @@
 
 ## 1. 当前状态一句话
 
-**M0（骨架）已完成（2026-10-12）。**
+**M1（账号体系）已完成（2026-10-12）。**
 
-骨架搭好、中间件接通、**自动化测试 4 个全绿**。**选型阶段最大的风险已经排除**：
-MyBatis-Plus 3.5.17 与 Flyway 12.4.0 在 Spring Boot 4.1.1 上均验证可用，
-**不需要退回 Spring Data JPA**。
+M0 骨架 + M1 认证与地址模块都已落地，**自动化测试 14 个全绿**。
+「注册 → 登录 → JWT → 受保护接口」链路打通；地址 CRUD 带越权校验（越权一律 404）。
+数据库 schema 到 **v2**。
 
-下一步：**M1（账号体系）**。
+下一步：**M2（商品与分类）**。
 
 ---
 
-## 2. 下一步做什么：M1 · 账号体系
+## 2. 下一步做什么：M2 · 商品与分类
 
 参考工期 3–5 天。
 
-1. 注册 / 登录接口，密码用 BCrypt 加密
-2. JWT 签发与校验（Spring Security 配置 + 过滤器）
-3. 收货地址 CRUD —— 新增 `addresses` 表走 `V2__address.sql`
-4. **越权校验**：A 不能读写 B 的数据（面试必问，别漏）
-5. 验收：注册登录拿 token，带 token 能访问受保护接口，不带被拒
+1. 分类树（`categories` 表，支持父子层级）→ `V3__category.sql`
+2. 商品表 `products`：名称、副标题、主图、价格、库存、分类、上下架状态 → `V4__product.sql`
+3. 管理端商品 CRUD（上下架、改价、改库存、传图、绑分类）
+4. 顾客端列表 / 详情 / 分页 / 关键词搜索
+5. 对象存储接 MinIO（bucket `its-mygo-product-images`）做商品图上传 —— 见 §4.3
+6. 验收：后台能上架商品，顾客端能查到、能搜到
 
-⚠️ **动手前先看 §5.1** —— 加 Spring Security 时同样要确认 Boot 4 的自动配置在哪个模块。
+⚠️ **动手前先读 §5** —— 那一节全是 Boot 4 / Security 7 / Jackson 3 的实操差异，
+照抄 Boot 3 的教程会直接编译失败。
+⚠️ **价格一律用 `BigDecimal` + `DECIMAL` 列，绝不用 double。**
 
 ---
 
@@ -59,15 +62,29 @@ src/main/java/com/tsuk1/itsmygo/
 │   ├── Result.java              # 统一响应体 Result<T>（code / message / data）
 │   ├── ResultCode.java          # 响应码枚举，与 HTTP 语义对齐（200 / 400 / 401 / 403 / 404 / 500）
 │   └── exception/
-│       ├── BizException.java           # 可预期失败（参数错、库存不足…），只记 warn 不打堆栈
-│       └── GlobalExceptionHandler.java # @RestControllerAdvice，兜底转统一响应
-├── controller/                  # HTTP 入口
-├── service/                     # 业务逻辑
-├── mapper/                      # MyBatis-Plus BaseMapper
-└── entity/                      # 数据库实体
+│       ├── BizException.java           # 可预期失败，只记 warn 不打堆栈
+│       └── GlobalExceptionHandler.java # @RestControllerAdvice：业务异常 / @Valid 校验 / 兜底
+├── config/
+│   └── SecurityConfig.java      # SecurityFilterChain + BCryptPasswordEncoder + 401/403 统一响应
+├── security/
+│   ├── CurrentUser.java         # 登录用户（id + username），JWT 解析产物，挂在 principal 上
+│   ├── JwtService.java          # 签发 / 校验 JWT（HS256）
+│   └── JwtAuthenticationFilter.java  # 从 Authorization: Bearer 还原身份
+├── controller/                  # HealthController / AuthController / AddressController
+├── service/                     # AuthService / AddressService
+├── mapper/                      # MyBatis-Plus BaseMapper：UserMapper / AddressMapper
+├── entity/                      # User / Address
+└── dto/                         # RegisterRequest / LoginRequest / LoginResponse / AddressRequest
 ```
 
-DTO 层随 M1 需要再加。
+**代码约定**：
+
+- Controller 只做参数接收与响应包装，业务判断一律在 Service
+- 取当前用户统一用 `@AuthenticationPrincipal CurrentUser user`，
+  **不要**自己去读 `SecurityContextHolder`
+- **越权校验只在 Service 里做**（例：`AddressService.requireOwned`）；
+  别人的数据一律当「不存在」返回 **404，不用 403** —— 403 等于告诉调用方
+  「这条数据存在，只是不属于你」
 
 ### 3.2 配置与凭据
 
@@ -80,9 +97,10 @@ DTO 层随 M1 需要再加。
 ### 3.3 数据库
 
 - 库名 `its_mygo`（在共用的 `mysql` 容器里）
-- 迁移脚本在 `src/main/resources/db/migration/`，**当前 schema 版本 v1**
-- 已建表：`users`
+- 迁移脚本在 `src/main/resources/db/migration/`，**当前 schema 版本 v2**
+- 已建表：`users`（V1）、`addresses`（V2）
   （另有 Flyway 自建的 `flyway_schema_history`，是迁移记录表，**不要动**）
+- **迁移脚本只增不改**：已执行过的脚本再改内容会让 Flyway 校验失败
 
 ---
 
@@ -112,10 +130,16 @@ DTO 层随 M1 需要再加。
 |---|---|---|---|
 | MySQL | `mysql`（mysql:8.0，**需手动 start**） | `localhost:3306` | 独立 database `its_mygo` |
 | Redis | `redis`（redis:7-alpine，运行中） | `localhost:6379` | key 前缀 `its-mygo:` |
+| MinIO | `minio`（运行中） | `localhost:9000`（Console `:9001`） | 独立 bucket `its-mygo-product-images` |
 
 - `mysql` 容器里还有 `dw` / `meta` / `pharma_db` 三个**别的项目**的库，**不要动**
 - `mysql` 与 `rag_helper` 那批容器一样**不设 restart policy**，
   Docker Desktop 重启后要手动 `docker start mysql`
+- **MinIO 是 rag_helper 在用的实例**：它的 bucket 是 `rag-helper-knowledge-files`
+  （已配公网只读策略），本项目**不许读写它**；本项目一律用 `its-mygo-product-images`
+- MinIO 凭据与 rag_helper 共用（在容器环境变量里），M2 落地对象存储时写进 `.env`
+- ⚠️ 该实例用的是 MinIO **默认凭据**，且端口绑定在 `0.0.0.0`。
+  本机开发可接受，但**别把 9000 / 9001 暴露到公网**
 
 ### 4.4 命名约定（硬约束）
 
@@ -173,7 +197,21 @@ HikariPool 会推迟到首次使用时才初始化。日志里 `Started ItsMyGoA
 **规矩**：以后加任何新集成（Spring Security、springdoc 等），**先确认 Boot 4 里它的自动配置
 在哪个模块**，别直接照抄 Boot 3 的教程。
 
-### 5.2 共用 Redis 的内存策略约束
+### 5.2 ★ Spring Boot 4 默认用 Jackson 3，包名变了（2026-10-12 踩到）
+
+**`ObjectMapper` 的包名从 `com.fasterxml.jackson.databind` 变成了 `tools.jackson.databind`。**
+
+Boot 4.1.1 的 JSON 实现是 **Jackson 3**（依赖树里是 `tools.jackson.core:jackson-databind:3.1.5`）。
+照抄 Boot 3 的代码写 `import com.fasterxml.jackson.databind.ObjectMapper`，
+**编译直接失败**：`程序包 com.fasterxml.jackson.databind 不存在`。
+
+**最容易误判的地方**：依赖树里**同时存在** `com.fasterxml.jackson.core:jackson-databind:2.21.5` ——
+那是 `jjwt-jackson` 带进来的 **Jackson 2**，scope 是 `runtime`，**不是** Boot 自己用的那个。
+别被它误导以为包名没变。
+
+**规矩**：在 Boot 4 项目里写 Jackson 相关代码，一律用 **`tools.jackson.*`**。
+
+### 5.3 共用 Redis 的内存策略约束
 
 `redis` 容器以 `--maxmemory 256mb --maxmemory-policy volatile-lru` 启动。
 该策略下**只有带 TTL 的 key 会被淘汰** —— 本项目若写入**不带 TTL 的 key**，
@@ -182,18 +220,18 @@ HikariPool 会推迟到首次使用时才初始化。日志里 `Started ItsMyGoA
 **因此：本项目所有 Redis key 必须带 TTL，且一律以 `its-mygo:` 开头。**
 （已有回归用例 `SharedRedisTest` 守着这两条。）
 
-### 5.3 库存扣减（M3 的关键点）
+### 5.4 库存扣减（M3 的关键点）
 
 并发下不能超卖。方案已定：**Redis 预扣 + 数据库乐观锁**
 （`UPDATE ... WHERE stock >= n` 或版本号）。
 **不要**写成「先 select 查库存、再 update 扣减」—— 那是面试必被问穿的两步竞态。
 
-### 5.4 订单快照
+### 5.5 订单快照
 
 `order_item` 必须冗余存下单时的**商品名、单价、图片**。
 商品后续改价，历史订单不能跟着变。
 
-### 5.5 `git push` 报错但实际成功（本机网络特征，遇见别慌）
+### 5.6 `git push` 报错但实际成功（本机网络特征，遇见别慌）
 
 本项目已**两次**出现「push 返回错误，但远端其实已经更新成功」：
 
@@ -210,6 +248,26 @@ HikariPool 会推迟到首次使用时才初始化。日志里 `Started ItsMyGoA
 ---
 
 ## 6. 历史记录
+
+### 2026-10-12 · M1 账号体系完成
+
+**新增依赖**：`spring-boot-starter-security`、`spring-boot-starter-validation`、
+`jjwt-api` / `jjwt-impl` / `jjwt-jackson`（0.13.0）
+
+**新增代码**：`config/SecurityConfig`、`security/`（CurrentUser / JwtService /
+JwtAuthenticationFilter）、`service/AuthService`、`service/AddressService`、
+`controller/AuthController`、`controller/AddressController`、`entity/Address`、
+`mapper/AddressMapper`、`dto/`（4 个请求响应体）；`db/migration/V2__address.sql`
+
+**新增测试（+10，共 14 个全绿）**：
+`AuthControllerTest`（6 条：注册登录链路、无 token 401、坏 token 401、
+重复用户名、密码错误、参数校验）、
+`AddressControllerTest`（4 条：本人 CRUD、**越权访问返回 404**、默认地址唯一、未登录 401）
+
+**配置**：`.env` 增加 `JWT_SECRET`（HS256，随机生成）；`application.yml` 增加 `itsmygo.jwt.*`
+
+**踩坑**：Jackson 3 包名变更（§5.2）；`GlobalExceptionHandler` 需要
+`Result.fail(ResultCode, String)` 重载
 
 ### 2026-10-12 · M0 骨架完成
 

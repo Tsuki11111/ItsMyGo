@@ -200,6 +200,7 @@ M0 第一阶段必须先实测；不通过则切 Spring Data JPA，**其余选�
 |---|---|---|---|
 | MySQL | `mysql`（mysql:8.0，**当前 stopped**，需 `docker start mysql`） | `localhost:3306` | **独立 database：`its_mygo`** |
 | Redis | `redis`（redis:7-alpine，运行中） | `localhost:6379` | **key 前缀 `its-mygo:`** |
+| MinIO | `minio`（运行中，rag_helper 在用） | `localhost:9000`（Console `:9001`） | **独立 bucket：`its-mygo-product-images`** |
 
 **命名约定**：现有共用容器**不改名、不新建**。但本项目**若**将来创建任何 Docker 资源
 （卷、网络、容器），名字一律以 `its-my-go` 开头，**不依赖 Compose 从目录名推导的

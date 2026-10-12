@@ -23,6 +23,11 @@ public class Result<T> {
         return build(resultCode.getCode(), resultCode.getMessage(), null);
     }
 
+    /** 用自定义提示覆盖枚举里的默认文案 */
+    public static <T> Result<T> fail(ResultCode resultCode, String message) {
+        return build(resultCode.getCode(), message, null);
+    }
+
     public static <T> Result<T> fail(int code, String message) {
         return build(code, message, null);
     }

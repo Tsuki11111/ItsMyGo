@@ -16,11 +16,16 @@
 | 数据库 | MySQL 8 —— 复用本机共用容器，库名 `its_mygo` |
 | 缓存 | Redis 7 —— 复用本机共用容器，key 前缀 `its-mygo:`（**必须带 TTL**） |
 | 表结构迁移 | Flyway 12.4.0 —— **须用 `spring-boot-starter-flyway`**，详见 [HANDOFF §5.1](HANDOFF.md) |
-| 安全 | Spring Security + JWT（密码 BCrypt） |
+| 安全 | Spring Security 7 + JWT（jjwt 0.13.0，HS256，密码 BCrypt）—— ✅ 已接入 |
+| 对象存储 | MinIO —— 复用本机共用容器，bucket `its-mygo-product-images` |
 | 客服链路 | 原生 `grpc-java` + `protobuf-maven-plugin`（不用 starter，Boot 4 未适配） |
 | API 文档 | springdoc-openapi |
 | 前端 | Vue 3 + Vite + TypeScript + Element Plus + Pinia + Vue Router |
 | 构建 | Maven（**单模块**） |
+
+> ⚠️ **Spring Boot 4 的坑不少** —— 自动配置被拆成独立模块（Flyway 要换官方 starter）、
+> Jackson 升到 **3**（包名从 `com.fasterxml.jackson` 变成 `tools.jackson`）、
+> `AutoConfigureMockMvc` 换了包路径。动手前先读 [HANDOFF §5](HANDOFF.md)。
 
 ## 架构
 
@@ -46,7 +51,8 @@
 | 中间件 | 容器 | 连接 |
 |---|---|---|
 | MySQL 8.0 | `mysql` | `localhost:3306`，库 `its_mygo` |
-| Redis 7 | `redis` | `localhost:6379` |
+| Redis 7 | `redis` | `localhost:6379`，key 前缀 `its-mygo:` |
+| MinIO | `minio` | `localhost:9000`（Console `:9001`），bucket `its-mygo-product-images` |
 
 > `mysql` 容器**没有 restart policy**，Docker Desktop 重启后需手动 `docker start mysql`。
 
@@ -56,9 +62,10 @@
 |---|---|
 | 需求分析 + 技术选型 | ✅ 完成（2026-10-12） |
 | 本地中间件就绪 | ✅ 完成（2026-10-12） |
-| **M0 骨架** | ✅ **完成**（2026-10-12）—— 4 个自动化测试全绿 |
-| M1 账号体系 | ⬜ 未开始 |
-| M2 商品与分类 → M7 查订单环回 | ⬜ 未开始 |
+| M0 骨架 | ✅ 完成（2026-10-12） |
+| **M1 账号体系** | ✅ **完成**（2026-10-12）—— 含越权校验，共 14 个测试全绿 |
+| M2 商品与分类 | ⬜ 未开始 |
+| M3 购物车与下单 → M7 查订单环回 | ⬜ 未开始 |
 
 各里程碑的可验收产物见 [docs/decisions-ecommerce.md](docs/decisions-ecommerce.md) §4。
 

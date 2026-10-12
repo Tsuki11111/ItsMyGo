@@ -24,3 +24,8 @@ mybatis-plus:
   global-config:
     db-config:
       id-type: auto
+
+itsmygo:
+  jwt:
+    secret: ${JWT_SECRET}
+    expire-minutes: 120

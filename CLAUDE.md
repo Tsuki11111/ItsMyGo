@@ -40,6 +40,7 @@
 |---|---|---|
 | MySQL 8 | `mysql` | 库 `its_mygo` |
 | Redis 7 | `redis` | key 前缀 `its-mygo:` |
+| MinIO | `minio` | bucket `its-mygo-product-images`（**别碰 rag_helper 的 `rag-helper-knowledge-files`**） |
 
 `mysql` 容器里还有 `dw` / `meta` / `pharma_db` 三个**别的项目**的库，**不要动**。
 `mysql` 与 `rag_helper` 那批容器一样**不设 restart policy**，
