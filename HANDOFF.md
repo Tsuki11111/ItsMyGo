@@ -1,11 +1,12 @@
 # HANDOFF · 一次买够（ItsMyGo）
 
 > **读者**：下一个接手本项目的 Claude 会话
-> **性质**：本项目**一切细节的权威源** —— 做到哪、下一步做什么、踩过哪些坑。
+> **性质**：本项目**状态层的权威源** —— 做到哪、下一步做什么、踩过哪些坑。
 > [README.md](README.md) 是它的**精简报告**（内容以本文为准，两者允许重复）；
+> [docs/implementation.md](docs/implementation.md) 讲**代码具体怎么实现的**；
 > 需求分析与选型理由见 [docs/decisions-ecommerce.md](docs/decisions-ecommerce.md)
 >
-> **改动本项目时：先改本文，再同步 README。**
+> **改动本项目时**：先改 implementation.md（实现变了就必须改），再改本文，最后同步 README。
 
 ---
 
@@ -15,7 +16,10 @@
 2. **本文件** —— 现在做到哪、下一步做什么、哪里有坑。
 3. **[docs/decisions-ecommerce.md](docs/decisions-ecommerce.md)** —— 需求分析、选型理由、
    分阶段路线的**唯一权威**。只要涉及「接下来做什么」，先读它。
-4. **涉及客服 / agent / gRPC 对接时**，还必须读外部仓库
+4. **[docs/implementation.md](docs/implementation.md)** —— **代码具体怎么实现的**：
+   一条请求怎么流转、认证全链路、各业务模块的实现要点与关键取舍、测试怎么写的。
+   **动代码之前先读它**，别重复造已有的机制。
+5. **涉及客服 / agent / gRPC 对接时**，还必须读外部仓库
    `D:\PycharmProjects\rag_helper`：
    - `evolution-plan.md` **§5（gRPC 接口）、§6（平台对接前提）** —— 对接契约的唯一权威
    - `proto/agent.proto` —— Java 侧生成 stub 的凭据
@@ -53,6 +57,9 @@ MinIO 商品图上传全部打通。数据库 schema 到 **v5**。
 ---
 
 ## 3. 项目结构
+
+> **本文只记结构，不解释实现** —— 每个机制具体怎么落地的见
+> [docs/implementation.md](docs/implementation.md)。
 
 ### 3.1 包结构（单模块 Maven）
 

@@ -6,7 +6,10 @@
 2. 读 **[HANDOFF.md](HANDOFF.md)** —— 了解现在做到哪、下一步做什么、哪里有坑
 
 **顺序不要颠倒**：README 给你全局，HANDOFF 给你当前的落点。
-需要需求细节或选型理由时，再读 [docs/decisions-ecommerce.md](docs/decisions-ecommerce.md)。
+需要需求细节或选型理由时，再读 [docs/decisions-ecommerce.md](docs/decisions-ecommerce.md)；
+**要动代码之前**，先读 [docs/implementation.md](docs/implementation.md) —— 那里写了
+每个机制具体是怎么实现的（认证链路、异常处理、越权校验、树形组装、上传流程…），
+避免重复造已有的轮子。
 
 ---
 
@@ -35,12 +38,13 @@ Java 是**调用方**；agent 只在内网、只允许本单体访问。
 ## 协作偏好
 
 - **全程中文回复**
-- **每完成一个目标，主动同步更新 HANDOFF.md 与 README.md，不要等被提醒**。
-  **更新顺序固定，不许颠倒**：
-  1. **先改 [HANDOFF.md](HANDOFF.md)** —— 它是**本项目一切细节的权威源**
-  2. **再改 [README.md](README.md)** —— 它是精简报告，**内容一律以 HANDOFF 为准**
-  两者**允许内容重复**，只是详略不同：HANDOFF 详细、README 简洁。
-  **README 与 HANDOFF 若有出入，以 HANDOFF 为准**
+- **改了代码，主动同步文档，不要等被提醒**。三份文档分工不同，**按这个顺序改**：
+  1. **[docs/implementation.md](docs/implementation.md)** —— **只要实现变了就必须更新**
+     （新增机制、换了做法、改了关键取舍都算）。它是**代码的镜像**，不更新就等于失真
+  2. **[HANDOFF.md](HANDOFF.md)** —— 记进度、下一步、踩的坑，是**状态层的权威源**
+  3. **[README.md](README.md)** —— 精简报告，内容一律以 HANDOFF 为准
+  **顺序不许颠倒**。三者允许内容重复，只是详略不同：
+  implementation 讲「怎么做到的」、HANDOFF 讲「到哪了」、README 讲「是什么」
 - **收到用户补充的新约束，立刻写进文档**，不要只留在对话里（本项目的 Docker 命名约定
   就是这么来的）
 - **提交信息用 Conventional Commits，描述用中文**。`type` 取

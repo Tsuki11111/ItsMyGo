@@ -92,6 +92,7 @@ docker start mysql redis minio     # 缺哪个就拉哪个
 | 文件 | 作用 |
 |---|---|
 | [HANDOFF.md](HANDOFF.md) | **本项目一切细节的权威源** —— 具体进度、下一步、踩过的坑 |
+| [docs/implementation.md](docs/implementation.md) | **代码怎么实现的** —— 请求流转、认证链路、各模块实现要点与取舍 |
 | [docs/decisions-ecommerce.md](docs/decisions-ecommerce.md) | 需求分析与选型决策的完整理由、分阶段路线 |
 | [CLAUDE.md](CLAUDE.md) | 给 AI 助手的项目约定与协作偏好 |
 
