@@ -78,6 +78,22 @@
             <version>${mybatis-plus.version}</version>
         </dependency>
 
+        <!-- 3.5.9 起分页等插件连同 JSqlParser 一起被拆出主包，不引它 PaginationInnerInterceptor 根本不存在 -->
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-jsqlparser</artifactId>
+            <version>${mybatis-plus.version}</version>
+        </dependency>
+
+        <!-- 8.6.0 起依赖 okhttp 5，而 okhttp 5 的 jar 是 Kotlin Multiplatform 元数据空壳
+             （Maven 不读 Gradle Module Metadata，拿不到 okhttp-jvm 变体）。
+             8.5.17 用纯 Java 的 okhttp 4.12，依赖链干净。 -->
+        <dependency>
+            <groupId>io.minio</groupId>
+            <artifactId>minio</artifactId>
+            <version>8.5.17</version>
+        </dependency>
+
         <dependency>
             <groupId>com.mysql</groupId>
             <artifactId>mysql-connector-j</artifactId>

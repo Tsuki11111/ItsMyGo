@@ -24,11 +24,12 @@ public class JwtService {
         this.expire = Duration.ofMinutes(expireMinutes);
     }
 
-    public String issue(Long userId, String username) {
+    public String issue(Long userId, String username, String role) {
         Instant now = Instant.now();
         return Jwts.builder()
                 .subject(String.valueOf(userId))
                 .claim("username", username)
+                .claim("role", role)
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plus(expire)))
                 .signWith(key)
@@ -42,6 +43,9 @@ public class JwtService {
                 .build()
                 .parseSignedClaims(token)
                 .getPayload();
-        return new CurrentUser(Long.valueOf(claims.getSubject()), claims.get("username", String.class));
+        return new CurrentUser(
+                Long.valueOf(claims.getSubject()),
+                claims.get("username", String.class),
+                claims.get("role", String.class));
     }
 }

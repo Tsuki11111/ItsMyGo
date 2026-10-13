@@ -6,6 +6,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -36,8 +37,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         if (header != null && header.startsWith(PREFIX)) {
             try {
                 CurrentUser user = jwtService.parse(header.substring(PREFIX.length()));
+                // Spring Security 的 hasRole("ADMIN") 匹配的是 ROLE_ADMIN 这个 authority
+                var authorities = List.of(new SimpleGrantedAuthority("ROLE_" + user.role()));
                 UsernamePasswordAuthenticationToken authentication =
-                        new UsernamePasswordAuthenticationToken(user, null, List.of());
+                        new UsernamePasswordAuthenticationToken(user, null, authorities);
                 SecurityContextHolder.getContext().setAuthentication(authentication);
             } catch (JwtException | IllegalArgumentException e) {
                 SecurityContextHolder.clearContext();

@@ -25,6 +25,9 @@ public class User {
     /** 1 正常 / 0 禁用 */
     private Integer status;
 
+    /** CUSTOMER 顾客 / ADMIN 管理员 */
+    private String role;
+
     private LocalDateTime createdAt;
 
     private LocalDateTime updatedAt;

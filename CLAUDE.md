@@ -10,6 +10,28 @@
 
 ---
 
+## 关联仓库：rag_helper（客服智能体）
+
+**本项目的智能客服不在这个仓库里**，在外部目录 **`D:\PycharmProjects\rag_helper`** ——
+Python 项目，RAG 客服智能体「掌柜智库」，gRPC 服务端跑在 **8003**。
+
+**涉及客服 / agent / gRPC 的改动，动手前先读那边**：
+
+| 读什么 | 为什么 |
+|---|---|
+| `evolution-plan.md` **§1 / §5 / §6** | 目标形态、gRPC 接口、平台对接前提 —— **对接契约的唯一权威** |
+| `proto/agent.proto` | 已定稿；Java 侧由它生成 stub（`option java_multiple_files = true`） |
+| `HANDOFF.md` | 那边的进度状态（与本文分工相同，是细节权威源） |
+
+**两者关系**：浏览器只跟 Java 说话 → Java 经 gRPC 调 agent → 事件流转 SSE 回浏览器。
+Java 是**调用方**；agent 只在内网、只允许本单体访问。
+**本仓库不能自行更改对接契约** —— 要改先跟用户确认，并同步改那边。
+
+那边的约定同样适用：全程中文回复、Conventional Commits（描述用中文）、
+改完同步它的 HANDOFF 与 README。
+
+---
+
 ## 协作偏好
 
 - **全程中文回复**
@@ -24,9 +46,8 @@
 - **提交信息用 Conventional Commits，描述用中文**。`type` 取
   `feat`/`fix`/`docs`/`style`/`refactor`/`perf`/`test`/`build`/`ci`/`chore`/`revert`，
   `scope` 用短词（`order`/`product`/`auth` 等）
-- **涉及客服 / agent / gRPC 的改动**，先读外部仓库 `D:\PycharmProjects\rag_helper` 的
-  `evolution-plan.md` §5/§6 与 `proto/agent.proto` —— 那边是对接契约的**唯一权威**，
-  本仓库不能自行更改
+- **涉及客服 / agent / gRPC 的改动**，先读上面「关联仓库：rag_helper」一节 ——
+  对接契约在那边，本仓库不能自行更改
 
 ---
 
@@ -43,8 +64,16 @@
 | MinIO | `minio` | bucket `its-mygo-product-images`（**别碰 rag_helper 的 `rag-helper-knowledge-files`**） |
 
 `mysql` 容器里还有 `dw` / `meta` / `pharma_db` 三个**别的项目**的库，**不要动**。
-`mysql` 与 `rag_helper` 那批容器一样**不设 restart policy**，
-Docker Desktop 重启后需手动 `docker start mysql`。
+
+**开工前先确认这三个容器都在跑**（Docker Desktop 重启后不保证自动拉起）：
+
+```bash
+docker ps --filter "name=^(mysql|redis|minio)$" --format "table {{.Names}}\t{{.Status}}"
+docker start mysql redis minio     # 缺哪个就拉哪个
+```
+
+`redis` 与 `minio` 的 restart policy 是 `no`（**必须手动拉**）；
+`mysql` 是 `unless-stopped`（一般能自动起，但被显式 stop 过就不会 —— 它曾停摆过两个月）。
 
 ### 2. Docker 资源命名
 

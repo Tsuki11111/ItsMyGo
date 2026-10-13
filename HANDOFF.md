@@ -24,30 +24,31 @@
 
 ## 1. 当前状态一句话
 
-**M1（账号体系）已完成（2026-10-12）。**
+**M2（商品与分类）已完成（2026-10-13）。**
 
-M0 骨架 + M1 认证与地址模块都已落地，**自动化测试 14 个全绿**。
-「注册 → 登录 → JWT → 受保护接口」链路打通；地址 CRUD 带越权校验（越权一律 404）。
-数据库 schema 到 **v2**。
+M0 骨架 + M1 账号体系 + M2 商品域都已落地，**自动化测试 28 个全绿**。
+分类树、商品 CRUD、顾客端搜索与分页、角色权限（CUSTOMER / ADMIN）、
+MinIO 商品图上传全部打通。数据库 schema 到 **v5**。
 
-下一步：**M2（商品与分类）**。
+下一步：**M3（购物车与下单）**。
 
 ---
 
-## 2. 下一步做什么：M2 · 商品与分类
+## 2. 下一步做什么：M3 · 购物车与下单
 
-参考工期 3–5 天。
+参考工期 1 周。**这是整个项目最值钱的一段**（面试基本必问库存并发）。
 
-1. 分类树（`categories` 表，支持父子层级）→ `V3__category.sql`
-2. 商品表 `products`：名称、副标题、主图、价格、库存、分类、上下架状态 → `V4__product.sql`
-3. 管理端商品 CRUD（上下架、改价、改库存、传图、绑分类）
-4. 顾客端列表 / 详情 / 分页 / 关键词搜索
-5. 对象存储接 MinIO（bucket `its-mygo-product-images`）做商品图上传 —— 见 §4.3
-6. 验收：后台能上架商品，顾客端能查到、能搜到
+1. 购物车（`cart_items` 表）→ `V6__cart.sql`：加购、改数量、勾选、删除、算总价
+2. 订单表 `orders` + `order_items` → `V7__order.sql`
+   - **`order_items` 必须冗余存下单时的商品名、单价、图片**（订单快照，见 §5.7）
+   - 订单状态机：待支付 / 已支付 / 已发货 / 已完成 / 已取消
+3. **库存扣减：Redis 预扣 + 数据库乐观锁**（见 §5.6）—— 并发下不能超卖
+4. 结算页 → 生成订单（扣库存）→ 待支付
+5. 取消订单要**回滚库存**
+6. 验收：完整下单链路跑通；**并发压测不超卖**；非法状态流转被拒
 
-⚠️ **动手前先读 §5** —— 那一节全是 Boot 4 / Security 7 / Jackson 3 的实操差异，
-照抄 Boot 3 的教程会直接编译失败。
-⚠️ **价格一律用 `BigDecimal` + `DECIMAL` 列，绝不用 double。**
+⚠️ 动手前先读 §5 —— 尤其 §5.5（Redis key 必须带 TTL）和 §5.6（库存扣减）。
+⚠️ 金额一律 `BigDecimal` + `DECIMAL` 列。
 
 ---
 
@@ -58,24 +59,31 @@ M0 骨架 + M1 认证与地址模块都已落地，**自动化测试 14 个全�
 ```
 src/main/java/com/tsuk1/itsmygo/
 ├── ItsMyGoApplication.java      # @SpringBootApplication + @MapperScan("com.tsuk1.itsmygo.mapper")
-├── common/                      # 跨层共用
-│   ├── Result.java              # 统一响应体 Result<T>（code / message / data）
-│   ├── ResultCode.java          # 响应码枚举，与 HTTP 语义对齐（200 / 400 / 401 / 403 / 404 / 500）
-│   └── exception/
-│       ├── BizException.java           # 可预期失败，只记 warn 不打堆栈
-│       └── GlobalExceptionHandler.java # @RestControllerAdvice：业务异常 / @Valid 校验 / 兜底
+├── common/                      # Result / ResultCode / Roles + exception/（BizException / GlobalExceptionHandler）
 ├── config/
-│   └── SecurityConfig.java      # SecurityFilterChain + BCryptPasswordEncoder + 401/403 统一响应
-├── security/
-│   ├── CurrentUser.java         # 登录用户（id + username），JWT 解析产物，挂在 principal 上
-│   ├── JwtService.java          # 签发 / 校验 JWT（HS256）
-│   └── JwtAuthenticationFilter.java  # 从 Authorization: Bearer 还原身份
-├── controller/                  # HealthController / AuthController / AddressController
-├── service/                     # AuthService / AddressService
-├── mapper/                      # MyBatis-Plus BaseMapper：UserMapper / AddressMapper
-├── entity/                      # User / Address
-└── dto/                         # RegisterRequest / LoginRequest / LoginResponse / AddressRequest
+│   ├── SecurityConfig.java      # 过滤器链 + BCrypt + 401/403 统一响应 + 路径权限
+│   ├── MyBatisPlusConfig.java   # ★ 分页拦截器（不注册分页就不生效，见 §5.3）
+│   └── MinioConfig.java         # MinioClient bean
+├── security/                    # CurrentUser（id+username+role）/ JwtService / JwtAuthenticationFilter
+├── controller/
+│   ├── HealthController / AuthController / AddressController
+│   ├── CategoryController / ProductController                                    # 顾客端，GET 公开
+│   └── AdminCategoryController / AdminProductController / AdminFileController     # 管理端，需 ADMIN
+├── service/                     # 接口：AuthService / AddressService / CategoryService / ProductService / StorageService
+│   └── impl/                    # 实现：AuthServiceImpl …（@Service 标在这层，Controller 注入接口）
+├── mapper/                      # MyBatis-Plus BaseMapper（User / Address / Category / Product）
+├── entity/                      # User / Address / Category / Product
+└── dto/                         # 请求响应体
 ```
+
+**接口分层**：
+
+| 路径前缀 | 权限 |
+|---|---|
+| `/api/auth/register`、`/api/auth/login`、`/api/health` | 匿名 |
+| `/api/products/**`、`/api/categories/**` 的 **GET** | 匿名（顾客浏览不用登录） |
+| `/api/admin/**` | `hasRole("ADMIN")` |
+| 其余 | 登录即可 |
 
 **代码约定**：
 
@@ -97,8 +105,8 @@ src/main/java/com/tsuk1/itsmygo/
 ### 3.3 数据库
 
 - 库名 `its_mygo`（在共用的 `mysql` 容器里）
-- 迁移脚本在 `src/main/resources/db/migration/`，**当前 schema 版本 v2**
-- 已建表：`users`（V1）、`addresses`（V2）
+- 迁移脚本在 `src/main/resources/db/migration/`，**当前 schema 版本 v5**
+- 已建表：`users`（V1，V3 加 `role`）、`addresses`（V2）、`categories`（V4）、`products`（V5）
   （另有 Flyway 自建的 `flyway_schema_history`，是迁移记录表，**不要动**）
 - **迁移脚本只增不改**：已执行过的脚本再改内容会让 Flyway 校验失败
 
@@ -160,7 +168,12 @@ docker start mysql redis minio
 
 ### 4.4 命名约定（硬约束）
 
-本项目**若**创建任何 Docker 资源（卷 / 网络 / 容器），名字一律以 `its-my-go` 开头，
+本项目**若**创建任何 Docker 资源（卷 / 网络 / 容器）或其他外部资源（MinIO bucket、
+数据库 schema），名字一律以 **`its-my-go`** 开头。
+
+⚠️ **前缀是 `its-my-go`（三个词、两个连字符）** —— 不是 `itsmygo`，也不是 `its-mygo`。
+用户最初口述时写的是 `its-mygo`，2026-10-13 已确认统一用 `its-my-go`。
+
 **不依赖 Compose 从目录名推导的默认前缀**（那会得到 `itsmygo_`）。
 
 来源：`rag_helper/docker/redis-compose.yml` 的注释 —— 本机同时存在
@@ -228,7 +241,49 @@ Boot 4.1.1 的 JSON 实现是 **Jackson 3**（依赖树里是 `tools.jackson.cor
 
 **规矩**：在 Boot 4 项目里写 Jackson 相关代码，一律用 **`tools.jackson.*`**。
 
-### 5.3 共用 Redis 的内存策略约束
+### 5.3 ★ MyBatis-Plus 3.5.9+ 把分页插件拆出去了（2026-10-13 踩到）
+
+**只加 `mybatis-plus-spring-boot4-starter` 是不够的。** 从 3.5.9 起，分页等功能连同
+JSqlParser 一起被拆成独立模块，得显式补：
+
+```xml
+<dependency>
+    <groupId>com.baomidou</groupId>
+    <artifactId>mybatis-plus-jsqlparser</artifactId>
+    <version>${mybatis-plus.version}</version>
+</dependency>
+```
+
+**症状**：编译报 `找不到符号: 类 PaginationInnerInterceptor` ——
+`mybatis-plus-extension` 的 `plugins/inner` 包下只剩 `OptimisticLockerInnerInterceptor` 等。
+
+**还有一件必须做的事**：分页拦截器**不会自动注册**。不写下面这个 bean，
+`selectPage` 既不拼 `LIMIT` 也不查总数，**`total` 恒为 0**：
+
+```java
+@Bean
+public MybatisPlusInterceptor mybatisPlusInterceptor() {
+    MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
+    interceptor.addInnerInterceptor(new PaginationInnerInterceptor(DbType.MYSQL));
+    return interceptor;
+}
+```
+
+### 5.4 ★ MinIO SDK 8.6.0 带的 okhttp 5 拉不到实际 class（2026-10-13 踩到）
+
+`io.minio:minio:8.6.0` 依赖 `okhttp:5.1.0`，但那个 jar **只有 1528 字节、3 个文件**
+（`kotlin-project-structure-metadata.json` 之类）—— 它是 **Kotlin Multiplatform 的元数据空壳**，
+真正的 class 在 `okhttp-jvm` 变体里。**Maven 不读 Gradle Module Metadata**，
+所以只拿到壳，编译时报 `无法访问 okhttp3.HttpUrl`。
+
+（`okio` 没这问题，因为它的 pom 显式声明了 `okio-jvm`；okhttp 没有。）
+
+**本项目的解法：用 `io.minio:minio:8.5.17`** —— 依赖纯 Java 的 okhttp 4.12，
+依赖链干净，也不会把 Kotlin 运行时拖进 classpath。
+
+将来若要升到 8.6+，得显式补 `com.squareup.okhttp3:okhttp-jvm`。
+
+### 5.5 共用 Redis 的内存策略约束
 
 `redis` 容器以 `--maxmemory 256mb --maxmemory-policy volatile-lru` 启动。
 该策略下**只有带 TTL 的 key 会被淘汰** —— 本项目若写入**不带 TTL 的 key**，
@@ -237,18 +292,18 @@ Boot 4.1.1 的 JSON 实现是 **Jackson 3**（依赖树里是 `tools.jackson.cor
 **因此：本项目所有 Redis key 必须带 TTL，且一律以 `its-mygo:` 开头。**
 （已有回归用例 `SharedRedisTest` 守着这两条。）
 
-### 5.4 库存扣减（M3 的关键点）
+### 5.6 库存扣减（M3 的关键点）
 
 并发下不能超卖。方案已定：**Redis 预扣 + 数据库乐观锁**
 （`UPDATE ... WHERE stock >= n` 或版本号）。
 **不要**写成「先 select 查库存、再 update 扣减」—— 那是面试必被问穿的两步竞态。
 
-### 5.5 订单快照
+### 5.7 订单快照
 
 `order_item` 必须冗余存下单时的**商品名、单价、图片**。
 商品后续改价，历史订单不能跟着变。
 
-### 5.6 `git push` 报错但实际成功（本机网络特征，遇见别慌）
+### 5.8 `git push` 报错但实际成功（本机网络特征，遇见别慌）
 
 本项目已**两次**出现「push 返回错误，但远端其实已经更新成功」：
 
@@ -265,6 +320,41 @@ Boot 4.1.1 的 JSON 实现是 **Jackson 3**（依赖树里是 `tools.jackson.cor
 ---
 
 ## 6. 历史记录
+
+### 2026-10-13 · Service 层改为接口 + 实现类
+
+按国内主流分层重构：**接口留在 `service` 包，实现移入 `service.impl` 并标 `@Service`**，
+Controller 注入接口类型（Spring 自动匹配实现）。5 个 Service 全部改造，测试 28 个仍全绿。
+
+顺带确认资源命名前缀统一为 **`its-my-go`** —— 文档、配置、MinIO 里的 bucket 本来就都是
+这个写法，只有一处测试常量误写成 `itsmygo`（已修正）。
+
+另外修掉 pom 里重复声明的 `spring-boot-starter-web`（**Maven 对重复依赖是直接报错
+`must be unique`，不是警告**）。
+
+### 2026-10-13 · M2 商品与分类完成
+
+**新增依赖**：`mybatis-plus-jsqlparser`、`io.minio:minio:8.5.17`
+
+**数据库**：`V3__user_role.sql`（users 加 role）、`V4__category.sql`、`V5__product.sql`
+→ schema 到 **v5**
+
+**新增代码**：`entity/Category`、`entity/Product`、对应 Mapper；
+`service/CategoryService`（内存组树，避免按层查库）、`service/ProductService`、
+`service/StorageService`（MinIO 上传 + 懒初始化 bucket + 公开读策略）；
+`controller/` 六个（顾客端 CategoryController / ProductController，
+管理端 AdminCategoryController / AdminProductController / AdminFileController）；
+`config/MyBatisPlusConfig`、`config/MinioConfig`；
+`security/` 全面支持 role（CurrentUser 加字段、JWT 带 role、过滤器转 `ROLE_xxx` authority）
+
+**新增测试（+14，共 28 个全绿）**：`ApiTestBase`（基类，提供顾客/管理员 token）、
+`CategoryControllerTest`（5 条）、`ProductControllerTest`（6 条）、
+`StorageServiceTest`（3 条，含**上传后 URL 可匿名读取**的验证）
+
+**踩坑**：MyBatis-Plus 分页拆包（§5.3）、MinIO 8.6.0 的 KMP 空壳问题（§5.4）；
+另外自己犯过一次 YAML 重复顶级键的低级错误（写 `application.yml` 时又开了一个 `spring:`）
+
+**当天开工前**：`mysql` 容器处于 `Exited (137)`（停摆 21 小时），按 §4.3 自检拉起
 
 ### 2026-10-12 · M1 账号体系完成
 
