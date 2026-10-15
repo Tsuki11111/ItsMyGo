@@ -47,6 +47,9 @@ Java 是**调用方**；agent 只在内网、只允许本单体访问。
   implementation 讲「怎么做到的」、HANDOFF 讲「到哪了」、README 讲「是什么」
 - **收到用户补充的新约束，立刻写进文档**，不要只留在对话里（本项目的 Docker 命名约定
   就是这么来的）
+- **本项目按高并发标准做**（用户 2026-10-15 明确要求）—— 即使是练手项目，
+  缓存、并发、一致性相关的选型**不因「反正没流量」而降低要求**。
+  **已知但尚未处理的高并发问题清单在 HANDOFF §5 末尾**，动手前先看有没有已解决的
 - **提交信息用 Conventional Commits，描述用中文**。`type` 取
   `feat`/`fix`/`docs`/`style`/`refactor`/`perf`/`test`/`build`/`ci`/`chore`/`revert`，
   `scope` 用短词（`order`/`product`/`auth` 等）

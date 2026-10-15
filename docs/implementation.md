@@ -289,6 +289,39 @@ return redis.call('DECRBY', KEYS[1], ARGV[1])
 
 作用是**把绝大多数并发请求挡在数据库之外**。键是 `its-my-go:stock:{productId}`，
 **必须带 TTL**（30 分钟）——共用 Redis 是 volatile-lru，不带 TTL 的键在内存打满时写失败。
+
+**加载用互斥锁，防缓存击穿**：
+
+```
+                    库存键刚过期（TTL 到点）
+                             ↓
+   请求 1..N 同时发现 isLoaded() = false
+                             ↓
+        抢 SETNX 加载锁（its-my-go:stock:{id}:loading，TTL 5 秒）
+              ↓                          ↓
+        抢到的 1 个                   没抢到的 N-1 个
+        双重检查 → 查库 → 写回          自旋等待（50ms × 最多 10 轮）
+        finally 里放锁                  → 等不到就放弃，按库存不足处理
+                             ↓
+                  数据库总共只被查了 1 次
+```
+
+**为什么必须有这把锁**：`setIfAbsent` 只能保证**写入**唯一，**挡不住重复查询** ——
+键一过期，N 个并发会一起 `selectById`，而「不让请求打到数据库」恰恰是这层缓存存在的意义。
+这就是缓存击穿。
+
+细节：① 抢锁用 `setIfAbsent(key, val, ttl)` 一条命令，**别拆成 SETNX + EXPIRE**
+（两步之间崩掉就是死锁）；② 锁**必须带 TTL**；③ 拿到锁后**必须双重检查**，
+因为抢锁期间上一个持锁者可能已经写好了；④ 放锁在 `finally` 里；
+⑤ 没抢到的线程**绝不能也去查库**，只能等。
+
+**实测对比**（`StockCacheBreakdownTest`，20 并发 + 故意 200ms 慢查询）：
+
+| | 数据库被查询次数 |
+|---|---|
+| 有互斥锁 | **1** |
+| 去掉互斥锁（临时改代码跑过一次） | **20** ← 这就是击穿 |
+
 键不存在时从数据库加载，用 `setIfAbsent` 避免并发加载互相覆盖。
 
 **第二层 · 数据库条件更新** —— **这才是防超卖的最终真相**：
@@ -354,6 +387,7 @@ try {
 | `CartControllerTest` | 重复加购累加数量；总价只算已勾选且可购买；超库存被拒；**越权 404**；需登录 |
 | `OrderControllerTest` | 下单扣库存并清空购物车；**订单快照**（改价后历史订单不变）；完整生命周期；非法流转被拒；取消回滚库存；越权 404；顾客不能发货 |
 | **`StockConcurrencyTest`** | **10 个买家并发抢 5 件**：恰好 5 成功 5 拒，库存归零、销量 5，卖的+剩的 == 初始库存 |
+| **`StockCacheBreakdownTest`** | **缓存击穿**：清空库存键后 20 并发，断言数据库**只被查 1 次**（去掉互斥锁会变成 20） |
 | `StorageServiceTest` | 上传成功 + **URL 可匿名读取**；拒绝非图片；顾客不能上传 |
 | `SharedRedisTest` | 共用 Redis 连通；key 前缀；**TTL 存在**（见 HANDOFF §5.5） |
 | `MyBatisPlusCompatibilityTest` | 一次完整 CRUD，验证 MP 在 Boot 4.1.1 上可用 |
