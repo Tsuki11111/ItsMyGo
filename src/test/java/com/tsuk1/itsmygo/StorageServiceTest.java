@@ -1,6 +1,7 @@
 package com.tsuk1.itsmygo;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledIfEnvironmentVariable;
 import org.springframework.mock.web.MockMultipartFile;
 
 import java.net.URI;
@@ -14,9 +15,19 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * 商品图上传：走真实 MinIO（复用本机共用实例），因此@Transactional 不会回滚对象存储。
+ * 商品图上传：走真实 MinIO（复用本机共用实例），因此 @Transactional 不会回滚对象存储。
  * 更关键的是验证 bucket 公开读策略生效 —— 上传完的 URL 要能被浏览器直接打开。
+ *
+ * ⚠️ **CI 上会跳过本类**（workflow 里设了 SKIP_MINIO_TESTS=true）：
+ * MinIO 在 2025 年停止了官方镜像与二进制的公开分发
+ * （Docker Hub 上 minio/minio 返回 denied、dl.min.io 返回 410），
+ * GitHub Actions 里起不了实例。本地有共用 MinIO 容器，所以照常跑。
+ * 代价是 CI 覆盖率少这 3 条，**这是已知的、被记录下来的缺口，不是遗漏**。
  */
+@DisabledIfEnvironmentVariable(
+        named = "SKIP_MINIO_TESTS",
+        matches = "true",
+        disabledReason = "CI 环境没有可用的 MinIO（官方镜像与二进制已停止公开分发）")
 class StorageServiceTest extends ApiTestBase {
 
     private static final String BUCKET_PREFIX = "http://localhost:9000/its-my-go-product-images/";
