@@ -475,7 +475,47 @@ cacheHelper.evict(cacheKey(id));                         // ② 再删缓存
 **管理端那份分类树不缓存** —— 管理员操作本来就少，缓存只会让「改完看不到自己改的」
 变成困惑。
 
-#### 三个必须知道的坑（当天全踩了一遍）
+### 3.11 接口限流（`common/ratelimit`）
+
+**用法**：在 Controller 方法上标注解，`RateLimitAspect` 拦截。
+
+```java
+@RateLimit(scene = "register", limit = 5, windowSeconds = 60, byIp = true)
+@RateLimit(scene = "order",    limit = 10, windowSeconds = 60, byUser = true)
+```
+
+| 接口 | 粒度 | 配额 | 防什么 |
+|---|---|---|---|
+| 注册 | IP | 5/分钟 | 批量注册 |
+| 登录 | IP | 10/分钟 | **密码暴力破解** |
+| 下单 | 用户 | 10/分钟 | 脚本刷单（与提交令牌双重保险） |
+| 上传 | 用户 | 20/分钟 | 刷存储 |
+
+**算法：固定窗口计数 + Lua 原子**。INCR、首次设 TTL、判断三步必须在一条脚本里：
+
+```lua
+local count = redis.call('INCR', KEYS[1])
+if count == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+if count > tonumber(ARGV[2]) then return 0 end
+return 1
+```
+
+分开写的话，「INCR 之后、EXPIRE 之前」进程挂掉会留下**永不过期的计数键**，
+那个场景的配额就永远卡死了。
+
+**窗口边界**会放行到接近 2 倍配额（第 59 秒打满、第 61 秒又能打满）。对「防刷防爆破」
+完全可以接受；要精确得用滑动窗口（ZSET 记时间戳），代价是每个请求都要存一个成员。
+
+**Redis 挂了怎么办 → fail-open（放行）**。限流是保护措施，不该因为它自己抖了一下
+就把整个站点拒之门外。
+
+**刻意不读 `X-Forwarded-For`**：那个头客户端可以随便伪造，信它等于给攻击者
+无限换 IP 绕过限流的机会。本项目单体直连、前面没有可信代理，用 `remoteAddr` 就够。
+将来真上了 Nginx，得改成只信任来自已知代理的 XFF。
+
+**总开关** `itsmygo.ratelimit.enabled`（默认 true）—— 生产出事故时可以一键关掉止血。
+
+#### 四个必须知道的坑（当天全踩了一遍）
 
 **① 库存拆成独立接口，详情里的 `stock` 也不受缓存影响**
 
@@ -514,8 +554,24 @@ redisTemplate.rename(tempKey, KEY);   // 原子切换
 
 `@Transactional` 的测试里，数据库会回滚但**缓存不会** —— 测试 A 写进缓存的分类树
 在回滚后仍然存在，测试 B 就会读到「数据库里根本没有」的数据。
-`ApiTestBase` 因此在 `@BeforeEach` 里清一次跨用例共享的 key。
 生产环境同理：**回滚了事务，别忘了缓存里可能还留着那份数据。**
+
+**④ 限流计数同样跨用例累积，而且基类没被所有测试继承**
+
+限流计数存在 Redis 里，也是全局状态：所有测试都来自同一个 IP，
+注册配额 5 次/分钟，跑几个用例就撞墙了。
+
+排查时绕了很久，最后发现真正的原因是：**`AuthControllerTest` 和 `AddressControllerTest`
+是 M1 时期写的，压根没继承 `ApiTestBase`**（基类是 M2 才引入的），
+所以基类的清理逻辑对它们从来没生效过。
+
+**解法**：把「清限流计数」放进 `customerToken(text)` / `adminToken(text)`
+这些**真正会打认证接口的 helper** 里，而不是只依赖 `@BeforeEach` ——
+每次要打接口前都清一次，比依赖生命周期回调的时机可靠得多。
+
+> 试过但**没用**的方案：`@ActiveProfiles` + `application-test.yml`、
+> `@TestPropertySource` 标在抽象父类上 —— 后者实际表现是**上下文缓存没按预期区分**，
+> 同一个类里既有 `开关=true` 又有 `开关=false`。抽象父类上的测试注解不要指望它可靠。
 
 ---
 
@@ -548,6 +604,7 @@ redisTemplate.rename(tempKey, KEY);   // 原子切换
 | **`StockCacheBreakdownTest`** | **缓存击穿**：清空库存键后 20 并发，断言数据库**只被查 1 次**（去掉互斥锁会变成 20） |
 | **`CacheProtectionTest`** | **穿透**：查不存在的 ID 时数据库零查询；存在的不被误挡。**雪崩**：连续刷新 20 次，TTL 不是固定值。**重建**：手工插库的商品重建后能被过滤器认到 |
 | **`CacheAsideTest`** | **第二次读走缓存**（三次读只查一次库）；**改完立刻读到新值**（缓存被删而非等 TTL）；分类变更后树缓存失效 |
+| **`RateLimitTest`** | 注册按 IP 打到第 6 次被拒；**场景之间互不影响**（注册打满不影响登录）；下单按用户限流 |
 | `StorageServiceTest` | 上传成功 + **URL 可匿名读取**；拒绝非图片；顾客不能上传 |
 | `SharedRedisTest` | 共用 Redis 连通；key 前缀；**TTL 存在**（见 HANDOFF §5.5） |
 | `MyBatisPlusCompatibilityTest` | 一次完整 CRUD，验证 MP 在 Boot 4.1.1 上可用 |

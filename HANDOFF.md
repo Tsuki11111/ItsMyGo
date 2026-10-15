@@ -30,10 +30,12 @@
 
 **M3（购物车与下单）已完成（2026-10-15）。**
 
-M0 骨架 → M1 账号 → M2 商品 → M3 交易，四段都已落地，**自动化测试 57 个全绿**。
+M0 骨架 → M1 账号 → M2 商品 → M3 交易，四段都已落地，**自动化测试 60 个全绿**。
 购物车、下单、**库存并发防超卖**、**缓存击穿 / 穿透 / 雪崩三项防护**、
-**Cache-Aside 缓存 + 实时库存接口**、**防重复提交**、订单状态机、取消回滚库存全部跑通。
-数据库 schema 到 **v7**。
+**Cache-Aside 缓存 + 实时库存接口**、**防重复提交**、**接口限流**、
+订单状态机、取消回滚库存全部跑通。数据库 schema 到 **v7**。
+
+**高并发清单已清空**（见 §5 末尾的表）。
 
 下一步：**M4（支付与售后）**。
 
@@ -328,7 +330,32 @@ public MybatisPlusInterceptor mybatisPlusInterceptor() {
 `order_items` 必须冗余存下单时的**商品名、单价、图片**；`orders` 还要冗余存
 **收货人/电话/地址**。商品改价、用户改地址，历史订单都不能跟着变。
 
-### 5.10 ★ 缓存击穿：用互斥锁护住缓存加载（2026-10-15 补）
+### 5.9 Boot 4 把 AOP 的 starter 改名了（2026-10-15 踩到）
+
+**`spring-boot-starter-aop` 在 `4.0.0-M2` 之后就不发布了**，现在叫
+**`spring-boot-starter-aspectj`**。按老名字加依赖会解析不到。
+
+这是本项目踩到的**第四个** Boot 4 模块化差异，前三个见 §5.1（自动配置拆模块）、
+§5.2（Jackson 3 包名）、§5.3（MyBatis-Plus 分页拆包）。
+
+**规矩不变**：加任何新集成前，先去 Maven 仓库确认 Boot 4 里它叫什么、还在不在。
+
+### 5.10 测试类继承基类要一致（2026-10-15 踩到）
+
+`ApiTestBase` 是 M2 才引入的，而 `AuthControllerTest` / `AddressControllerTest`
+是 M1 写的 —— 它们**没继承基类**，导致基类里的清理逻辑对它们从来没生效过。
+
+加了限流之后这个问题才暴露：这两个类的用例累积注册计数，跑几个就撞 429。
+排查绕了很久，因为「单独跑通过、全量跑失败」很容易误判成顺序问题或残留数据。
+
+**教训**：
+1. 引入基类后要**回头把老测试类也接上**，别只给新测试用
+2. 共享状态（Redis 计数器、缓存）的清理放在**实际要打接口的 helper 里**，
+   比依赖 `@BeforeEach` 可靠 —— 后者在抽象父类上的行为不如预期
+3. **抽象父类上的 `@TestPropertySource` / `@ActiveProfiles` 不要指望它可靠**：
+   实测出现过同一个类里既有 `开关=true` 又有 `开关=false` 的情况
+
+### 5.11 缓存击穿：用互斥锁护住缓存加载（2026-10-15 补）
 
 库存键过期的那一瞬间，N 个并发会同时发现键不存在、**一起打向数据库** ——
 而「不让请求打到数据库」恰恰是这层缓存存在的意义。
@@ -346,16 +373,17 @@ public MybatisPlusInterceptor mybatisPlusInterceptor() {
 
 按优先级记在这里，动手前先看有没有已解决的：
 
-| 问题 | 现状 | 备注 |
-|---|---|---|
+| 接口限流 | ✅ 已解决 | 注解式（AOP + Redis Lua 固定窗口），见 implementation §3.11 |
 | ~~重复提交订单~~ | ✅ 已解决 | 一次性提交令牌（`GET /api/orders/token` + `DEL` 原子消费），见 implementation §3.7 |
 | ~~缓存穿透~~ | ✅ 已解决 | 布隆过滤器（`ProductBloomFilter`），见 implementation §3.9 |
 | ~~缓存雪崩~~ | ✅ 已解决 | 缓存 TTL 统一带 ±抖动，见 implementation §3.9 |
 | ~~查询无缓存~~ | ✅ 已解决 | 商品详情 + 分类树上 Cache-Aside，见 implementation §3.10 |
 | ~~库存显示滞后~~ | ✅ 已解决 | 独立库存接口，直读 Redis 计数器，见 implementation §3.10 |
 | 订单号冲突 | ⚠️ 靠唯一索引兜底 | `yyyyMMddHHmmss` + 6 位随机，高并发下会撞，目前是直接报错而非重试 |
-| 接口限流 | ❌ 未做 | 无任何限流 |
 | 连接池 | ⚠️ 用默认 | HikariCP 默认 10 连接，压测前要调 |
+| 限流多实例 | ⚠️ 单体无碍 | 当前限流按 IP/用户计数，多实例下共享 Redis 所以正确；但 `@Scheduled` 建布隆过滤器会各跑一遍 |
+
+**高并发清单到此清空**（剩下的两项都是「知道但暂时不必做」）。
 
 ⚠️ **前端接下单时必须先领令牌**：`POST /api/orders` 现在要求 `token` 字段，
 不传会被拒。流程是「进结算页 → `GET /api/orders/token` → 提交时带上」。
@@ -376,7 +404,7 @@ public MybatisPlusInterceptor mybatisPlusInterceptor() {
 新商品创建要增量 `add`；应用启动要 `ApplicationRunner` 预热 ——
 预热失败会让过滤器把**所有**请求判为「不存在」，比没有过滤器更糟。
 
-### 5.9 `git push` 报错但实际成功（本机网络特征，遇见别慌）
+### 5.12 `git push` 报错但实际成功（本机网络特征，遇见别慌）
 
 本项目已**两次**出现「push 返回错误，但远端其实已经更新成功」：
 
@@ -393,6 +421,28 @@ public MybatisPlusInterceptor mybatisPlusInterceptor() {
 ---
 
 ## 6. 历史记录
+
+### 2026-10-15 · 接口限流
+
+**注解式**（`@RateLimit` + AOP + Redis Lua 固定窗口）：注册按 IP 5/分（防批量注册）、
+登录按 IP 10/分（**防密码爆破**）、下单按用户 10/分、上传按用户 20/分。
+带总开关 `itsmygo.ratelimit.enabled`（出事可一键止血）。
+
+**踩了两个坑**（都记进了 §5）：
+
+1. **Boot 4 把 `spring-boot-starter-aop` 改名成了 `spring-boot-starter-aspectj`**
+   —— 这是本项目遇到的第四个 Boot 4 模块化差异
+2. **`AuthControllerTest` / `AddressControllerTest` 没继承 `ApiTestBase`**（M1 写的，
+   基类 M2 才有），基类的清理对它们从来没生效过。加了限流才暴露出来：
+   这两个类的用例累积注册计数，跑几个就撞 429。
+   排查绕了很久 —— 「单独跑通过、全量跑失败」很容易误判成顺序或残留问题
+
+**解法**：把清限流计数放进 `customerToken` / `adminToken` 这些实际打认证接口的 helper 里，
+比依赖 `@BeforeEach` 可靠。试过但没用的：`@ActiveProfiles` + `application-test.yml`、
+`@TestPropertySource` 标抽象父类（上下文缓存的表现不如预期）。
+
+**新增 `RateLimitTest` 3 条**，共 **60 个测试全绿**（连续跑两次验证稳定）。
+**高并发清单到此清空。**
 
 ### 2026-10-15 · 防重复提交（下单幂等）
 

@@ -1,6 +1,7 @@
 package com.tsuk1.itsmygo.controller;
 
 import com.tsuk1.itsmygo.common.Result;
+import com.tsuk1.itsmygo.common.ratelimit.RateLimit;
 import com.tsuk1.itsmygo.dto.CreateOrderRequest;
 import com.tsuk1.itsmygo.dto.OrderView;
 import com.tsuk1.itsmygo.dto.PageResponse;
@@ -37,6 +38,8 @@ public class OrderController {
         return Result.ok(orderService.issueToken(user.id()));
     }
 
+    /** 按用户限流：防脚本刷单（配合提交令牌，双重保险） */
+    @RateLimit(scene = "order", limit = 10, windowSeconds = 60, byUser = true)
     @PostMapping
     public Result<OrderView> create(@AuthenticationPrincipal CurrentUser user,
                                     @Valid @RequestBody CreateOrderRequest request) {

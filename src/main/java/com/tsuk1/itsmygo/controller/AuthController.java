@@ -1,6 +1,7 @@
 package com.tsuk1.itsmygo.controller;
 
 import com.tsuk1.itsmygo.common.Result;
+import com.tsuk1.itsmygo.common.ratelimit.RateLimit;
 import com.tsuk1.itsmygo.dto.LoginRequest;
 import com.tsuk1.itsmygo.dto.LoginResponse;
 import com.tsuk1.itsmygo.dto.RegisterRequest;
@@ -24,11 +25,15 @@ public class AuthController {
         this.authService = authService;
     }
 
+    /** 按 IP 限流：防批量注册 */
+    @RateLimit(scene = "register", limit = 5, windowSeconds = 60, byIp = true)
     @PostMapping("/register")
     public Result<LoginResponse> register(@Valid @RequestBody RegisterRequest request) {
         return Result.ok(authService.register(request));
     }
 
+    /** 按 IP 限流：防密码暴力破解（匿名接口，没有 userId 可用） */
+    @RateLimit(scene = "login", limit = 10, windowSeconds = 60, byIp = true)
     @PostMapping("/login")
     public Result<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
         return Result.ok(authService.login(request));
