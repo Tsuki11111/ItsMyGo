@@ -42,16 +42,10 @@ jobs:
           --health-timeout=5s
           --health-retries=10
 
-      # 用 bitnami 的镜像而不是官方 minio/minio：
-      # services 不支持自定义 command，而官方镜像默认只打印帮助就退出，
-      # bitnami 的默认就能把 server 起起来。
-      minio:
-        image: bitnami/minio:latest
-        env:
-          MINIO_ROOT_USER: minioadmin
-          MINIO_ROOT_PASSWORD: minioadmin
-        ports:
-          - 9000:9000
+    # MinIO 没法放进 services：它需要自定义启动命令（`server /data`），
+    # 而 services 不支持 command；官方镜像的默认 CMD 只打印帮助就退出。
+    # （试过 bitnami/minio —— 那个 tag 2025 年已经从 Docker Hub 下掉了。）
+    # 所以在下面的 step 里手工 docker run。
 
     steps:
       - uses: actions/checkout@v4
@@ -62,6 +56,24 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
           cache: maven
+
+      - name: Start MinIO
+        run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio server /data
+          # 等它就绪；StorageService 是懒初始化，但等一等测试失败时更好排查
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:9000/minio/health/live > /dev/null; then
+              echo "MinIO 就绪"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "MinIO 启动超时"
+          docker logs minio
+          exit 1
 
       - name: Run tests
         # 这些值只用于 CI 的测试环境，不是任何真实密钥。
