@@ -1,6 +1,7 @@
 package com.tsuk1.itsmygo;
 
 import com.tsuk1.itsmygo.common.ProductBloomFilter;
+import com.tsuk1.itsmygo.common.RedisCacheHelper;
 import com.tsuk1.itsmygo.common.exception.BizException;
 import com.tsuk1.itsmygo.entity.Category;
 import com.tsuk1.itsmygo.entity.Product;
@@ -45,9 +46,11 @@ class CacheProtectionTest {
     private CategoryMapper categoryMapper;
     @Autowired
     private StockService stockService;
-
+    @Autowired
+    private RedisCacheHelper cacheHelper;
     private Long createdCategoryId;
     private Long createdProductId;
+    private Long manuallyInsertedId;
 
     /** 布隆过滤器说「不存在」时，必须**一次数据库都不查** */
     @Test
@@ -59,7 +62,7 @@ class CacheProtectionTest {
             return null;
         });
 
-        ProductServiceImpl service = new ProductServiceImpl(countingMapper, bloomFilter);
+        ProductServiceImpl service = new ProductServiceImpl(countingMapper, bloomFilter, cacheHelper, stockService);
 
         long ghostId = 999_999_999L;
         assertThatThrownBy(() -> service.detailForCustomer(ghostId))
@@ -73,6 +76,8 @@ class CacheProtectionTest {
     @Test
     void existingProductPassesTheFilter() throws Exception {
         createProduct();
+        // 清掉可能残留的详情缓存，保证这次一定会查库
+        redisTemplate.delete("its-my-go:product:" + createdProductId);
 
         assertThat(bloomFilter.mightContain(createdProductId)).isTrue();
 
@@ -84,7 +89,7 @@ class CacheProtectionTest {
             return realMapper.selectById(invocation.getArgument(0));
         });
 
-        ProductServiceImpl service = new ProductServiceImpl(countingMapper, bloomFilter);
+        ProductServiceImpl service = new ProductServiceImpl(countingMapper, bloomFilter, cacheHelper, stockService);
         assertThat(service.detailForCustomer(createdProductId).getId()).isEqualTo(createdProductId);
         assertThat(dbQueries.get()).isEqualTo(1);
     }
@@ -103,6 +108,38 @@ class CacheProtectionTest {
 
         // 固定 TTL 的话这里只会有一个值
         assertThat(observedTtls).hasSizeGreaterThan(1);
+    }
+
+    /**
+     * 手工插库的商品（数据迁移、导入脚本、直接 SQL）不会进布隆过滤器，
+     * 会被判为「不存在」。重建接口就是为这种场景准备的。
+     */
+    @Test
+    void rebuildPicksUpManuallyInsertedProducts() {
+        // 照常建一个「走接口」的商品，然后手工插一个绕过过滤器的
+        createProduct();
+
+        Product manual = new Product();
+        manual.setCategoryId(createdCategoryId);
+        manual.setName("Manual " + System.nanoTime());
+        manual.setSubtitle("");
+        manual.setMainImage("");
+        manual.setPrice(new BigDecimal("1.00"));
+        manual.setStock(1);
+        manual.setSales(0);
+        manual.setStatus(1);
+        productMapper.insert(manual);   // 故意不调 bloomFilter.add
+        manuallyInsertedId = manual.getId();
+
+        // 重建前：过滤器里没有它
+        assertThat(bloomFilter.mightContain(manuallyInsertedId)).isFalse();
+
+        int rebuilt = bloomFilter.rebuild();
+        assertThat(rebuilt).isGreaterThanOrEqualTo(2);
+
+        // 重建后：两个都在了
+        assertThat(bloomFilter.mightContain(manuallyInsertedId)).isTrue();
+        assertThat(bloomFilter.mightContain(createdProductId)).isTrue();
     }
 
     private void createProduct() {
@@ -136,7 +173,13 @@ class CacheProtectionTest {
     void cleanup() {
         if (createdProductId != null) {
             redisTemplate.delete(STOCK_KEY_PREFIX + createdProductId);
+            redisTemplate.delete("its-my-go:product:" + createdProductId);
             productMapper.deleteById(createdProductId);
+        }
+        if (manuallyInsertedId != null) {
+            redisTemplate.delete(STOCK_KEY_PREFIX + manuallyInsertedId);
+            productMapper.deleteById(manuallyInsertedId);
+            manuallyInsertedId = null;
         }
         if (createdCategoryId != null) {
             categoryMapper.deleteById(createdCategoryId);

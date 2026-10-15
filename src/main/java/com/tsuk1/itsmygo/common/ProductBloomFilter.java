@@ -1,5 +1,6 @@
 package com.tsuk1.itsmygo.common;
 
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.tsuk1.itsmygo.entity.Product;
 import com.tsuk1.itsmygo.mapper.ProductMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -8,6 +9,7 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.script.RedisScript;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -95,12 +97,7 @@ public class ProductBloomFilter implements ApplicationRunner {
         if (productId == null) {
             return;
         }
-        List<String> values = new ArrayList<>(HASH_COUNT + 1);
-        values.add(String.valueOf(TTL.toSeconds()));
-        for (int i = 0; i < HASH_COUNT; i++) {
-            values.add(String.valueOf(index(productId, i)));
-        }
-        redisTemplate.execute(ADD_SCRIPT, List.of(KEY), values.toArray());
+        addTo(KEY, productId);
     }
 
     /** @return false 表示**一定不存在**（可以放心拒掉）；true 只是「可能存在」，仍需查库 */
@@ -114,6 +111,70 @@ public class ProductBloomFilter implements ApplicationRunner {
         }
         List<?> result = redisTemplate.execute(MIGHT_CONTAIN_SCRIPT, List.of(KEY), values.toArray());
         return result != null && !result.isEmpty() && "1".equals(String.valueOf(result.get(0)));
+    }
+
+    /**
+     * 全量重建 —— 用于「有商品没走 create 接口入库」的场景（数据迁移、手工 SQL、导入脚本）。
+     *
+     * **建到临时 key 再 RENAME 切换，绝不能「先删再建」**：
+     * 先删的话，重建完成前过滤器是空的，那一小段时间里**所有商品都会被判为「不存在」**，
+     * 比不重建还糟。
+     */
+    public int rebuild() {
+        String tempKey = KEY + ":rebuilding";
+        redisTemplate.delete(tempKey);
+
+        int total = 0;
+        long lastId = 0;
+        while (true) {
+            // 按主键游标分批取，避免一次性把全表读进内存
+            List<Product> batch = productMapper.selectList(Wrappers.<Product>lambdaQuery()
+                    .select(Product::getId)
+                    .gt(Product::getId, lastId)
+                    .orderByAsc(Product::getId)
+                    .last("LIMIT 1000"));
+            if (batch.isEmpty()) {
+                break;
+            }
+            for (Product product : batch) {
+                addTo(tempKey, product.getId());
+                lastId = product.getId();
+                total++;
+            }
+        }
+
+        if (total > 0) {
+            redisTemplate.rename(tempKey, KEY);   // 原子切换
+        } else {
+            redisTemplate.delete(tempKey);
+        }
+        log.info("布隆过滤器重建完成，共 {} 个商品 ID", total);
+        return total;
+    }
+
+    private void addTo(String key, Long productId) {
+        List<String> values = new ArrayList<>(HASH_COUNT + 1);
+        values.add(String.valueOf(TTL.toSeconds()));
+        for (int i = 0; i < HASH_COUNT; i++) {
+            values.add(String.valueOf(index(productId, i)));
+        }
+        redisTemplate.execute(ADD_SCRIPT, List.of(key), values.toArray());
+    }
+
+    /**
+     * 兜底：即使有人手工插库后忘了调重建接口，每天也会自动修一次。
+     *
+     * ⚠️ 多实例部署时这个任务会在每个实例上各跑一遍。目前项目是单体所以无所谓；
+     * 将来上多实例要么加分布式锁，要么只在指定实例上执行。
+     */
+    @Scheduled(cron = "0 17 4 * * ?")
+    public void scheduledRebuild() {
+        try {
+            rebuild();
+        } catch (Exception e) {
+            // 定时任务抛异常会让后续调度静默失效，这里必须自己兜住
+            log.error("定时重建布隆过滤器失败", e);
+        }
     }
 
     /** 双重哈希：h(i) = mix(id + i × 大素数)，全部落在 [0, BIT_SIZE) */

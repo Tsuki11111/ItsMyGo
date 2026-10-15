@@ -416,6 +416,82 @@ private Duration stockTtl() {
 
 **凡是给一批 key 设 TTL，就该带抖动** —— 这条在实现里比记在文档里重要。
 
+### 3.10 Cache-Aside：商品详情与分类树（`RedisCacheHelper`）
+
+前面三节讲的是「缓存怎么不出事」，这节讲**缓存本身怎么用**。
+
+**只有两处该缓存**，其余查询照旧直查数据库：
+
+| 接口 | 缓存？ | 理由 |
+|---|---|---|
+| `GET /api/products/{id}` | ✅ `its-my-go:product:{id}`，TTL 10 分钟 | 热点、读多写少、所有人看到的一样 |
+| `GET /api/categories` | ✅ `its-my-go:category:tree`，TTL 30 分钟 | 极热点、极少变动 |
+| `GET /api/products`（列表/搜索） | ❌ | 关键词 × 分类 × 分页的组合太多，key 会爆炸 |
+| 购物车 / 订单 | ❌ | 用户私有 + 频繁变动 |
+| `GET /api/auth/me` | ❌ | 根本不查库 |
+
+**读**（`getOrLoad`）：命中直接返回；未命中时**用互斥锁保护回源**（复用 §3.8 那套），
+再写回缓存。写回时 TTL 带 ±20% 抖动。
+
+**写**（`evict`）—— 这里是**双写一致性**真正登场的地方：
+
+```java
+productMapper.updateById(product);                       // ① 先更新数据库
+cacheHelper.evict(cacheKey(id));                         // ② 再删缓存
+```
+
+**为什么是「删」不是「更新」**：并发更新两个请求时，「写缓存的顺序」可能和
+「写库的顺序」相反，更新缓存会留下永久脏数据；删掉则下次读自然加载最新。
+**删失败**也不要紧 —— TTL 是最终兜底，最多脏一个 TTL 周期。
+
+**分类树为什么用数组接缓存**：`Class<T>` 传不了泛型（`List<CategoryNode>`），
+用 `CategoryNode[].class` 绕开，出来再 `List.of` 包一层。
+
+**管理端那份分类树不缓存** —— 管理员操作本来就少，缓存只会让「改完看不到自己改的」
+变成困惑。
+
+#### 三个必须知道的坑（当天全踩了一遍）
+
+**① 库存拆成独立接口，详情里的 `stock` 也不受缓存影响**
+
+一开始详情缓存里的 `stock` 会滞后（下单不失效它，否则高频下单会把缓存打穿）。
+最终方案是**把库存从「缓存的字段」里拿出去**：
+
+- 新增 `GET /api/products/{id}/stock` → 实时库存
+- **数据来源是 §3.8 那个库存计数器**（`its-my-go:stock:{id}`），它本来就在被实时维护
+  （下单 DECRBY、取消 INCRBY），**读它一次库都不用查**
+- 详情接口里也把 `stock` 换成计数器的值 —— 从缓存反序列化出来的对象是新实例，
+  改它不会污染缓存
+
+**代价是引入了一个新的同步点**：`ProductServiceImpl.update` 里改完库存必须
+`stockService.reload(id)`，否则管理员补了货顾客仍看到旧数字。**这个 bug 是测试抓出来的。**
+
+**② 布隆过滤器只覆盖「走 create 接口」创建的商品**
+
+`ProductServiceImpl.create` 会 `bloomFilter.add`，但**直接写库的商品**（数据迁移、
+手工 SQL、导入脚本）不在过滤器里，会被**永久判为「不存在」**。三层补救：
+
+- `ProductBloomFilter.rebuild()`：按主键游标分批全量重建
+- `POST /api/admin/products/rebuild-bloom`：手工插库后调一次
+- `@Scheduled` 每天凌晨 4:17 自动重建一次兜底
+
+**重建必须「建到临时 key 再 RENAME 切换」**，绝不能「先删再建」——
+先删的话重建完成前过滤器是空的，那一小段时间里**所有商品都被判为不存在**，比不重建还糟。
+
+```java
+redisTemplate.rename(tempKey, KEY);   // 原子切换
+```
+
+⚠️ 多实例部署时 `@Scheduled` 会在每个实例上各跑一遍，届时要么加分布式锁、
+要么只在指定实例执行。目前是单体，无所谓。
+
+**③ 缓存不参与数据库事务回滚**
+
+`@Transactional` 的测试里，数据库会回滚但**缓存不会** —— 测试 A 写进缓存的分类树
+在回滚后仍然存在，测试 B 就会读到「数据库里根本没有」的数据。
+`ApiTestBase` 因此在 `@BeforeEach` 里清一次跨用例共享的 key。
+生产环境同理：**回滚了事务，别忘了缓存里可能还留着那份数据。**
+
 ---
 
 ## 4. 测试怎么写的
@@ -442,10 +518,11 @@ private Duration stockTtl() {
 | `CategoryControllerTest` | 树形结构；停用分类对顾客隐藏；非管理员 403；有子分类/有商品时禁删 |
 | `ProductControllerTest` | 上架可见/下架隐藏；关键词搜名称与副标题；分类筛选；分页；非管理员 403 |
 | `CartControllerTest` | 重复加购累加数量；总价只算已勾选且可购买；超库存被拒；**越权 404**；需登录 |
-| `OrderControllerTest` | 下单扣库存并清空购物车；**订单快照**（改价后历史订单不变）；完整生命周期；非法流转被拒；取消回滚库存；越权 404；顾客不能发货 |
+| `OrderControllerTest` | 下单扣库存并清空购物车；**订单快照**（改价后历史订单不变）；完整生命周期；非法流转被拒；取消回滚库存；越权 404；顾客不能发货；**库存实时性**（详情与独立接口都不受缓存滞后影响） |
 | **`StockConcurrencyTest`** | **10 个买家并发抢 5 件**：恰好 5 成功 5 拒，库存归零、销量 5，卖的+剩的 == 初始库存 |
 | **`StockCacheBreakdownTest`** | **缓存击穿**：清空库存键后 20 并发，断言数据库**只被查 1 次**（去掉互斥锁会变成 20） |
-| **`CacheProtectionTest`** | **穿透**：查不存在的 ID 时数据库零查询；存在的不被误挡。**雪崩**：连续刷新 20 次，TTL 不是固定值 |
+| **`CacheProtectionTest`** | **穿透**：查不存在的 ID 时数据库零查询；存在的不被误挡。**雪崩**：连续刷新 20 次，TTL 不是固定值。**重建**：手工插库的商品重建后能被过滤器认到 |
+| **`CacheAsideTest`** | **第二次读走缓存**（三次读只查一次库）；**改完立刻读到新值**（缓存被删而非等 TTL）；分类变更后树缓存失效 |
 | `StorageServiceTest` | 上传成功 + **URL 可匿名读取**；拒绝非图片；顾客不能上传 |
 | `SharedRedisTest` | 共用 Redis 连通；key 前缀；**TTL 存在**（见 HANDOFF §5.5） |
 | `MyBatisPlusCompatibilityTest` | 一次完整 CRUD，验证 MP 在 Boot 4.1.1 上可用 |

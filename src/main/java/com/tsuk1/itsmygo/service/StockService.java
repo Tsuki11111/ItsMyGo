@@ -13,4 +13,11 @@ public interface StockService {
 
     /** 把数据库里的当前库存重新灌进 Redis */
     void reload(Long productId);
+
+    /**
+     * 当前可售库存 —— 读 Redis 计数器，**不查库**。
+     * 它反映的是「扣掉已预扣之后还能买多少」，比商品详情里那份可能滞后的快照更准。
+     * 商品不存在或加载失败时返回 0。
+     */
+    int currentStock(Long productId);
 }

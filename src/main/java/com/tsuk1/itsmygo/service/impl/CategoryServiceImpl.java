@@ -1,6 +1,7 @@
 package com.tsuk1.itsmygo.service.impl;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.tsuk1.itsmygo.common.RedisCacheHelper;
 import com.tsuk1.itsmygo.common.ResultCode;
 import com.tsuk1.itsmygo.common.exception.BizException;
 import com.tsuk1.itsmygo.dto.CategoryNode;
@@ -12,6 +13,7 @@ import com.tsuk1.itsmygo.mapper.ProductMapper;
 import com.tsuk1.itsmygo.service.CategoryService;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -20,18 +22,39 @@ import java.util.stream.Collectors;
 public class CategoryServiceImpl implements CategoryService {
 
     private static final long TOP_LEVEL = 0L;
+    /** 分类树是「极热点 + 极少变」，缓存收益最高；变更时主动删，TTL 只是兜底 */
+    private static final Duration TREE_CACHE_TTL = Duration.ofMinutes(30);
+    private static final String TREE_CACHE_KEY = RedisCacheHelper.key("category:tree");
 
     private final CategoryMapper categoryMapper;
     private final ProductMapper productMapper;
+    private final RedisCacheHelper cacheHelper;
 
-    public CategoryServiceImpl(CategoryMapper categoryMapper, ProductMapper productMapper) {
+    public CategoryServiceImpl(CategoryMapper categoryMapper, ProductMapper productMapper,
+                               RedisCacheHelper cacheHelper) {
         this.categoryMapper = categoryMapper;
         this.productMapper = productMapper;
+        this.cacheHelper = cacheHelper;
+    }
+
+    /**
+     * 顾客端那份走缓存（匿名可访问、流量最大）；**管理端那份不缓存** ——
+     * 管理员操作本来就少，缓存只会让「改完看不到自己改的」变成困惑。
+     */
+    @Override
+    public List<CategoryNode> tree(boolean onlyEnabled) {
+        if (!onlyEnabled) {
+            return buildTree(false);
+        }
+        // 用数组而不是 List 收缓存：Class<T> 传不了泛型，数组能绕开
+        CategoryNode[] cached = cacheHelper.getOrLoad(TREE_CACHE_KEY, TREE_CACHE_TTL,
+                CategoryNode[].class,
+                () -> buildTree(true).toArray(new CategoryNode[0]));
+        return List.of(cached);
     }
 
     /** 一次查全表再在内存里组树，避免按层递归查库 */
-    @Override
-    public List<CategoryNode> tree(boolean onlyEnabled) {
+    private List<CategoryNode> buildTree(boolean onlyEnabled) {
         List<Category> all = categoryMapper.selectList(Wrappers.<Category>lambdaQuery()
                 .eq(onlyEnabled, Category::getStatus, 1)
                 .orderByAsc(Category::getSort)
@@ -55,6 +78,7 @@ public class CategoryServiceImpl implements CategoryService {
         Category category = new Category();
         apply(category, request);
         categoryMapper.insert(category);
+        cacheHelper.evict(TREE_CACHE_KEY);
         return category;
     }
 
@@ -66,6 +90,7 @@ public class CategoryServiceImpl implements CategoryService {
             throw new BizException(ResultCode.BAD_REQUEST, "不能把自己设为父分类");
         }
         categoryMapper.updateById(category);
+        cacheHelper.evict(TREE_CACHE_KEY);
         return category;
     }
 
@@ -86,6 +111,7 @@ public class CategoryServiceImpl implements CategoryService {
         }
 
         categoryMapper.deleteById(id);
+        cacheHelper.evict(TREE_CACHE_KEY);
     }
 
     private void apply(Category category, CategoryRequest request) {

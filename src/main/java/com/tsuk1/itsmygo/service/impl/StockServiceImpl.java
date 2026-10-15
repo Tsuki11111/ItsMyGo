@@ -90,6 +90,24 @@ public class StockServiceImpl implements StockService {
         }
     }
 
+    @Override
+    public int currentStock(Long productId) {
+        String key = key(productId);
+        loadIfAbsent(productId, key);
+        String value = redisTemplate.opsForValue().get(key);
+        if (value == null) {
+            // 用于展示，返回 0 比抛异常合适；真下单时还会走 reserveStock 的严格校验
+            return 0;
+        }
+        try {
+            return Math.max(Integer.parseInt(value), 0);
+        } catch (NumberFormatException e) {
+            log.warn("库存值非法，将重新加载: key={} value={}", key, value);
+            reload(productId);
+            return 0;
+        }
+    }
+
     /**
      * 把库存从数据库灌进 Redis，**整个集群同时只允许一个线程去查库**。
      *

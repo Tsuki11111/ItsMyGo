@@ -2,6 +2,7 @@ package com.tsuk1.itsmygo.controller;
 
 import com.tsuk1.itsmygo.common.Result;
 import com.tsuk1.itsmygo.dto.PageResponse;
+import com.tsuk1.itsmygo.dto.StockView;
 import com.tsuk1.itsmygo.entity.Product;
 import com.tsuk1.itsmygo.service.ProductService;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -33,5 +34,11 @@ public class ProductController {
     @GetMapping("/{id}")
     public Result<Product> detail(@PathVariable Long id) {
         return Result.ok(productService.detailForCustomer(id));
+    }
+
+    /** 实时库存：数据来自 Redis 计数器，不查库、也不受商品详情缓存影响 */
+    @GetMapping("/{id}/stock")
+    public Result<StockView> stock(@PathVariable Long id) {
+        return Result.ok(productService.stockForCustomer(id));
     }
 }

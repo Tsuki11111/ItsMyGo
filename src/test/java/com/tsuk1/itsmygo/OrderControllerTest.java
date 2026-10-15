@@ -65,9 +65,75 @@ class OrderControllerTest extends ApiTestBase {
         return objectMapper.readTree(body).path("data").path("order").path("id").asLong();
     }
 
+    /**
+     * 商品详情现在带缓存，而**库存变动不会主动失效详情缓存**（那会让每次下单都打穿缓存）。
+     * 所以这里先 evict 强制回源，断言的才是数据库里的真实库存。
+     */
     private void assertProductStock(String token, long productId, int expected) throws Exception {
+        redisTemplate.delete("its-my-go:product:" + productId);
         mockMvc.perform(get("/api/products/" + productId).header("Authorization", bearer(token)))
                 .andExpect(jsonPath("$.data.stock").value(expected));
+    }
+
+    /**
+     * 库存拆成独立接口后要保证的重点：**详情缓存里的 stock 不再被信任**。
+     * 下单扣了库存，详情页和独立接口都必须立刻反映，而不是等缓存 TTL 过期。
+     */
+    @Test
+    void stockIsRealtimeOnBothDetailAndStockEndpoint() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        String token = customerToken("c" + System.nanoTime());
+        long productId = createProduct(admin, "Realtime", "10.00", 10);
+        long addressId = createAddress(token);
+
+        mockMvc.perform(get("/api/products/" + productId + "/stock"))
+                .andExpect(jsonPath("$.data.stock").value(10))
+                .andExpect(jsonPath("$.data.available").value(true));
+
+        addToCart(token, productId, 3);
+        placeOrder(token, addressId);
+
+        // 独立库存接口立刻反映（读的是 Redis 计数器，不查库）
+        mockMvc.perform(get("/api/products/" + productId + "/stock"))
+                .andExpect(jsonPath("$.data.stock").value(7))
+                .andExpect(jsonPath("$.data.available").value(true));
+
+        // 详情接口里的 stock 也必须是实时的，不能是缓存里那份旧值
+        mockMvc.perform(get("/api/products/" + productId))
+                .andExpect(jsonPath("$.data.stock").value(7))
+                .andExpect(jsonPath("$.data.name").value("Realtime"));
+    }
+
+    /** 管理员改库存也要同步到计数器，否则顾客看到的是旧数字 */
+    @Test
+    void adminStockChangeIsVisibleImmediately() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        String token = customerToken("c" + System.nanoTime());
+        long productId = createProduct(admin, "Restock", "10.00", 5);
+
+        mockMvc.perform(get("/api/products/" + productId + "/stock"))
+                .andExpect(jsonPath("$.data.stock").value(5));
+
+        // 管理员补货到 50
+        mockMvc.perform(put("/api/admin/products/" + productId)
+                        .header("Authorization", bearer(admin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(newProductRequest("Restock", "10.00", 50))))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/products/" + productId + "/stock"))
+                .andExpect(jsonPath("$.data.stock").value(50));
+    }
+
+    /** 构造一个改库存用的请求体（分类沿用该商品原有的） */
+    private com.tsuk1.itsmygo.dto.ProductRequest newProductRequest(String name, String price, int stock)
+            throws Exception {
+        long categoryId = objectMapper.readTree(mockMvc.perform(get("/api/admin/products").header(
+                        "Authorization", bearer(adminToken("tmp" + System.nanoTime()))))
+                .andReturn().getResponse().getContentAsString())
+                .path("data").path("records").get(0).path("categoryId").asLong();
+        return new com.tsuk1.itsmygo.dto.ProductRequest(categoryId, name, "sub", "",
+                new BigDecimal(price), stock, "", true);
     }
 
     @Test
