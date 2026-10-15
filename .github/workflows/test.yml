@@ -1,0 +1,85 @@
+name: Tests
+
+# 每次 push / PR 都在一个全新的 Ubuntu 机器上跑完整测试套件。
+# 价值在于「干净环境」：不依赖开发机上的 JDK 版本、本地 MySQL、.env 文件，
+# 能在这里跑通才说明代码与配置真的自洽。
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:        # 允许在 Actions 页面手动触发
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    # 本项目的测试是「真连库、真连 Redis、真传 MinIO」的，
+    # 所以要把这三个依赖也起起来 —— 端口映射到 localhost，
+    # 正好与 application.yml 里的连接串一致，无需改任何应用配置。
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: ci-root-password
+          MYSQL_DATABASE: its_mygo
+          MYSQL_USER: ci
+          MYSQL_PASSWORD: ci-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+      # 用 bitnami 的镜像而不是官方 minio/minio：
+      # services 不支持自定义 command，而官方镜像默认只打印帮助就退出，
+      # bitnami 的默认就能把 server 起起来。
+      minio:
+        image: bitnami/minio:latest
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        ports:
+          - 9000:9000
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Run tests
+        # 这些值只用于 CI 的测试环境，不是任何真实密钥。
+        # 生产环境的凭据应该配成 GitHub Secrets 再从 secrets 上下文读，
+        # 但这个项目的测试库是随容器起随容器销毁的，写死更省事、也更容易排查。
+        env:
+          DB_USERNAME: ci
+          DB_PASSWORD: ci-password
+          JWT_SECRET: ci-only-jwt-secret-not-used-anywhere-else-0123456789
+          MINIO_ACCESS_KEY: minioadmin
+          MINIO_SECRET_KEY: minioadmin
+        run: ./mvnw -B test
+
+      - name: Upload test reports
+        # 测试挂了也要把报告留下来，否则只能看日志猜是哪条用例失败
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: target/surefire-reports/
+          retention-days: 7
