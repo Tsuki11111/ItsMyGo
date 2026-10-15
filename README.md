@@ -82,6 +82,9 @@
 
 **交易闭环已通**：浏览商品 → 加购 → 下单（扣库存）→ 支付 → 发货 → 收货，以及取消回滚库存。
 
+**CI**：每次 push 自动在干净环境跑测试（[`.github/workflows/test.yml`](.github/workflows/test.yml)）。
+本地 60 条全跑；CI 跳过 3 条依赖 MinIO 的（MinIO 已停止公开分发镜像，详见 [HANDOFF §5.12](HANDOFF.md)）。
+
 各里程碑的可验收产物见 [docs/decisions-ecommerce.md](docs/decisions-ecommerce.md) §4。
 
 ## 本地运行

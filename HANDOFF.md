@@ -355,7 +355,42 @@ public MybatisPlusInterceptor mybatisPlusInterceptor() {
 3. **抽象父类上的 `@TestPropertySource` / `@ActiveProfiles` 不要指望它可靠**：
    实测出现过同一个类里既有 `开关=true` 又有 `开关=false` 的情况
 
-### 5.11 缓存击穿：用互斥锁护住缓存加载（2026-10-15 补）
+### 5.11 Windows 开发 + Linux CI：`mvnw` 缺可执行位（2026-10-15 踩到）
+
+CI 跑 `./mvnw` 报 **`Permission denied`（exit 126）**。
+
+**Windows 上的 git 不记录 Unix 可执行位**，checkout 出来是 `100644`，
+到了 Linux 就不能直接执行。
+
+修法是改 **git 索引里的模式**，而不是在 CI 里 `chmod +x` 绕过去：
+
+```bash
+git update-index --chmod=+x mvnw
+git ls-files -s mvnw        # 应该显示 100755
+```
+
+这样任何人 clone 下来都是可执行的。同理适用于任何需要在 Linux 上执行的脚本。
+
+### 5.12 MinIO 在 CI 里起不来（2026-10-15 踩到，尚未解决）
+
+**MinIO 2025 年停止了官方镜像与二进制的公开分发**：
+
+| 源 | 结果 |
+|---|---|
+| `minio/minio`（Docker Hub） | `denied: requested access to the resource is denied` |
+| `bitnami/minio:latest` | `manifest unknown`（tag 已下架） |
+| `dl.min.io/.../minio`（二进制） | **`410 Gone`** |
+
+你本地能跑是因为镜像早就拉下来了，CI 上从零开始就拉不到。
+
+**当前的应对**：`StorageServiceTest` 用 `@DisabledIfEnvironmentVariable(SKIP_MINIO_TESTS)`
+跳过，CI 里设 `SKIP_MINIO_TESTS=true` —— **CI 跑 57 条，本地跑全部 60 条**。
+这是**已知并记录的缺口，不是遗漏**。
+
+**将来要补的话**，可选方向：找 MinIO 的历史镜像 tag、换成别的 S3 兼容实现
+（如 LocalStack / SeaweedFS）、或者把上传逻辑抽象成接口后在测试里用假实现。
+
+### 5.13 缓存击穿：用互斥锁护住缓存加载（2026-10-15 补）
 
 库存键过期的那一瞬间，N 个并发会同时发现键不存在、**一起打向数据库** ——
 而「不让请求打到数据库」恰恰是这层缓存存在的意义。
@@ -404,8 +439,7 @@ public MybatisPlusInterceptor mybatisPlusInterceptor() {
 新商品创建要增量 `add`；应用启动要 `ApplicationRunner` 预热 ——
 预热失败会让过滤器把**所有**请求判为「不存在」，比没有过滤器更糟。
 
-### 5.12 `git push` 报错但实际成功（本机网络特征，遇见别慌）
-
+### 5.14 `git push` 报错但实际成功（本机网络特征，遇见别慌）
 本项目已**两次**出现「push 返回错误，但远端其实已经更新成功」：
 
 | 时间 | 报错 | 实际结果 |
@@ -421,6 +455,24 @@ public MybatisPlusInterceptor mybatisPlusInterceptor() {
 ---
 
 ## 6. 历史记录
+
+### 2026-10-15 · 配上 GitHub Actions CI
+
+`.github/workflows/test.yml`：每次 push / PR 在全新 Ubuntu 上跑 `./mvnw test`，
+用 `services` 起 MySQL 与 Redis（端口映射到 localhost，正好与应用配置一致，
+**应用配置一行都没改**）。公开仓库，Actions 免费。
+
+**跑通之前踩了三个坑**（都记进了 §5）：
+
+1. `bitnami/minio:latest` 已从 Docker Hub 下架（manifest unknown）
+2. 换官方 `minio/minio` 也不行 —— **MinIO 2025 年停止了官方镜像与二进制的公开分发**
+   （Docker Hub 返回 denied、`dl.min.io` 返回 410 Gone）。
+   最终让 `StorageServiceTest` 在 CI 跳过（57/60），本地仍全跑
+3. **`./mvnw` 报 Permission denied** —— Windows 的 git 不记录可执行位，
+   用 `git update-index --chmod=+x mvnw` 修索引里的模式（而不是在 CI 里 chmod 绕过）
+
+README 顶部加了徽章：CI 状态（**真实**，来自 GitHub 自家域名）+ Stars + Last commit
++ 技术栈。**CI 徽章的意义在于它是真的** —— 点进去能看到每次跑了什么、耗时多久、日志长什么样。
 
 ### 2026-10-15 · 接口限流
 
