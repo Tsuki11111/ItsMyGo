@@ -28,31 +28,32 @@
 
 ## 1. 当前状态一句话
 
-**M2（商品与分类）已完成（2026-10-13）。**
+**M3（购物车与下单）已完成（2026-10-15）。**
 
-M0 骨架 + M1 账号体系 + M2 商品域都已落地，**自动化测试 28 个全绿**。
-分类树、商品 CRUD、顾客端搜索与分页、角色权限（CUSTOMER / ADMIN）、
-MinIO 商品图上传全部打通。数据库 schema 到 **v5**。
+M0 骨架 → M1 账号 → M2 商品 → M3 交易，四段都已落地，**自动化测试 43 个全绿**。
+购物车、下单、**库存并发防超卖**、订单状态机、取消回滚库存全部跑通。
+数据库 schema 到 **v7**。
 
-下一步：**M3（购物车与下单）**。
+下一步：**M4（模拟支付与售后）**。
 
 ---
 
-## 2. 下一步做什么：M3 · 购物车与下单
+## 2. 下一步做什么：M4 · 支付与售后
 
-参考工期 1 周。**这是整个项目最值钱的一段**（面试基本必问库存并发）。
+参考工期 3–5 天。M3 已经把「模拟支付」简化成一个状态流转，M4 把它做扎实并补上售后。
 
-1. 购物车（`cart_items` 表）→ `V6__cart.sql`：加购、改数量、勾选、删除、算总价
-2. 订单表 `orders` + `order_items` → `V7__order.sql`
-   - **`order_items` 必须冗余存下单时的商品名、单价、图片**（订单快照，见 §5.7）
-   - 订单状态机：待支付 / 已支付 / 已发货 / 已完成 / 已取消
-3. **库存扣减：Redis 预扣 + 数据库乐观锁**（见 §5.6）—— 并发下不能超卖
-4. 结算页 → 生成订单（扣库存）→ 待支付
-5. 取消订单要**回滚库存**
-6. 验收：完整下单链路跑通；**并发压测不超卖**；非法状态流转被拒
+1. **独立支付记录表** `payments` → `V8__payment.sql`：一笔订单一条支付流水
+   （支付方式、流水号、金额、状态、时间），而不是只在 orders 上改个状态
+2. **支付超时自动取消**：待支付超过 N 分钟 → 取消订单 + 回滚库存。
+   先做手动触发（管理端接口），有需要再上定时任务
+3. **退款**：`REFUNDING` / `REFUNDED` 两个状态接进 `OrderStatus` 状态机
+   （decisions 里列为 P1，实现了售后这一环才算完整）
+4. 管理端：订单列表按状态筛选已有，补**退款审核**
+5. 验收：支付 → 发货 → 收货的完整链路带上支付流水；退款走完整状态流转并回滚库存
 
-⚠️ 动手前先读 §5 —— 尤其 §5.5（Redis key 必须带 TTL）和 §5.6（库存扣减）。
-⚠️ 金额一律 `BigDecimal` + `DECIMAL` 列。
+⚠️ **动 `OrderStatus` 前先看它是不是终态** —— 加状态要同时更新 `canTransitionTo`，
+别只在某个 Service 里 `if` 一下。
+⚠️ 退款同样要回滚库存，参考 `OrderServiceImpl.restoreStock`。
 
 ---
 
@@ -74,12 +75,13 @@ src/main/java/com/tsuk1/itsmygo/
 ├── security/                    # CurrentUser（id+username+role）/ JwtService / JwtAuthenticationFilter
 ├── controller/
 │   ├── HealthController / AuthController / AddressController
-│   ├── CategoryController / ProductController                                    # 顾客端，GET 公开
-│   └── AdminCategoryController / AdminProductController / AdminFileController     # 管理端，需 ADMIN
-├── service/                     # 接口：AuthService / AddressService / CategoryService / ProductService / StorageService
-│   └── impl/                    # 实现：AuthServiceImpl …（@Service 标在这层，Controller 注入接口）
-├── mapper/                      # MyBatis-Plus BaseMapper（User / Address / Category / Product）
-├── entity/                      # User / Address / Category / Product
+│   ├── CategoryController / ProductController / CartController / OrderController        # 顾客端
+│   └── AdminCategoryController / AdminProductController / AdminFileController /
+│       AdminOrderController                                                             # 管理端，需 ADMIN
+├── service/                     # 接口：Auth / Address / Category / Product / Storage / Cart / Order / Stock
+│   └── impl/                    # 实现：…ServiceImpl（@Service 标在这层，Controller 注入接口）
+├── mapper/                      # MyBatis-Plus BaseMapper（User / Address / Category / Product / CartItem / Order / OrderItem）
+├── entity/                      # User / Address / Category / Product / CartItem / Order / OrderItem / OrderStatus
 └── dto/                         # 请求响应体
 ```
 
@@ -112,8 +114,9 @@ src/main/java/com/tsuk1/itsmygo/
 ### 3.3 数据库
 
 - 库名 `its_mygo`（在共用的 `mysql` 容器里）
-- 迁移脚本在 `src/main/resources/db/migration/`，**当前 schema 版本 v5**
-- 已建表：`users`（V1，V3 加 `role`）、`addresses`（V2）、`categories`（V4）、`products`（V5）
+- 迁移脚本在 `src/main/resources/db/migration/`，**当前 schema 版本 v7**
+- 已建表：`users`（V1，V3 加 `role`）、`addresses`（V2）、`categories`（V4）、
+  `products`（V5）、`cart_items`（V6）、`orders` / `order_items`（V7）
   （另有 Flyway 自建的 `flyway_schema_history`，是迁移记录表，**不要动**）
 - **迁移脚本只增不改**：已执行过的脚本再改内容会让 Flyway 校验失败
 
@@ -299,18 +302,32 @@ public MybatisPlusInterceptor mybatisPlusInterceptor() {
 **因此：本项目所有 Redis key 必须带 TTL，且一律以 `its-mygo:` 开头。**
 （已有回归用例 `SharedRedisTest` 守着这两条。）
 
-### 5.6 库存扣减（M3 的关键点）
+### 5.6 库存扣减（M3 已实现，细节见 implementation §3.8）
 
-并发下不能超卖。方案已定：**Redis 预扣 + 数据库乐观锁**
-（`UPDATE ... WHERE stock >= n` 或版本号）。
-**不要**写成「先 select 查库存、再 update 扣减」—— 那是面试必被问穿的两步竞态。
+并发下不能超卖。已落地**两层防线**：Redis Lua 原子预扣（挡流量）+
+数据库 `UPDATE ... WHERE stock >= ?`（**最终真相**）。
 
-### 5.7 订单快照
+**不要**写成「先 select 查库存、再 update 扣减」—— 那是面试必被问穿的两步竞态，
+并发下会互相覆盖（丢更新）。
 
-`order_item` 必须冗余存下单时的**商品名、单价、图片**。
-商品后续改价，历史订单不能跟着变。
+回归保障：`StockConcurrencyTest` —— 10 个买家并发抢 5 件，断言恰好 5 成功。
 
-### 5.8 `git push` 报错但实际成功（本机网络特征，遇见别慌）
+### 5.7 ★ Redis 和数据库不在同一个事务里（2026-10-15 立规矩）
+
+**`@Transactional` 只回滚数据库，不会回滚 Redis。** 任何「先动 Redis 再动数据库」
+的写入逻辑，都必须在 catch 里手动补 Redis。
+
+本项目下单流程的做法：用一个 `Map<Long, Integer> reserved` 记下已扣过的商品，
+异常时 `reserved.forEach(stockService::release)`；数据库那边交给 `@Transactional`。
+
+**回补时只补已存在的键** —— 键过期后再 `INCRBY` 会凭空造出一个错误的库存值。
+
+### 5.8 订单快照
+
+`order_items` 必须冗余存下单时的**商品名、单价、图片**；`orders` 还要冗余存
+**收货人/电话/地址**。商品改价、用户改地址，历史订单都不能跟着变。
+
+### 5.9 `git push` 报错但实际成功（本机网络特征，遇见别慌）
 
 本项目已**两次**出现「push 返回错误，但远端其实已经更新成功」：
 
@@ -327,6 +344,28 @@ public MybatisPlusInterceptor mybatisPlusInterceptor() {
 ---
 
 ## 6. 历史记录
+
+### 2026-10-15 · M3 购物车与下单完成
+
+**数据库**：`V6__cart.sql`（cart_items，含 `uk_user_product` 唯一索引）、
+`V7__order.sql`（orders + order_items）→ schema 到 **v7**
+
+**新增代码**：`entity/CartItem`、`entity/Order`、`entity/OrderItem`、
+`entity/OrderStatus`（**状态机集中在这一个枚举里**）；
+`service/StockService`（Redis Lua 原子预扣）；
+`service/CartService`、`service/OrderService` 及其 impl；
+`ProductMapper` 加 `deductStock` / `restoreStock` 两条条件更新 SQL；
+`CartItemMapper` 加 `addQuantity`（`ON DUPLICATE KEY UPDATE`）；
+`controller/CartController`、`OrderController`、`AdminOrderController`
+
+**新增测试（+15，共 43 个全绿）**：`CartControllerTest`（6 条）、
+`OrderControllerTest`（8 条，含订单快照与非法流转）、
+**`StockConcurrencyTest`（1 条，10 买家并发抢 5 件，恰好 5 成功）**
+
+**踩坑**：本次没踩硬坑（一次跑通）。但有两条**规矩**要记住：
+Redis 不在事务里（§5.7）、订单快照不能 join 商品表（§5.8）。
+
+**当天开工前**：`mysql` 容器又处于 stopped 状态，按 §4.3 自检拉起（这是第二次了）。
 
 ### 2026-10-13 · Service 层改为接口 + 实现类
 

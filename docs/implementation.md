@@ -221,6 +221,111 @@ MultipartFile
 
 **幂等**：`bucketReady` 标志 + 双重检查，避免每次上传都去查一次 bucket 是否存在。
 
+### 3.6 购物车（`CartServiceImpl`）
+
+**加购用一条原子 SQL**，而不是「先查再插/改」：
+
+```sql
+INSERT INTO cart_items (user_id, product_id, quantity, selected)
+VALUES (?, ?, ?, 1)
+ON DUPLICATE KEY UPDATE quantity = quantity + #{quantity}
+```
+
+> 靠 `uk_user_product` 唯一索引 + `ON DUPLICATE KEY UPDATE` 一次搞定「不存在就插、已存在就累加」。
+> 换成「先 select 判断再 insert/update」，两个请求同时加购同一商品会双双查到「不存在」、
+> 双双插入，其中一个必然撞唯一索引报错。
+
+**视图组装**（`buildView`）：购物车行只存 `product_id`，展示需要商品名/图/价/库存 ——
+所以**按 productId 批量查一次商品再内存拼装**，不做逐行查库（N+1），也不做 join
+（join 了还得处理重复列名）。
+
+**商品被删除时**不隐藏这一行，而是显示「商品已删除」让用户自己删 —— 静默消失比看得见的异常更让人困惑。
+
+**总价只算「已勾选 且 可购买」的项**，且用 `BigDecimal` 累加。
+
+### 3.7 订单与状态机（`OrderServiceImpl` / `OrderStatus`）
+
+**状态机集中在一个枚举里**（`OrderStatus.canTransitionTo`），不允许散落到各个 Service 里 `if`：
+
+```
+待支付 ──支付──> 已支付 ──发货──> 已发货 ──确认收货──> 已完成
+   │                 │
+   └──取消──> 已取消  └──取消──> 已取消        已发货之后不能取消，已完成/已取消是终态
+```
+
+所有状态变更都走同一个 `transition(order, target, stampSetter)`：先问状态机准不准，
+不准就抛「订单当前是「待支付」，不能变成「已发货」」，然后才改状态和时间戳。
+**非法流转在这一处被挡住**，而不是在每个接口里各写一遍校验。
+
+**订单快照**（`order_items` 的 `product_name` / `product_image` / `unit_price`）：
+
+```java
+item.setProductName(product.getName());     // 下单那一刻的名字
+item.setUnitPrice(product.getPrice());      // 下单那一刻的价格
+```
+
+`product_id` 只是留个追溯线索，**展示订单时绝不能 join 商品表取当前值** ——
+否则商品一改价，所有历史订单的金额跟着变，对账就废了。
+
+收货信息同理：`orders.receiver / phone / address` 也是下单时的快照，
+用户事后改地址或删地址都不影响历史订单。
+
+**订单号**：`yyyyMMddHHmmss` + 6 位随机数，冲突由 `uk_order_no` 唯一索引兜底。
+
+### 3.8 库存扣减（`StockServiceImpl` + `ProductMapper.deductStock`）—— 本项目最值钱的一段
+
+**要防的问题**：两个人同时买最后一件，不能都下单成功。
+
+**两层防线**：
+
+**第一层 · Redis 预扣** —— 原子 Lua 脚本（GET + 比较 + DECRBY 三步必须原子，分开写就有窗口）：
+
+```lua
+local stock = redis.call('GET', KEYS[1])
+if not stock then return -1 end
+if tonumber(stock) < tonumber(ARGV[1]) then return -1 end
+return redis.call('DECRBY', KEYS[1], ARGV[1])
+```
+
+作用是**把绝大多数并发请求挡在数据库之外**。键是 `its-my-go:stock:{productId}`，
+**必须带 TTL**（30 分钟）——共用 Redis 是 volatile-lru，不带 TTL 的键在内存打满时写失败。
+键不存在时从数据库加载，用 `setIfAbsent` 避免并发加载互相覆盖。
+
+**第二层 · 数据库条件更新** —— **这才是防超卖的最终真相**：
+
+```sql
+UPDATE products
+SET stock = stock - #{quantity}, sales = sales + #{quantity}
+WHERE id = #{productId} AND status = 1 AND stock >= #{quantity}
+```
+
+`WHERE stock >= ?` 让「判断」和「扣减」在同一条 SQL 里完成，InnoDB 行锁保证原子，
+**返回 0 就代表库存不足**。用 `stock = stock - ?` 而不是「先查出来再写回」——
+后者并发下会互相覆盖，是经典的丢更新。
+
+**为什么两层都要**：Redis 那层不追求与数据库强一致（键会过期、可能偏乐观/偏保守），
+它只负责削峰；**正确性完全由数据库条件更新裁决**。第一层过了第二层没过，照样按库存不足处理。
+
+**Redis 不在事务里，失败要手动回补**：
+
+```java
+Map<Long, Integer> reserved = new LinkedHashMap<>();
+try {
+    for (CartItem cartItem : cartItems) {
+        if (!stockService.tryReserve(productId, qty)) throw ...;   // 第一层
+        reserved.merge(productId, qty, Integer::sum);
+        if (productMapper.deductStock(productId, qty) == 0) throw ...;  // 第二层
+    }
+    // …建订单、清购物车
+} catch (RuntimeException e) {
+    reserved.forEach(stockService::release);   // 数据库由 @Transactional 回滚，Redis 得手动补
+    throw e;
+}
+```
+
+**取消订单会回滚库存**（`restoreStock`）：数据库 `stock + n`、`sales - n`，Redis 同步 `INCRBY`。
+回补时只补**已存在**的键 —— 键过期后再 `INCRBY` 会凭空造出一个错误的库存值。
+
 ---
 
 ## 4. 测试怎么写的
@@ -234,7 +339,11 @@ MultipartFile
 **整个测试方法跑在一个事务里，结束后自动回滚**，所以测试数据不会污染数据库。
 （例外：MinIO 上传不在事务里，会留下文件——本地开发可接受。）
 
-覆盖重点（当前 28 条）：
+**唯一不加 `@Transactional` 的测试是 `StockConcurrencyTest`** —— 并发要的是真实提交，
+整个测试包在一个事务里的话其他线程根本看不到数据，也就测不出竞态。
+代价是数据不会自动回滚，所以它自己在 `@AfterEach` 里清理。
+
+覆盖重点（当前 43 条）：
 
 | 测试类 | 覆盖 |
 |---|---|
@@ -242,6 +351,9 @@ MultipartFile
 | `AddressControllerTest` | 本人 CRUD；**越权返回 404**；默认地址唯一；未登录 401 |
 | `CategoryControllerTest` | 树形结构；停用分类对顾客隐藏；非管理员 403；有子分类/有商品时禁删 |
 | `ProductControllerTest` | 上架可见/下架隐藏；关键词搜名称与副标题；分类筛选；分页；非管理员 403 |
+| `CartControllerTest` | 重复加购累加数量；总价只算已勾选且可购买；超库存被拒；**越权 404**；需登录 |
+| `OrderControllerTest` | 下单扣库存并清空购物车；**订单快照**（改价后历史订单不变）；完整生命周期；非法流转被拒；取消回滚库存；越权 404；顾客不能发货 |
+| **`StockConcurrencyTest`** | **10 个买家并发抢 5 件**：恰好 5 成功 5 拒，库存归零、销量 5，卖的+剩的 == 初始库存 |
 | `StorageServiceTest` | 上传成功 + **URL 可匿名读取**；拒绝非图片；顾客不能上传 |
 | `SharedRedisTest` | 共用 Redis 连通；key 前缀；**TTL 存在**（见 HANDOFF §5.5） |
 | `MyBatisPlusCompatibilityTest` | 一次完整 CRUD，验证 MP 在 Boot 4.1.1 上可用 |
@@ -264,6 +376,8 @@ MultipartFile
 
 ## 6. 还没实现的部分
 
-M3 起才有：购物车、订单、**库存扣减（Redis 预扣 + 乐观锁）**、订单状态机、
-支付（模拟）、前端、gRPC 客服接入。
+M4 起才有：**支付（模拟）的独立模块**、退款、前端、gRPC 客服接入。
 详见 [decisions-ecommerce.md](decisions-ecommerce.md) §4 的分阶段路线。
+
+> 注意 M3 已经把「模拟支付」简化为一个状态流转（`POST /api/orders/{id}/pay`）——
+> 真实项目这里要接支付网关并处理异步回调，本项目的定位不做。
