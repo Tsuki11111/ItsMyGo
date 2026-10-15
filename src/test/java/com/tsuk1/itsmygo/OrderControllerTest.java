@@ -54,11 +54,20 @@ class OrderControllerTest extends ApiTestBase {
                 .andExpect(status().isOk());
     }
 
+    /** 领一次性提交令牌（前端进结算页时会调） */
+    private String fetchOrderToken(String token) throws Exception {
+        String body = mockMvc.perform(get("/api/orders/token").header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(body).path("data").asText();
+    }
+
     private long placeOrder(String token, long addressId) throws Exception {
         String body = mockMvc.perform(post("/api/orders")
                         .header("Authorization", bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new CreateOrderRequest(addressId))))
+                        .content(objectMapper.writeValueAsString(
+                                new CreateOrderRequest(addressId, fetchOrderToken(token)))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200))
                 .andReturn().getResponse().getContentAsString();
@@ -147,7 +156,8 @@ class OrderControllerTest extends ApiTestBase {
         String body = mockMvc.perform(post("/api/orders")
                         .header("Authorization", bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new CreateOrderRequest(addressId))))
+                        .content(objectMapper.writeValueAsString(
+                                new CreateOrderRequest(addressId, fetchOrderToken(token)))))
                 .andExpect(jsonPath("$.data.statusLabel").value("待支付"))
                 .andExpect(jsonPath("$.data.order.totalAmount").value(3998.00))
                 // 收货信息是快照
@@ -271,9 +281,103 @@ class OrderControllerTest extends ApiTestBase {
         mockMvc.perform(post("/api/orders")
                         .header("Authorization", bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new CreateOrderRequest(addressId))))
+                        .content(objectMapper.writeValueAsString(
+                                new CreateOrderRequest(addressId, fetchOrderToken(token)))))
                 .andExpect(jsonPath("$.code").value(400))
                 .andExpect(jsonPath("$.message").value("请先勾选要购买的商品"));
+    }
+
+    // ── 防重复提交 ──
+
+    /** 用户连点两次「下单」：只有第一次成功，第二次令牌已被消费 */
+    @Test
+    void duplicateSubmitIsRejected() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        String token = customerToken("c" + System.nanoTime());
+        long productId = createProduct(admin, "Dup", "10.00", 10);
+        long addressId = createAddress(token);
+        addToCart(token, productId, 1);
+
+        String submitToken = fetchOrderToken(token);
+        String body = objectMapper.writeValueAsString(new CreateOrderRequest(addressId, submitToken));
+
+        mockMvc.perform(post("/api/orders")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(jsonPath("$.code").value(200));
+
+        // 同一个令牌再提交一次 —— 必须被拒
+        mockMvc.perform(post("/api/orders")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.message").value("订单已提交或令牌已失效，请勿重复提交"));
+
+        // 只扣了一次库存、只生成一笔订单
+        assertProductStock(token, productId, 9);
+        mockMvc.perform(get("/api/orders").header("Authorization", bearer(token)))
+                .andExpect(jsonPath("$.data.total").value(1));
+    }
+
+    /** 令牌是绑定用户的：拿别人的令牌用不了 */
+    @Test
+    void tokenIsBoundToItsOwner() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        String alice = customerToken("a" + System.nanoTime());
+        String bob = customerToken("b" + System.nanoTime());
+        long productId = createProduct(admin, "Bound", "10.00", 10);
+        long bobAddress = createAddress(bob);
+        addToCart(bob, productId, 1);
+
+        String aliceToken = fetchOrderToken(alice);
+
+        mockMvc.perform(post("/api/orders")
+                        .header("Authorization", bearer(bob))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new CreateOrderRequest(bobAddress, aliceToken))))
+                .andExpect(jsonPath("$.code").value(400));
+
+        // Bob 用自己的令牌照样能下单
+        placeOrder(bob, bobAddress);
+        assertProductStock(bob, productId, 9);
+    }
+
+    /** 下单失败（比如库存不足）要把令牌还回去，否则用户修正后无法重试 */
+    @Test
+    void tokenIsRestoredWhenOrderFails() throws Exception {
+        String token = customerToken("c" + System.nanoTime());
+        long addressId = createAddress(token);
+
+        String submitToken = fetchOrderToken(token);
+        String body = objectMapper.writeValueAsString(new CreateOrderRequest(addressId, submitToken));
+
+        // 购物车是空的 → 失败
+        mockMvc.perform(post("/api/orders")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(jsonPath("$.code").value(400));
+
+        // 同一个令牌仍然可用（失败时已归还）
+        mockMvc.perform(post("/api/orders")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.message").value("请先勾选要购买的商品"));
+    }
+
+    @Test
+    void orderWithoutTokenIsRejected() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        String token = customerToken("c" + System.nanoTime());
+        long productId = createProduct(admin, "NoTok", "10.00", 10);
+        long addressId = createAddress(token);
+        addToCart(token, productId, 1);
+
+        mockMvc.perform(post("/api/orders")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new CreateOrderRequest(addressId, ""))))
+                .andExpect(jsonPath("$.code").value(400));
     }
 
     @Test

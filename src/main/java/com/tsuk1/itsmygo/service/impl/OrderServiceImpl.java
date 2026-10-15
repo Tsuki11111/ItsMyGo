@@ -22,17 +22,20 @@ import com.tsuk1.itsmygo.mapper.ProductMapper;
 import com.tsuk1.itsmygo.service.OrderService;
 import com.tsuk1.itsmygo.service.StockService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -51,21 +54,70 @@ public class OrderServiceImpl implements OrderService {
     private final ProductMapper productMapper;
     private final AddressMapper addressMapper;
     private final StockService stockService;
+    private final StringRedisTemplate redisTemplate;
 
     public OrderServiceImpl(OrderMapper orderMapper, OrderItemMapper orderItemMapper,
                             CartItemMapper cartItemMapper, ProductMapper productMapper,
-                            AddressMapper addressMapper, StockService stockService) {
+                            AddressMapper addressMapper, StockService stockService,
+                            StringRedisTemplate redisTemplate) {
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
         this.cartItemMapper = cartItemMapper;
         this.productMapper = productMapper;
         this.addressMapper = addressMapper;
         this.stockService = stockService;
+        this.redisTemplate = redisTemplate;
+    }
+
+    /**
+     * 提交令牌存在 Redis 里，key 里带 userId —— 别人的令牌用不了。
+     * TTL 是为了不用的令牌自然消失（也满足共用 Redis「key 必须带 TTL」的约束）。
+     */
+    private static final String TOKEN_PREFIX = "its-my-go:order-token:";
+    private static final Duration TOKEN_TTL = Duration.ofMinutes(10);
+
+    @Override
+    public String issueToken(Long userId) {
+        String token = UUID.randomUUID().toString().replace("-", "");
+        redisTemplate.opsForValue().set(tokenKey(userId, token), "1", TOKEN_TTL);
+        return token;
+    }
+
+    /**
+     * 消费令牌。**DEL 本身是原子的**，两个并发请求同时删同一个 key 只有一个返回 1，
+     * 所以不需要额外加锁就能保证「只有一个请求能往下走」。
+     */
+    private void consumeToken(Long userId, String token) {
+        if (!Boolean.TRUE.equals(redisTemplate.delete(tokenKey(userId, token)))) {
+            throw new BizException(ResultCode.BAD_REQUEST,
+                    "订单已提交或令牌已失效，请勿重复提交");
+        }
+    }
+
+    /** 业务失败时把令牌还回去，让用户可以修正后重试（比如库存不足改数量） */
+    private void restoreToken(Long userId, String token) {
+        redisTemplate.opsForValue().set(tokenKey(userId, token), "1", TOKEN_TTL);
+    }
+
+    private String tokenKey(Long userId, String token) {
+        return TOKEN_PREFIX + userId + ":" + token;
     }
 
     @Override
     @Transactional
     public OrderView create(Long userId, CreateOrderRequest request) {
+        // 令牌校验放在最前面：重复提交在这里就被挡住，一个字节的业务逻辑都不会执行
+        consumeToken(userId, request.token());
+        try {
+            return doCreate(userId, request);
+        } catch (RuntimeException e) {
+            // 注意：这是「业务失败」，不是「重复提交」——令牌要还回去
+            restoreToken(userId, request.token());
+            throw e;
+        }
+    }
+
+    private OrderView doCreate(Long userId, CreateOrderRequest request) {
         Address address = addressMapper.selectById(request.addressId());
         if (address == null || !userId.equals(address.getUserId())) {
             throw new BizException(ResultCode.NOT_FOUND, "收货地址不存在");

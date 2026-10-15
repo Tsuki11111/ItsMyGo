@@ -138,7 +138,9 @@ class StockConcurrencyTest {
             pool.submit(() -> {
                 try {
                     start.await();
-                    orderService.create(userId, new CreateOrderRequest(addressId));
+                    // 每个买家各领一个令牌 —— 这测的是并发抢库存，不是重复提交
+                    String submitToken = orderService.issueToken(userId);
+                    orderService.create(userId, new CreateOrderRequest(addressId, submitToken));
                     succeeded.incrementAndGet();
                 } catch (Exception e) {
                     // 库存不足是预期结果之一

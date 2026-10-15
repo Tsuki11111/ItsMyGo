@@ -28,6 +28,15 @@ public class OrderController {
         this.orderService = orderService;
     }
 
+    /**
+     * 领一次性提交令牌 —— 前端进结算页时调，下单时带上。
+     * 用户连点两次「下单」只有第一次会成功，第二次因令牌已消费被拒。
+     */
+    @GetMapping("/token")
+    public Result<String> token(@AuthenticationPrincipal CurrentUser user) {
+        return Result.ok(orderService.issueToken(user.id()));
+    }
+
     @PostMapping
     public Result<OrderView> create(@AuthenticationPrincipal CurrentUser user,
                                     @Valid @RequestBody CreateOrderRequest request) {
