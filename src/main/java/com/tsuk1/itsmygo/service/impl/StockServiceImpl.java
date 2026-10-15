@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * 库存的两层防线：
@@ -25,8 +26,13 @@ import java.util.List;
 public class StockServiceImpl implements StockService {
 
     private static final String KEY_PREFIX = "its-my-go:stock:";
-    /** 硬约束：共用 Redis 是 volatile-lru 策略，不带 TTL 的 key 在内存打满时会让写入直接失败 */
-    private static final Duration STOCK_TTL = Duration.ofMinutes(30);
+    /**
+     * 库存缓存的基础存活时间。**必须带 TTL**：共用 Redis 是 volatile-lru 策略，
+     * 不带 TTL 的 key 在内存打满时会让写入直接失败。
+     */
+    private static final Duration STOCK_TTL_BASE = Duration.ofMinutes(30);
+    /** 抖动范围 ±5 分钟 —— 防止批量加载的键在同一秒集体过期（缓存雪崩） */
+    private static final long STOCK_TTL_JITTER_SECONDS = 300;
 
     /** 加载锁的存活时间：只是防「持有者崩了导致死锁」，要远小于一次业务耗时 */
     private static final Duration LOAD_LOCK_TTL = Duration.ofSeconds(5);
@@ -72,7 +78,7 @@ public class StockServiceImpl implements StockService {
         // 键可能已过期，直接 INCRBY 会凭空造一个库存键 —— 所以只补已存在的
         if (Boolean.TRUE.equals(redisTemplate.hasKey(key))) {
             redisTemplate.opsForValue().increment(key, quantity);
-            redisTemplate.expire(key, STOCK_TTL);
+            redisTemplate.expire(key, stockTtl());
         }
     }
 
@@ -80,7 +86,7 @@ public class StockServiceImpl implements StockService {
     public void reload(Long productId) {
         Product product = productMapper.selectById(productId);
         if (product != null) {
-            redisTemplate.opsForValue().set(key(productId), String.valueOf(product.getStock()), STOCK_TTL);
+            redisTemplate.opsForValue().set(key(productId), String.valueOf(product.getStock()), stockTtl());
         }
     }
 
@@ -110,7 +116,7 @@ public class StockServiceImpl implements StockService {
                 }
                 Product product = productMapper.selectById(productId);
                 if (product != null) {
-                    redisTemplate.opsForValue().set(key, String.valueOf(product.getStock()), STOCK_TTL);
+                    redisTemplate.opsForValue().set(key, String.valueOf(product.getStock()), stockTtl());
                 }
             } finally {
                 // 放锁一定要在 finally 里，否则中途抛异常锁会一直留到 TTL 到期
@@ -141,6 +147,17 @@ public class StockServiceImpl implements StockService {
 
     private boolean isLoaded(String key) {
         return Boolean.TRUE.equals(redisTemplate.hasKey(key));
+    }
+
+    /**
+     * TTL 加随机抖动（±5 分钟）。
+     * 若所有库存键都是固定 30 分钟，批量加载后它们会在同一秒集体过期，
+     * 那一瞬间大量请求同时回源 —— 这就是**缓存雪崩**。
+     */
+    private Duration stockTtl() {
+        long jitter = ThreadLocalRandom.current()
+                .nextLong(-STOCK_TTL_JITTER_SECONDS, STOCK_TTL_JITTER_SECONDS + 1);
+        return STOCK_TTL_BASE.plusSeconds(jitter);
     }
 
     private String key(Long productId) {

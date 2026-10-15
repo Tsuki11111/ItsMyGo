@@ -359,6 +359,63 @@ try {
 **取消订单会回滚库存**（`restoreStock`）：数据库 `stock + n`、`sales - n`，Redis 同步 `INCRBY`。
 回补时只补**已存在**的键 —— 键过期后再 `INCRBY` 会凭空造出一个错误的库存值。
 
+### 3.9 缓存防护另两项：穿透与雪崩
+
+§3.8 讲的是**击穿**（热 key 过期 → 并发回源）。另外两件容易混为一谈的事：
+
+| | 触发条件 | 本项目的对策 |
+|---|---|---|
+| **击穿** | 热 key **过期**，并发同时回源 | 加载加互斥锁（§3.8） |
+| **穿透** | 查**压根不存在**的数据，缓存永不命中 | 布隆过滤器（本节） |
+| **雪崩** | **大量 key 同时过期** | TTL 加随机抖动（本节） |
+
+#### 穿透 → 布隆过滤器（`ProductBloomFilter`）
+
+查一个不存在的商品 ID，库存缓存里当然没有它，于是每次都打到数据库 —— Redis 完全不起作用。
+恶意刷接口时这就成了打库的利器。
+
+**用 Redis bitmap 自己实现**（而不是 Guava 的本地布隆过滤器）：本地版在**多实例部署下各存一份**，
+商品上下架无法同步，重启还会丢；放 Redis 里天然是分布式共享的。
+
+```
+BIT_SIZE = 2^20 位（128 KB）·  HASH_COUNT = 6 个 hash 函数
+add          → 6 个 bit 全置 1
+mightContain → 6 个 bit 全为 1 才返回 true
+```
+
+**特性**：说「不存在」**一定准**，说「存在」**有小概率误判**（假阳性）。
+所以它只能用来**挡掉确定不存在的请求**，命中了的仍要正常查库：
+
+```java
+if (!bloomFilter.mightContain(id)) {
+    throw new BizException(ResultCode.NOT_FOUND, "商品不存在或已下架");   // 一次库都不查
+}
+Product product = productMapper.selectById(id);                        // 命中的照常查
+```
+
+**两个必须做的维护点**：
+1. **新商品创建时增量加入**（`ProductServiceImpl.create` 里 `bloomFilter.add`），
+   否则刚上架的商品自己的详情页会被判成「不存在」
+2. **应用启动时预热**（实现 `ApplicationRunner`）—— 重启后 Redis 里的位图可能已过期，
+   过滤器若是空的会**把所有请求都判为不存在**，比没有过滤器还糟
+
+6 个 bit 的读写各用一条 Lua 脚本一次往返完成，不是 6 次网络调用。
+
+#### 雪崩 → TTL 随机抖动
+
+库存键的 TTL 原本固定 30 分钟。若一批商品是同时被加载的，它们的键就会在**同一秒集体过期**，
+那一瞬间所有请求一起回源 —— 和击穿的现象一样，只是成因是「同时过期」而非「单个热 key」。
+
+```java
+private Duration stockTtl() {
+    long jitter = ThreadLocalRandom.current()
+            .nextLong(-300, 301);              // ±5 分钟
+    return STOCK_TTL_BASE.plusSeconds(jitter);
+}
+```
+
+**凡是给一批 key 设 TTL，就该带抖动** —— 这条在实现里比记在文档里重要。
+
 ---
 
 ## 4. 测试怎么写的
@@ -388,6 +445,7 @@ try {
 | `OrderControllerTest` | 下单扣库存并清空购物车；**订单快照**（改价后历史订单不变）；完整生命周期；非法流转被拒；取消回滚库存；越权 404；顾客不能发货 |
 | **`StockConcurrencyTest`** | **10 个买家并发抢 5 件**：恰好 5 成功 5 拒，库存归零、销量 5，卖的+剩的 == 初始库存 |
 | **`StockCacheBreakdownTest`** | **缓存击穿**：清空库存键后 20 并发，断言数据库**只被查 1 次**（去掉互斥锁会变成 20） |
+| **`CacheProtectionTest`** | **穿透**：查不存在的 ID 时数据库零查询；存在的不被误挡。**雪崩**：连续刷新 20 次，TTL 不是固定值 |
 | `StorageServiceTest` | 上传成功 + **URL 可匿名读取**；拒绝非图片；顾客不能上传 |
 | `SharedRedisTest` | 共用 Redis 连通；key 前缀；**TTL 存在**（见 HANDOFF §5.5） |
 | `MyBatisPlusCompatibilityTest` | 一次完整 CRUD，验证 MP 在 Boot 4.1.1 上可用 |

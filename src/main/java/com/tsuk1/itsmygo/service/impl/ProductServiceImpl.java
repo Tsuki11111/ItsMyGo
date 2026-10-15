@@ -2,6 +2,7 @@ package com.tsuk1.itsmygo.service.impl;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.tsuk1.itsmygo.common.ProductBloomFilter;
 import com.tsuk1.itsmygo.common.ResultCode;
 import com.tsuk1.itsmygo.common.exception.BizException;
 import com.tsuk1.itsmygo.dto.PageResponse;
@@ -19,9 +20,11 @@ public class ProductServiceImpl implements ProductService {
     private static final int MAX_PAGE_SIZE = 100;
 
     private final ProductMapper productMapper;
+    private final ProductBloomFilter bloomFilter;
 
-    public ProductServiceImpl(ProductMapper productMapper) {
+    public ProductServiceImpl(ProductMapper productMapper, ProductBloomFilter bloomFilter) {
         this.productMapper = productMapper;
+        this.bloomFilter = bloomFilter;
     }
 
     @Override
@@ -43,6 +46,10 @@ public class ProductServiceImpl implements ProductService {
     /** 顾客端详情：已下架的商品一律当不存在 */
     @Override
     public Product detailForCustomer(Long id) {
+        // 布隆过滤器先挡一层：说「不存在」一定准，直接拒掉，不打数据库
+        if (!bloomFilter.mightContain(id)) {
+            throw new BizException(ResultCode.NOT_FOUND, "商品不存在或已下架");
+        }
         Product product = productMapper.selectById(id);
         if (product == null || !Integer.valueOf(ON_SALE).equals(product.getStatus())) {
             throw new BizException(ResultCode.NOT_FOUND, "商品不存在或已下架");
@@ -56,6 +63,8 @@ public class ProductServiceImpl implements ProductService {
         apply(product, request);
         product.setSales(0);
         productMapper.insert(product);
+        // 新商品立刻进过滤器，否则它自己的详情页会被判成「不存在」
+        bloomFilter.add(product.getId());
         return product;
     }
 
