@@ -28,33 +28,40 @@
 
 ## 1. 当前状态一句话
 
-**M5（前端）进行中（2026-10-16）。** 工程骨架 + **商品列表页（品类栏 + 轮播 + 商品网格）
-已跑通**；后端 M0–M4 完整，**自动化测试 73 个全绿**。
+**M5（前端）进行中（2026-10-16）。** 已跑通：**商品列表、商品详情、登录注册、
+结算下单（含「立即购买」）、订单详情与支付**；后端 M0–M4 完整，
+**自动化测试 76 条**。
 
 前端技术栈：Vite 8 + Vue 3.5 + TypeScript 5.9 + Element Plus 2.14 + Pinia + Vue Router。
 配色定稿为「浅粉做面 + 深粉做点」，见 [docs/color-preview.html](docs/color-preview.html)。
 
 **做之前先看 [docs/implementation.md](docs/implementation.md) §4** —— 前端的工程结构、
-配色规矩、和后端对接的三个约定都在那。前端**还没有自动化测试**，也没进 CI。
+配色规矩、登录态怎么存、下单链路怎么串、和后端对接的四个约定都在那。
+前端**还没有自动化测试**，也没进 CI。
 
-下一步：**商品详情页 → 登录注册 → 购物车 → 结算下单 → 我的订单 → 管理端**。
+⚠️ **库里留着种子数据时，跑测试会有 5 条失败**（`CategoryControllerTest` /
+`ProductControllerTest` 断言的是「全表只有 N 条」）。这是**已知缺口，不是回归**，见 §5.20。
+
+下一步：**购物车页 → 我的订单 → 管理端**。
 
 ---
 
 ## 2. 下一步做什么：M5 前端的剩余页面
 
-工程骨架和商品列表页已完成。按这个顺序往下做：
+商品列表、商品详情、登录注册、结算下单、订单详情都已完成。按这个顺序往下做：
 
-1. **商品详情页** — 含实时库存（走 `GET /api/products/{id}/stock`）、加入购物车
-2. **购物车页** — 改数量、勾选、删除、算总价
-3. **登录注册页** — 把 Pinia 的登录态接上（token 存 localStorage，key 是 `its-my-go:token`）
-4. **结算下单** — 选地址 → **领提交令牌** → 下单
-5. **我的订单** — 列表已支持带明细（`GET /api/orders`，`previewLimit` 控制每个订单给几条）
-6. **管理端** — 分类/商品 CRUD、传图、发货、退款审核、超时取消
+1. **购物车页** — 改数量、勾选、删除、算总价。顶栏那个「购物车」链接目前还是断的；
+   做完它顺便把结算页的**购物车来源**接上（后端和 `Checkout.vue` 的结构都已就绪）
+2. **我的订单** — 列表已支持带明细（`GET /api/orders`，`previewLimit` 控制每个订单给几条）。
+   订单详情页 `OrderDetail.vue` 已经能用，列表项点进去即可
+3. **管理端** — 分类/商品 CRUD、传图、发货、退款审核、超时取消
 
-⚠️ **三个对接约定**（细节见 implementation §4.3）：
+⚠️ **四个对接约定**（细节见 implementation §4.3）：
 响应拦截器按 **body 的 `code`** 判断而不是 HTTP 状态码；库存走独立接口；
-下单必须先领提交令牌。
+下单必须先领提交令牌；**401 会自动清登录态**。
+
+⚠️ **登录态统一走 `stores/user.ts`**（细节见 implementation §4.5）——
+判断登录用 `userStore.isLoggedIn`，别在组件里直接读 localStorage。
 
 ⚠️ 管理端**直接套 Element Plus 默认样式，别折腾**——后台没人看颜值，时间投在顾客端。
 
@@ -131,10 +138,13 @@ src/main/java/com/tsuk1/itsmygo/
 
 ```
 frontend/
-├── vite.config.ts          # /api 代理到 8080（开发时后端不用配 CORS）
+├── vite.config.ts          # /api 代理到 8080；端口读 `PORT` 环境变量
 ├── src/
-│   ├── api/http.ts         # axios 封装：拦截器按 body 的 code 判断
+│   ├── api/http.ts         # axios 封装：拦截器按 body 的 code 判断 + 登录凭据存取
 │   ├── api/types.ts        # 与后端 DTO 对应的类型（手写）
+│   ├── api/{product,cart,auth,address,order}.ts
+│   ├── stores/user.ts      # 登录态
+│   ├── components/ProductImage.vue   # 商品图 + 无图占位
 │   ├── styles/theme.css    # 色板 + Element Plus 主题覆盖（必须在 element-plus 之后引入）
 │   ├── router/ · views/ · App.vue · main.ts
 ```
@@ -164,6 +174,24 @@ docker exec -i mysql sh -c 'mysql --default-character-set=utf8mb4 -utsuk1 -p"$MY
 - 轮播用 `el-carousel`，**它的 `height` 参数只认具体像素**，传 `100%` 会塌成空白 ——
   得用 `:deep(.el-carousel__container) { height: 100% }` 撑满
 - 窄屏（≤820px）时品类栏收成横向滚动条
+
+**商品详情页**（`views/ProductDetail.vue`）：左图右信息两栏（`grid` 420px + 1fr），
+下面接「商品详情」「同类商品」两个区块。
+
+- 库存走 `GET /api/products/{id}/stock`，**和详情分开处理**：详情成功但库存拿不到时，
+  页面照常显示，只是数字暂时是旧的
+- 同类商品：后端只有分页接口，所以取同分类 8 条后**在内存里**排掉自己、留前 4 条
+
+**登录页**（`views/Login.vue`）：登录 / 注册同页签切换，共用一套校验规则
+（约束照抄后端 `RegisterRequest`）。登录成功按 `?redirect=` 回跳，
+从「加购」跳过来的能直接回到那件商品。页脚写着演示账号，**真上线要拿掉**。
+
+**结算页**（`views/Checkout.vue`）：选收货地址（页内就能新增）+ 商品清单 + 提交订单。
+商品通过 **URL 参数**传（`?productId=X&quantity=N`），刷新页面不丢。
+**提交令牌在进页面时就领好**，提交时复用同一个 —— 提交时才领的话连点两次会各领一个，
+防重复提交就形同虚设。
+
+**订单详情页**（`views/OrderDetail.vue`）：下单后的落点，待支付时能直接付款。
 
 ---
 
@@ -590,9 +618,108 @@ Error [ERR_PACKAGE_PATH_NOT_EXPORTED]: Package subpath './lib/tsc' is not define
 **排查规矩**：push 报错后**先 `git fetch origin`、再看 `git status -sb`** 确认真实状态。
 **绝不因为报错就 `--force` 强推** —— 那才是真会丢东西的操作。
 
+### 5.19 ★ 测试把整张订单表清空了（2026-10-16 踩到并修复）
+
+`StockConcurrencyTest` / `PaymentConcurrencyTest` 的 `@AfterEach` 里原本写着：
+
+```java
+orderMapper.delete(null);
+cartItemMapper.delete(null);
+addressMapper.delete(null);
+```
+
+**MyBatis-Plus 的 Wrapper 传 `null` 不是「无条件匹配」，而是「没有 where 条件」** ——
+生成的 SQL 就是 `DELETE FROM orders`，整张表清空。
+
+这两个测试刻意不加 `@Transactional`（并发要的是真实提交），所以清理是**真删**；
+而**本地开发库和测试库是同一个库** —— 跑一次测试，开发时下的订单、加过的购物车、
+存过的收货地址全都没了。
+
+**发现过程**：改完「立即购买」跑了一次全量测试，之后发现页面上的购物车空了、
+`orders` 表只剩刚下的那一单，而自增 id 已经到 721（说明历史上确实有过很多订单）。
+
+**修法**：按「本次测试造的那些行」删 —— 测试本来就维护了 `createdUserIds`，
+顺着它删订单、订单项、支付流水、购物车行、地址即可。
+`StockConcurrencyTest` 里那句 `orderMapper.selectCount(null)` 同理，
+数全表的话库里只要有别的订单就恒真，等于没测，改成只数本次测试的买家。
+
+**修完验证过**：跑全量测试前后对比开发数据，一条没少。
+
+**教训**：`delete(null)` 长得像「删全部」，所以不容易被当成 bug ——
+问题不在于它删了什么，而在于它删了**不属于这次测试**的东西。
+写测试清理时都问一句：**这条 SQL 会碰到别人造的数据吗**。
+
+### 5.20 开发库有种子数据时，一批测试会失败（2026-10-16 记录，**尚未解决**）
+
+`CategoryControllerTest` / `ProductControllerTest` 有几条断言的是**全表条数**：
+
+```java
+.andExpect(jsonPath("$.data.total").value(1));   // 以为库里只有自己造的那一条
+```
+
+但 `sql/seed-data.sql` 导进去的是 **10 个分类、23 个商品**，于是报
+`expected:<1> but was:<24>`。
+
+**这是「测试和开发共用一个库」的必然结果，不是代码 bug** —— 每次 5 条，两条命令就能复现。
+CI 不受影响（它的 MySQL 是干净的 service 容器）。
+
+**正解是让测试跑在独立的库上**（如 `its_mygo_test` + `application-test.yml` 指过去），
+代价是要多建一个库、多一份配置。在那之前：**本地跑测试前先清掉种子数据**。
+
 ---
 
 ## 6. 历史记录
+
+### 2026-10-16 · 立即购买 + 结算页 + 订单详情
+
+**起因**：用户要在商品详情页「加入购物车」旁边加一个「立即购买」。
+
+**先确认了语义**：主流电商（淘宝 / 京东）的「立即购买」是**跳过购物车直达确认订单**。
+所以后端下单接口得支持两种商品来源，而不是「前端先加购再结算」——
+后者会让购物车里出现用户没主动加过的记录。
+
+**后端**：`CreateOrderRequest` 加可选 `items`。为空 → 从购物车勾选项下单并清空这些行；
+传了 → 「立即购买」，**完全不碰购物车**。两种来源在 Service 里归一到同一个 `OrderLine`，
+之后共用库存扣减、快照、令牌那一整套，唯一的分叉就是最后那句「要不要清购物车」。
+**新增测试 3 条**：不动购物车、超库存被拒、中途失败要回补 Redis 预扣。
+
+**前端**：详情页加「立即购买」按钮（实心 / 描边拉开层级）；新增 `Checkout.vue`
+（选地址 + 内联新增地址 + 商品清单 + 提交）、`OrderDetail.vue`（订单信息 + 支付）、
+`api/address.ts`、`api/order.ts`。链路是
+详情页 → `/checkout?productId=X&quantity=N` → `/order/:id`。
+
+**顺带修了一个真 bug**（详见 §5.19）：两个并发测试的 `@AfterEach` 用
+`xxxMapper.delete(null)` 清数据，在 MyBatis-Plus 里那等于 `DELETE FROM 整张表` ——
+跑一次测试就把开发库的订单、购物车、地址全抹掉。改成按本次测试的 `createdUserIds` 删。
+
+**验证**：浏览器里真走了「未登录点立即购买 → 跳登录 → 回跳 → 结算 → 新增地址 → 下单 → 支付」
+全流程；另外用接口确认**立即购买前后，购物车里那条商品和它的库存纹丝不动**。
+
+**遗留**：§5.20 尚未解决 —— 开发库里留着种子数据时，跑测试有 5 条会失败。
+
+### 2026-10-16 · M5 前端续：商品详情页 + 登录注册
+
+**新增页面**：`ProductDetail.vue`（左图右信息 + 实时库存 + 加购）、
+`Login.vue`（登录 / 注册同页签切换）。
+
+**新增前端基建**：
+
+- `stores/user.ts` —— 登录态的 Pinia store。凭据存 localStorage
+  （`its-my-go:token` / `its-my-go:user`），**`api/http.ts` 是这两个 key 的唯一归属地**
+- `api/cart.ts`、`api/auth.ts`
+- `components/ProductImage.vue` —— 无图占位从列表页抽出来，列表 / 详情两处共用
+- **401 自动登出**：`http.ts` 收到 401 就清凭据并广播事件，store 监听后同步内存状态。
+  没有这一步，用户会卡在「顶栏显示已登录、但每个操作都报错」的状态里
+
+**顺带接上的**：列表页卡片的「加入购物车」按钮（上一轮留下的空壳，点了没反应）
+与卡片点击进详情。
+
+**改了一处工具链**：`vite.config.ts` 的端口改成读 `PORT` 环境变量（没设时仍是 5173），
+`.claude/launch.json` 开 `autoPort` —— 为了在浏览器里验证时不和**另一个会话已经占着 5173**
+的 dev server 撞车。
+
+**验证**（浏览器里真跑过一遍）：登录 → 带 `redirect` 回跳 → 加购 → 查购物车接口确认数据落库
+→ 退出登录；另外看了商品不存在时的空状态。**前端仍无自动化测试。**
 
 ### 2026-10-16 · M5 前端起步：工程骨架 + 商品列表页
 

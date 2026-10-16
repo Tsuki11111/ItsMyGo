@@ -78,7 +78,7 @@
 | M2 商品与分类 | ✅ 完成（2026-10-13） |
 | M3 购物车与下单 | ✅ 完成（2026-10-15）—— 防超卖、缓存三防、Cache-Aside、防重复提交、接口限流 |
 | M4 支付与售后 | ✅ 完成（2026-10-16）—— 支付流水、退款审核、超时取消、原子状态流转 |
-| **M5 前端** | 🔄 **进行中** —— 工程骨架 + 商品列表页已跑通（Vite + Vue 3 + TS + Element Plus，配色见 [color-preview](docs/color-preview.html)） |
+| **M5 前端** | 🔄 **进行中** —— 商品列表、商品详情、登录注册、结算下单（含「立即购买」）、订单详情已跑通（Vite + Vue 3 + TS + Element Plus，配色见 [color-preview](docs/color-preview.html)） |
 | M6 客服接入 → M7 查订单环回 | ⬜ 未开始 |
 
 **交易闭环已通**：浏览商品 → 加购 → 下单（扣库存）→ 支付 → 发货 → 收货，
@@ -91,7 +91,8 @@
 种子数据见 [sql/seed-data.sql](sql/seed-data.sql)，详见 [HANDOFF §3.4](HANDOFF.md)。
 
 **CI**：每次 push 自动在干净环境跑测试（[`.github/workflows/test.yml`](.github/workflows/test.yml)）。
-本地 60 条全跑；CI 跳过 3 条依赖 MinIO 的（MinIO 已停止公开分发镜像，详见 [HANDOFF §5.12](HANDOFF.md)）。
+本地 76 条，CI 跳过 3 条依赖 MinIO 的、跑 73 条（MinIO 已停止公开分发镜像，详见 [HANDOFF §5.12](HANDOFF.md)）。
+⚠️ 本地库里留着种子数据时，会有 5 条断言「全表只有 N 条」的测试失败 —— 是已知缺口，见 [HANDOFF §5.20](HANDOFF.md)。
 
 各里程碑的可验收产物见 [docs/decisions-ecommerce.md](docs/decisions-ecommerce.md) §4。
 

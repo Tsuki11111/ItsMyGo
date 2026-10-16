@@ -257,6 +257,26 @@ ON DUPLICATE KEY UPDATE quantity = quantity + #{quantity}
 不准就抛「订单当前是「待支付」，不能变成「已发货」」，然后才改状态和时间戳。
 **非法流转在这一处被挡住**，而不是在每个接口里各写一遍校验。
 
+**两种下单来源：购物车结算 / 立即购买**
+
+- `CreateOrderRequest.items` **为空** → 从购物车**勾选项**下单，下单后删掉这些行
+- `items` **传了** → 就是「立即购买」，**完全不碰购物车**
+
+两种来源在 Service 里先归一到同一个内部结构，之后走同一条路：
+
+```java
+private record OrderLine(Long productId, int quantity) { }
+
+boolean fromCart = request.items() == null || request.items().isEmpty();
+List<OrderLine> lines = fromCart ? selectedCartLines(userId) : buyNowLines(request.items());
+...
+// 只有购物车结算才清空勾选行 —— 「立即购买」从头到尾没碰过购物车
+if (fromCart) { cartItemMapper.delete(...); }
+```
+
+**最后那个 `if` 就是两种来源唯一的实质差异**，也是「立即购买」的语义所在：
+用户没让我加购物车，我就不能动它。库存扣减、快照、令牌那些全都共用。
+
 **订单快照**（`order_items` 的 `product_name` / `product_image` / `unit_price`）：
 
 ```java
@@ -646,15 +666,27 @@ redisTemplate.rename(tempKey, KEY);   // 原子切换
 
 ```
 frontend/
-├── vite.config.ts          # /api 代理到 8080，开发时不需要后端配 CORS
+├── vite.config.ts          # /api 代理到 8080；端口读 `PORT` 环境变量（预览工具靠它挑空闲端口）
 ├── src/
 │   ├── api/
-│   │   ├── http.ts         # axios 封装 + 拦截器
+│   │   ├── http.ts         # axios 封装 + 拦截器 + **登录凭据的存取**（token 的唯一归属地）
 │   │   ├── types.ts        # 与后端 DTO 一一对应的类型（手写）
-│   │   └── product.ts      # 商品相关接口
+│   │   ├── product.ts      # 商品 / 分类 / 实时库存
+│   │   ├── cart.ts         # 购物车
+│   │   ├── auth.ts         # 登录 / 注册
+│   │   ├── address.ts      # 收货地址
+│   │   └── order.ts        # 下单 / 支付 / 提交令牌
+│   ├── stores/user.ts      # 登录态（localStorage 的响应式包装）
+│   ├── components/
+│   │   └── ProductImage.vue  # 商品图 + 无图占位（列表页 / 详情页 / 订单共用）
 │   ├── styles/theme.css    # 色板 + Element Plus 主题覆盖
 │   ├── router/index.ts
-│   ├── views/ProductList.vue
+│   ├── views/
+│   │   ├── ProductList.vue     # 首页：品类栏 + 轮播 + 商品网格
+│   │   ├── ProductDetail.vue   # 商品详情
+│   │   ├── Login.vue           # 登录 / 注册（同一个页签切换）
+│   │   ├── Checkout.vue        # 确认订单：选地址 + 商品清单 + 提交
+│   │   └── OrderDetail.vue     # 订单详情 + 支付
 │   ├── App.vue             # 顶栏 + 内容区
 │   └── main.ts
 └── .gitignore
@@ -684,7 +716,7 @@ frontend/
 价格用 **`ui-monospace` 等宽字体** —— 一列 `¥259.00` / `¥2680.00` 的小数点会垂直对齐，
 成本几乎为零，质感差别很大。
 
-### 4.3 与后端对接的三个约定
+### 4.3 与后端对接的四个约定
 
 **① 响应拦截器按 body 的 `code` 判断，不能只看 HTTP 状态码**
 
@@ -701,10 +733,45 @@ frontend/
 
 进结算页 → `GET /api/orders/token` → 提交时带上。不传会被拒（见 §3.7）。
 
+**④ 401 会**自动**清登录态**
+
+`http.ts` 收到 401（token 过期 / 无效）时清掉 localStorage 里的凭据，
+并广播 `its-my-go:unauthorized`；`stores/user.ts` 监听后同步内存状态。
+**不这么做的话，用户会卡在「顶栏显示已登录、但每个操作都报错」的状态里**。
+
 ### 4.4 无图占位
 
 商品 `mainImage` 为空时，用**按 id 取的粉色渐变块 + 商品名首字**占位，
 而不是灰底"暂无图片"。这样既不会让卡片塌掉，也能看出"图占大头"的版式效果。
+
+实现在 `components/ProductImage.vue`，列表页和详情页共用；
+**首字字号由外层容器给**（卡片 40px、详情页 96px），组件自己不写死。
+
+### 4.5 登录态存在哪
+
+- 凭据放 localStorage 两个 key：`its-my-go:token`（JWT）、`its-my-go:user`（身份信息 JSON）
+- **`api/http.ts` 是这两个 key 的唯一归属地** ——
+  `getToken` / `setToken` / `getStoredUser` / `setStoredUser` / `clearAuth` 都在那里，
+  别在组件里直接 `localStorage.getItem`
+- `stores/user.ts` 只是它的**响应式包装**，页面里统一用
+  `userStore.isLoggedIn` / `displayName` / `isAdmin`，判断登录**不要**去读 token 有没有值
+- 刷新页面直接从 localStorage 恢复，不必再打一次 `/auth/me`
+- 需要登录的操作（加购…）在未登录时提示一句，并带 `redirect` 跳登录页，
+  **登录完回到原处**（`/login?redirect=/product/3`）
+
+### 4.6 「立即购买」这一串怎么走的
+
+```
+详情页「立即购买」
+   → /checkout?productId=X&quantity=N    结算页：选地址 + 商品清单 + 提交
+   → /order/:id                          订单详情：能看到状态，待支付时直接付款
+```
+
+- **商品通过 URL 参数传，不塞 Pinia** —— 刷新页面不丢，链接也能直接发给别人
+- 结算页**进页面就领提交令牌**，提交时复用同一个。放在提交时才领的话，
+  连点两次会各领一个新令牌，防重复提交就形同虚设了
+- 结算页提交时带上 `items`，后端据此走「立即购买」分支，**购物车毫发无损**
+  （见 §3.7）。用户如果是加购后再结算，`items` 留空即可，前端不用另做一套
 
 ---
 
@@ -719,11 +786,30 @@ frontend/
 **整个测试方法跑在一个事务里，结束后自动回滚**，所以测试数据不会污染数据库。
 （例外：MinIO 上传不在事务里，会留下文件——本地开发可接受。）
 
-**唯一不加 `@Transactional` 的测试是 `StockConcurrencyTest`** —— 并发要的是真实提交，
-整个测试包在一个事务里的话其他线程根本看不到数据，也就测不出竞态。
-代价是数据不会自动回滚，所以它自己在 `@AfterEach` 里清理。
+**两个并发测试（`StockConcurrencyTest` / `PaymentConcurrencyTest`）刻意不加 `@Transactional`** ——
+并发要的是真实提交，整个测试包在一个事务里的话其他线程根本看不到数据，也就测不出竞态。
+代价是数据不会自动回滚，所以它们自己在 `@AfterEach` 里清理。
 
-覆盖重点（当前 43 条）：
+⚠️ **清理必须按「本次测试造的那些行」删，不能图省事传 null**：
+
+```java
+// ❌ 看着像「无条件」，其实就是没有 where —— DELETE FROM orders，整张表没了
+orderMapper.delete(null);
+
+// ✅ 只删本次测试造的买家的订单
+orderMapper.delete(Wrappers.<Order>lambdaQuery().in(Order::getId, orderIds));
+```
+
+MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
+**本地开发库和测试库是同一个**，所以一跑测试，开发时下的订单、加过的购物车、
+存过的收货地址会被一起抹掉 —— 而且很难往「是测试干的」上想。
+（这个问题 2026-10-16 发现并修掉，见 HANDOFF §5.19。）
+
+⚠️ **反方向的坑：开发库里有种子数据时，一批测试会失败**（`CategoryControllerTest` /
+`ProductControllerTest` 断言的是「全表只有 N 条」，而库里躺着 10 个分类、23 个商品）。
+这是**已知且尚未解决**的问题，正解是让测试跑在独立的库上，见 HANDOFF §5.20。
+
+覆盖重点（当前 **76** 条；CI 上跳过 3 条依赖 MinIO 的，跑 73）：
 
 | 测试类 | 覆盖 |
 |---|---|
@@ -732,7 +818,7 @@ frontend/
 | `CategoryControllerTest` | 树形结构；停用分类对顾客隐藏；非管理员 403；有子分类/有商品时禁删 |
 | `ProductControllerTest` | 上架可见/下架隐藏；关键词搜名称与副标题；分类筛选；分页；非管理员 403 |
 | `CartControllerTest` | 重复加购累加数量；总价只算已勾选且可购买；超库存被拒；**越权 404**；需登录 |
-| `OrderControllerTest` | 下单扣库存并清空购物车；**订单快照**（改价后历史订单不变）；完整生命周期；非法流转被拒；取消回滚库存；越权 404；顾客不能发货；**库存实时性**；**防重复提交**；**支付流水**；**退款申请/同意/驳回**；**超时取消** |
+| `OrderControllerTest` | 下单扣库存并清空购物车；**订单快照**（改价后历史订单不变）；完整生命周期；非法流转被拒；取消回滚库存；越权 404；顾客不能发货；**库存实时性**；**防重复提交**；**支付流水**；**退款申请/同意/驳回**；**超时取消**；**立即购买不动购物车**、超库存被拒、中途失败要回补预扣的库存 |
 | **`StockConcurrencyTest`** | **10 个买家并发抢 5 件**：恰好 5 成功 5 拒，库存归零、销量 5，卖的+剩的 == 初始库存 |
 | **`StockCacheBreakdownTest`** | **缓存击穿**：清空库存键后 20 并发，断言数据库**只被查 1 次**（去掉互斥锁会变成 20） |
 | **`PaymentConcurrencyTest`** | **并发支付**只成功一次（守唯一索引）；**并发取消只回滚一次库存**（守状态机原子性，没有索引兜底的那个） |
@@ -761,8 +847,14 @@ frontend/
 
 ## 7. 还没实现的部分
 
-M5 前端只起了个骨架（商品列表页），其余页面待做：商品详情、购物车、登录注册、
-结算下单、我的订单、以及整个管理端。
+M5 前端已完成**商品列表、商品详情、登录注册、结算下单、订单详情**，
+其余页面待做：购物车、我的订单、以及整个管理端。
+
+⚠️ 结算页现在**只支持「立即购买」那一套**（商品通过 URL 参数传）。
+购物车结算的入口等购物车页做好再接 —— 后端已经支持了（`items` 留空即可），
+前端也只要把商品清单的数据源换掉，`Checkout.vue` 的结构不用动。
+
+**前端还没有自动化测试，也没进 CI** —— 目前靠浏览器手工走一遍。
 
 M6 / M7 是客服链路：gRPC 接入（`rag_helper` 那边已就绪）、查订单环回。
 
