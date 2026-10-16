@@ -226,17 +226,21 @@ MultipartFile
 **加购用一条原子 SQL**，而不是「先查再插/改」：
 
 ```sql
-INSERT INTO cart_items (user_id, product_id, quantity, selected)
-VALUES (?, ?, ?, 1)
+INSERT INTO cart_items (user_id, product_id, sku_id, quantity, selected)
+VALUES (?, ?, ?, ?, 1)
 ON DUPLICATE KEY UPDATE quantity = quantity + #{quantity}
 ```
 
-> 靠 `uk_user_product` 唯一索引 + `ON DUPLICATE KEY UPDATE` 一次搞定「不存在就插、已存在就累加」。
-> 换成「先 select 判断再 insert/update」，两个请求同时加购同一商品会双双查到「不存在」、
-> 双双插入，其中一个必然撞唯一索引报错。
+> 靠 `uk_user_sku (user_id, sku_id)` 唯一索引 + `ON DUPLICATE KEY UPDATE` 一次搞定
+> 「不存在就插、已存在就累加」。换成「先 select 判断再 insert/update」，
+> 两个请求同时加购同一规格会双双查到「不存在」、双双插入，其中一个必然撞唯一索引报错。
+>
+> 唯一键从「用户 + 商品」换成「用户 + SKU」之后，**同一件商品的不同规格可以各占一行** ——
+> 这正是多规格购物车和单规格时代最大的区别（见 §3.12）。
 
 **视图组装**（`buildView`）：购物车行只存 `product_id`，展示需要商品名/图/价/库存 ——
-所以**按 productId 批量查一次商品再内存拼装**，不做逐行查库（N+1），也不做 join
+所以**按 productId 批量查一次商品、再按 skuId 批量查一次 SKU，然后内存拼装**，
+不做逐行查库（N+1），也不做 join
 （join 了还得处理重复列名）。
 
 **商品被删除时**不隐藏这一行，而是显示「商品已删除」让用户自己删 —— 静默消失比看得见的异常更让人困惑。
@@ -277,15 +281,20 @@ if (fromCart) { cartItemMapper.delete(...); }
 **最后那个 `if` 就是两种来源唯一的实质差异**，也是「立即购买」的语义所在：
 用户没让我加购物车，我就不能动它。库存扣减、快照、令牌那些全都共用。
 
-**订单快照**（`order_items` 的 `product_name` / `product_image` / `unit_price`）：
+**订单快照**（`order_items` 的 `product_name` / `product_image` / `spec_text` / `unit_price`）：
 
 ```java
 item.setProductName(product.getName());     // 下单那一刻的名字
-item.setUnitPrice(product.getPrice());      // 下单那一刻的价格
+item.setUnitPrice(sku.getPrice());          // 下单那一刻**那一款**的价格
+item.setSpecText(sku.getSpecText());        // 「颜色:黑色;版本:静音版」
 ```
 
-`product_id` 只是留个追溯线索，**展示订单时绝不能 join 商品表取当前值** ——
+`product_id` / `sku_id` 只是留个追溯线索，**展示订单时绝不能 join 商品表取当前值** ——
 否则商品一改价，所有历史订单的金额跟着变，对账就废了。
+
+`spec_text` 同样是快照、而且**必须**是快照：规格值会改名、会被删掉，
+历史订单得原样显示当时买的是哪一款。`SkuOrderTest` 里有一条专门盯这个 ——
+下单后把「白色」改名叫「珍珠白」，订单里读出来仍是「白色」。
 
 收货信息同理：`orders.receiver / phone / address` 也是下单时的快照，
 用户事后改地址或删地址都不影响历史订单。
@@ -382,9 +391,12 @@ concurrentPayOnlySucceedsOnce          ✓ 仍通过（被唯一索引兜住）
 
 令牌必须带 TTL：既满足共用 Redis 的硬约束，也让没人用的令牌自然消失。
 
-### 3.8 库存扣减（`StockServiceImpl` + `ProductMapper.deductStock`）—— 本项目最值钱的一段
+### 3.8 库存扣减（`StockServiceImpl` + `ProductSkuMapper.deductStock`）—— 本项目最值钱的一段
 
 **要防的问题**：两个人同时买最后一件，不能都下单成功。
+
+**粒度是 SKU，不是商品** —— 同一件商品的黑色和白色各算各的库存。
+商品上的 `stock` 只是各 SKU 的汇总，不参与任何判定（见 §3.12）。
 
 **两层防线**：
 
@@ -397,8 +409,9 @@ if tonumber(stock) < tonumber(ARGV[1]) then return -1 end
 return redis.call('DECRBY', KEYS[1], ARGV[1])
 ```
 
-作用是**把绝大多数并发请求挡在数据库之外**。键是 `its-my-go:stock:{productId}`，
-**必须带 TTL**（30 分钟）——共用 Redis 是 volatile-lru，不带 TTL 的键在内存打满时写失败。
+作用是**把绝大多数并发请求挡在数据库之外**。键是 `its-my-go:stock:sku:{skuId}`，
+**必须带 TTL**（30 分钟 ± 5 分钟抖动）——共用 Redis 是 volatile-lru，
+不带 TTL 的键在内存打满时写失败。
 
 **加载用互斥锁，防缓存击穿**：
 
@@ -407,7 +420,7 @@ return redis.call('DECRBY', KEYS[1], ARGV[1])
                              ↓
    请求 1..N 同时发现 isLoaded() = false
                              ↓
-        抢 SETNX 加载锁（its-my-go:stock:{id}:loading，TTL 5 秒）
+        抢 SETNX 加载锁（its-my-go:stock:sku:{id}:loading，TTL 5 秒）
               ↓                          ↓
         抢到的 1 个                   没抢到的 N-1 个
         双重检查 → 查库 → 写回          自旋等待（50ms × 最多 10 轮）
@@ -437,9 +450,9 @@ return redis.call('DECRBY', KEYS[1], ARGV[1])
 **第二层 · 数据库条件更新** —— **这才是防超卖的最终真相**：
 
 ```sql
-UPDATE products
+UPDATE product_skus
 SET stock = stock - #{quantity}, sales = sales + #{quantity}
-WHERE id = #{productId} AND status = 1 AND stock >= #{quantity}
+WHERE id = #{skuId} AND status = 1 AND stock >= #{quantity}
 ```
 
 `WHERE stock >= ?` 让「判断」和「扣减」在同一条 SQL 里完成，InnoDB 行锁保证原子，
@@ -454,10 +467,12 @@ WHERE id = #{productId} AND status = 1 AND stock >= #{quantity}
 ```java
 Map<Long, Integer> reserved = new LinkedHashMap<>();
 try {
-    for (CartItem cartItem : cartItems) {
-        if (!stockService.tryReserve(productId, qty)) throw ...;   // 第一层
-        reserved.merge(productId, qty, Integer::sum);
-        if (productMapper.deductStock(productId, qty) == 0) throw ...;  // 第二层
+    for (OrderLine line : lines) {
+        ProductSku sku = skus.get(line.skuId());
+        if (!stockService.tryReserve(sku.getId(), qty)) throw ...;       // 第一层
+        reserved.merge(sku.getId(), qty, Integer::sum);
+        if (skuMapper.deductStock(sku.getId(), qty) == 0) throw ...;     // 第二层
+        productMapper.applyDeducted(sku.getProductId(), qty);            // 商品汇总，只为显示
     }
     // …建订单、清购物车
 } catch (RuntimeException e) {
@@ -466,8 +481,13 @@ try {
 }
 ```
 
-**取消订单会回滚库存**（`restoreStock`）：数据库 `stock + n`、`sales - n`，Redis 同步 `INCRBY`。
-回补时只补**已存在**的键 —— 键过期后再 `INCRBY` 会凭空造出一个错误的库存值。
+**取消订单会回滚库存**（`restoreStock`）：SKU 行 `stock + n`、`sales - n`，Redis 同步 `INCRBY`，
+商品汇总用 `applyRestored` 拉回去。回补时只补**已存在**的键 ——
+键过期后再 `INCRBY` 会凭空造出一个错误的库存值。
+
+⚠️ 回补用的是订单项里那个 **`skuId`**（`item.getSkuId()`）。传成 `productId` 的话
+数字看着也会动、测试也可能"过"，但补的是别人的库存 —— `SkuOrderTest` 里那条
+「另一款纹丝不动」的断言就是专门盯这个的。
 
 ### 3.9 缓存防护另两项：穿透与雪崩
 
@@ -608,7 +628,7 @@ return 1
 最终方案是**把库存从「缓存的字段」里拿出去**：
 
 - 新增 `GET /api/products/{id}/stock` → 实时库存
-- **数据来源是 §3.8 那个库存计数器**（`its-my-go:stock:{id}`），它本来就在被实时维护
+- **数据来源是 §3.8 那个库存计数器**（`its-my-go:stock:sku:{skuId}`），它本来就在被实时维护
   （下单 DECRBY、取消 INCRBY），**读它一次库都不用查**
 - 详情接口里也把 `stock` 换成计数器的值 —— 从缓存反序列化出来的对象是新实例，
   改它不会污染缓存
@@ -657,6 +677,56 @@ redisTemplate.rename(tempKey, KEY);   // 原子切换
 > 试过但**没用**的方案：`@ActiveProfiles` + `application-test.yml`、
 > `@TestPropertySource` 标在抽象父类上 —— 后者实际表现是**上下文缓存没按预期区分**，
 > 同一个类里既有 `开关=true` 又有 `开关=false`。抽象父类上的测试注解不要指望它可靠。
+
+---
+
+### 3.12 商品规格与 SKU
+
+价格和库存的**真相在 SKU 上**，不在商品上。这是本项目里最「重」的一次结构调整 ——
+它牵动了所有按 `productId` 建立的东西（库存计数器、详情缓存、购物车唯一键、订单快照）。
+
+**三张表**：
+
+| 表 | 存什么 |
+|---|---|
+| `product_specs` | 规格定义，如「颜色」 |
+| `product_spec_values` | 规格值，如「黑色」 |
+| `product_skus` | 规格组合，**每行有独立的价格、库存、图片** |
+
+**`spec_value_ids` 是这套东西的地基**：升序、逗号分隔的规格值 id（如 `"11,12"`），
+落成 `UNIQUE KEY uk_product_specs (product_id, spec_value_ids)`。
+为什么不用关联表 —— 关联表表达不了「一个 SKU 的规格值集合唯一」，
+而组合的唯一性恰恰是这里最需要守住的东西。空串是合法值：它表示无规格商品的
+**默认 SKU**，唯一键顺带保证每个商品只有一条。
+
+⚠️ 写入前必须按**数值**排序再去重 —— `"10" < "2"` 是字符串比较的经典坑，
+排错了就匹配不上，表现为「前端选了规格但价格不联动」。
+
+**`products.price` / `stock` / `sales` 退化成汇总值**：价格取在售 SKU 的最低价、
+库存与销量求和，另加一列 `has_specs` 供列表页显示「¥19.8 起」。
+不删它们是为了**列表页分页零改动** —— 否则每次列表查询都要 join SKU 做聚合，配分页会很重。
+汇总只在两处更新：管理端保存 SKU 时全量重算（`recalcFromSkus`）、
+下单与取消时增量更新（`applyDeducted` / `applyRestored`，用 `GREATEST` 容忍漂移）。
+**汇总不参与任何判定** —— 防超卖永远看 SKU 那行的条件更新。
+
+**保存走整组覆盖**（`PUT /api/admin/products/{id}/skus`）：规格值一改，SKU 组合的集合就变了
+（加一组「颜色」直接翻倍），逐个 CRUD 表达不了；商户在后台也是一次填完一整张表再提交。
+
+**最容易出事的地方是「库存要保住」**：商户改个价格、给规格值改个名，
+不能把 SKU 删了重建 —— 那样库存和销量全归零。做法是**按规范化后的 `spec_value_ids`
+匹配到原来那行**，命中就原地更新，只改价格/图片/文本，**绝不动 stock**。
+
+新建的规格值在提交时还没有 id，而 SKU 又要引用它 —— 约定是**用负数当临时 id**，
+服务端插入后建立映射把引用一并改写（见 `SkuSaveRequest` 的类注释）。
+
+**每个商品都必须有 SKU**：管理端 `create` 会自动建一条默认 SKU，
+`V9__product_sku.sql` 也给存量商品回填过。少了它，详情页会显示总库存 0、
+下单永远报「库存不足」—— 看着像库存 bug，其实是数据没铺开。
+
+**缓存与三处库存口径**：详情缓存里存的是 Product（带 SKU 列表），
+读出来时把每个 SKU 的库存换成 Redis 里的实时值。SKU 一旦变动，**三个地方要一起刷**：
+SKU 行（写库）、商品汇总（`recalcFromSkus`）、Redis 计数器（`reload` / `drop`）——
+漏掉任何一个，顾客看到的都是改动前的数字。
 
 ---
 
@@ -775,6 +845,20 @@ frontend/
 
 ---
 
+### 4.7 规格选择栏
+
+详情页把 `product.specs` 渲染成按钮组，选中的组合**按规范化后的 `specValueIds` 匹配**到
+对应的 SKU —— 规则必须和后端生成这个键时一致（都是按数值升序拼），
+差一点就匹配不上，表现为「选了规格但价格不动」。匹配上就把价格、库存、图片换成那一款的。
+
+- **无规格商品只有一条默认 SKU**（`specValueIds` 是空串），组件直接用它 ——
+  这种商品的交互和没有这套东西时一模一样
+- 规格没选全时，价格显示商品最低价、库存显示汇总，主按钮文案变成「请选择规格」
+- 列表页对多规格商品的按钮是「**选规格**」（点进详情挑）—— 列表接口不带 SKU，
+  否则分页查询要 join SKU 变重；单规格商品则直接加购（加购前拉一次详情拿默认 SKU）
+
+---
+
 ## 5. 测试怎么写的
 
 `ApiTestBase` 是基类，提供两样东西：
@@ -808,7 +892,7 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 **测试跑在独立的库和 Redis database 上**（`its_mygo_test` / db 1），跟开发环境彻底分开 ——
 为什么非分不可、怎么配的，见 HANDOFF §5.20。
 
-覆盖重点（当前 **76** 条；CI 上跳过 3 条依赖 MinIO 的，跑 73）：
+覆盖重点（当前 **95** 条；CI 上跳过 3 条依赖 MinIO 的，跑 92）：
 
 | 测试类 | 覆盖 |
 |---|---|
@@ -824,6 +908,10 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 | **`CacheProtectionTest`** | **穿透**：查不存在的 ID 时数据库零查询；存在的不被误挡。**雪崩**：连续刷新 20 次，TTL 不是固定值。**重建**：手工插库的商品重建后能被过滤器认到 |
 | **`CacheAsideTest`** | **第二次读走缓存**（三次读只查一次库）；**改完立刻读到新值**（缓存被删而非等 TTL）；分类变更后树缓存失效 |
 | **`RateLimitTest`** | 注册按 IP 打到第 6 次被拒；**场景之间互不影响**（注册打满不影响登录）；下单按用户限流 |
+| **`ProductSkuControllerTest`** | 新建商品自带默认 SKU；负数临时 id 的规格值能落库并被 SKU 引用；**改价格再保存时库存不动**；汇总字段（最低价 / 总库存 / has_specs）跟着重算；重复组合与漏选规格被拒；非管理员 403 |
+| **`SkuCartTest`** | 同商品两个规格各占一行、重复加购只累加；小计按**那一款**的价（不是商品最低价）；跨商品的 skuId 被当「不存在」挡住；SKU 被删后那行标成不可购买；停售款加不进去 |
+| **`SkuOrderTest`** | 订单项带 `specText` 快照且单价取那一款；**规格改名后历史订单不变**；**取消只回补买过的那一款**、另一款纹丝不动；立即购买只扣选中的 SKU；买停售款被拒 |
+| **`SkuStockConcurrencyTest`** | 10 人抢 5 件的单一 SKU（恰好 5 成功、Redis 与库都对得上）；**同商品两款互不串扰**（黑 3 件售罄不影响白 10 件） |
 | `StorageServiceTest` | 上传成功 + **URL 可匿名读取**；拒绝非图片；顾客不能上传 |
 | `SharedRedisTest` | 共用 Redis 连通；key 前缀；**TTL 存在**（见 HANDOFF §5.5） |
 | `MyBatisPlusCompatibilityTest` | 一次完整 CRUD，验证 MP 在 Boot 4.1.1 上可用 |
@@ -846,8 +934,11 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 
 ## 7. 还没实现的部分
 
-M5 前端已完成**商品列表、商品详情、登录注册、结算下单、订单详情**，
+M5 前端已完成**商品列表、商品详情（含规格选择栏）、登录注册、结算下单、订单详情**，
 其余页面待做：购物车、我的订单、以及整个管理端。
+
+⚠️ **管理端的规格编辑器还没有 UI** —— 后端接口（`PUT /api/admin/products/{id}/skus`）
+和测试都齐了，缺的是一个把规格值和 SKU 表格渲染出来的页面，等做管理端那轮一并补。
 
 ⚠️ 结算页现在**只支持「立即购买」那一套**（商品通过 URL 参数传）。
 购物车结算的入口等购物车页做好再接 —— 后端已经支持了（`items` 留空即可），

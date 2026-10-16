@@ -78,11 +78,12 @@
 | M2 商品与分类 | ✅ 完成（2026-10-13） |
 | M3 购物车与下单 | ✅ 完成（2026-10-15）—— 防超卖、缓存三防、Cache-Aside、防重复提交、接口限流 |
 | M4 支付与售后 | ✅ 完成（2026-10-16）—— 支付流水、退款审核、超时取消、原子状态流转 |
-| **M5 前端** | 🔄 **进行中** —— 商品列表、商品详情、登录注册、结算下单（含「立即购买」）、订单详情已跑通（Vite + Vue 3 + TS + Element Plus，配色见 [color-preview](docs/color-preview.html)） |
+| **M5 前端** | 🔄 **进行中** —— 商品列表、商品详情（含多规格选择栏）、登录注册、结算下单（含「立即购买」）、订单详情已跑通（Vite + Vue 3 + TS + Element Plus，配色见 [color-preview](docs/color-preview.html)） |
 | M6 客服接入 → M7 查订单环回 | ⬜ 未开始 |
 
 **交易闭环已通**：浏览商品 → 加购 → 下单（扣库存）→ 支付 → 发货 → 收货，
 以及取消、超时自动取消、退款（申请 → 审核 → 回滚库存）。
+商品支持**多规格 SKU**（每个规格组合独立价格与库存），也支持「立即购买」直达结算。
 
 ## 本地起来看看
 
@@ -91,7 +92,7 @@
 种子数据见 [sql/seed-data.sql](sql/seed-data.sql)，详见 [HANDOFF §3.4](HANDOFF.md)。
 
 **CI**：每次 push 自动在干净环境跑测试（[`.github/workflows/test.yml`](.github/workflows/test.yml)）。
-本地 76 条全绿，CI 跳过 3 条依赖 MinIO 的、跑 73 条（MinIO 已停止公开分发镜像，详见 [HANDOFF §5.12](HANDOFF.md)）。
+本地 95 条全绿，CI 跳过 3 条依赖 MinIO 的、跑 92 条（MinIO 已停止公开分发镜像，详见 [HANDOFF §5.12](HANDOFF.md)）。
 **测试跑在独立的库** `its_mygo_test`（Redis 用 db 1），和开发数据互不影响 —— 见 [HANDOFF §5.20](HANDOFF.md)。
 
 各里程碑的可验收产物见 [docs/decisions-ecommerce.md](docs/decisions-ecommerce.md) §4。

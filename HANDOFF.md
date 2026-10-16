@@ -28,9 +28,9 @@
 
 ## 1. 当前状态一句话
 
-**M5（前端）进行中（2026-10-16）。** 已跑通：**商品列表、商品详情、登录注册、
-结算下单（含「立即购买」）、订单详情与支付**；后端 M0–M4 完整，
-**自动化测试 76 条**。
+**M5（前端）进行中（2026-10-16）。** 已跑通：**商品列表、商品详情（含多规格选择栏）、
+登录注册、结算下单（含「立即购买」）、订单详情与支付**；
+后端在这一轮做了 **SKU 化改造**（价格与库存的真相下沉到 SKU），**自动化测试 95 条**。
 
 前端技术栈：Vite 8 + Vue 3.5 + TypeScript 5.9 + Element Plus 2.14 + Pinia + Vue Router。
 配色定稿为「浅粉做面 + 深粉做点」，见 [docs/color-preview.html](docs/color-preview.html)。
@@ -45,13 +45,15 @@
 
 ## 2. 下一步做什么：M5 前端的剩余页面
 
-商品列表、商品详情、登录注册、结算下单、订单详情都已完成。按这个顺序往下做：
+商品列表、商品详情、登录注册、结算下单、订单详情都已完成，后端也做了 SKU 化。
+按这个顺序往下做：
 
 1. **购物车页** — 改数量、勾选、删除、算总价。顶栏那个「购物车」链接目前还是断的；
    做完它顺便把结算页的**购物车来源**接上（后端和 `Checkout.vue` 的结构都已就绪）
 2. **我的订单** — 列表已支持带明细（`GET /api/orders`，`previewLimit` 控制每个订单给几条）。
    订单详情页 `OrderDetail.vue` 已经能用，列表项点进去即可
-3. **管理端** — 分类/商品 CRUD、传图、发货、退款审核、超时取消
+3. **管理端** — 分类/商品 CRUD、传图、发货、退款审核、超时取消，
+   外加 **规格与 SKU 的编辑器**（后端接口已经齐了，缺页面 —— 见 implementation §7）
 
 ⚠️ **四个对接约定**（细节见 implementation §4.3）：
 响应拦截器按 **body 的 `code`** 判断而不是 HTTP 状态码；库存走独立接口；
@@ -121,11 +123,14 @@ src/main/java/com/tsuk1/itsmygo/
 ### 3.3 数据库
 
 - 开发库 `its_mygo`、测试库 `its_mygo_test`（都在共用的 `mysql` 容器里，为什么要分开见 §5.20）
-- 迁移脚本在 `src/main/resources/db/migration/`，**当前 schema 版本 v8**
+- 迁移脚本在 `src/main/resources/db/migration/`，**当前 schema 版本 v11**
 - 已建表：`users`（V1，V3 加 `role`）、`addresses`（V2）、`categories`（V4）、
-  `products`（V5）、`cart_items`（V6）、`orders` / `order_items`（V7，V8 加 `status_before_refund`）、
-  `payments`（V8）
+  `products`（V5，V9 加 `has_specs`）、`cart_items`（V6，V10 改成按 SKU 唯一）、
+  `orders` / `order_items`（V7，V8 加 `status_before_refund`，V11 加 `sku_id` / `spec_text`）、
+  `payments`（V8）、**`product_specs` / `product_spec_values` / `product_skus`（V9）**
   （另有 Flyway 自建的 `flyway_schema_history`，是迁移记录表，**不要动**）
+- **V9 给存量商品回填了默认 SKU**（无规格的那条），老数据不用手工处理；
+  但**新直插 `products` 的地方（手工 SQL、导入脚本）必须自己补 SKU** —— 见 §5.21
 - **迁移脚本只增不改**：已执行过的脚本再改内容会让 Flyway 校验失败
 - **容器时区已设为 +08:00**（见 §5.14），与开发机一致
 
@@ -175,8 +180,11 @@ docker exec -i mysql sh -c 'mysql --default-character-set=utf8mb4 -utsuk1 -p"$MY
 **商品详情页**（`views/ProductDetail.vue`）：左图右信息两栏（`grid` 420px + 1fr），
 下面接「商品详情」「同类商品」两个区块。
 
-- 库存走 `GET /api/products/{id}/stock`，**和详情分开处理**：详情成功但库存拿不到时，
-  页面照常显示，只是数字暂时是旧的
+- **规格选择栏**：把 `product.specs` 渲染成按钮组，选中的组合按**规范化后的 `specValueIds`**
+  匹配到对应 SKU（规则必须和后端生成这个键时一致，都是按数值升序拼）——
+  匹配上就把价格、库存、图片换成那一款的。无规格商品只有一条默认 SKU，直接用它
+- 库存已经在详情的 `skus[]` 里（后端读时换成了实时值），不用另外拉；
+  `GET /api/products/{id}/stock` 留给「加购失败后刷新」用，它同时返回每个 SKU 的余量
 - 同类商品：后端只有分页接口，所以取同分类 8 条后**在内存里**排掉自己、留前 4 条
 
 **登录页**（`views/Login.vue`）：登录 / 注册同页签切换，共用一套校验规则
@@ -693,9 +701,74 @@ addressMapper.delete(null);
 并发用例自己在 `@AfterEach` 里清理（见 §5.19），实测跑完 `products` / `orders` 都是 0。
 真跑脏了就 `DROP DATABASE its_mygo_test` 再重建，Flyway 下次启动会重新建表。
 
+### 5.21 ★ SKU 化时最容易漏的两处（2026-10-16 踩到）
+
+把价格和库存下沉到 SKU 这一轮，实际绊到的就是这两处 —— 和动手前的预判完全一致。
+
+**① 直插库的商品没有 SKU**
+
+「每个商品都必须有 SKU」这条规矩，走管理端 `create` 接口会自动建，
+但**测试里直插 `products`、以及 `seed-data.sql` 这类直接 SQL** 都会绕过它。
+症状是详情页总库存显示 0、下单永远报「库存不足」—— 看着像库存 bug，其实是数据没铺开。
+
+这一轮里 `StockConcurrencyTest` / `PaymentConcurrencyTest` / `StockCacheBreakdownTest` /
+`CacheProtectionTest` / `CacheAsideTest` **五个测试类全栽在这上面**，各补了一条默认 SKU。
+`ApiTestBase.defaultSkuId(productId)` 就是为这个加的。
+
+**② `reload` 传了商品 id**
+
+`ProductServiceImpl.update` 里原本是 `stockService.reload(id)` —— 那时计数器按商品建，
+没问题。改成按 SKU 之后，`id` 是**商品 id 却被当成 SKU id 去查**，刷新的键根本不是对的那个。
+
+**是测试抓出来的**：`OrderControllerTest.adminStockChangeIsVisibleImmediately`
+期望改完库存后详情显示 50，实际还是 5。
+
+**教训**：这类「同一个参数名换了含义」的改造，**编译器帮不上忙**（`Long` 还是 `Long`），
+只能靠「改完之后读回来对不对」的断言兜住。所以改粒度时，
+优先补端到端读回来的用例，而不只是改签名。
+
 ---
 
 ## 6. 历史记录
+
+### 2026-10-16 · 商品 SKU：多规格 + 每规格独立价格库存
+
+**起因**：用户要给商品加「可供商户编辑的商品属性选择栏」（详情页那种
+「款式：云宝 / 珍奇」）。确认按**完整 SKU** 做 —— 每个规格组合独立价格、独立库存；
+管理端前端不做，顾客端详情页要做。
+
+**动手前先探了三条链路**（库存与缓存、购物车与订单、商品 CRUD 与测试），
+摸清「按 productId 建立的四处」：Redis 库存计数器、详情缓存、布隆过滤器、条件更新 SQL。
+方案经 Plan agent 设计与复核后才开工。
+
+**数据库（V9 / V10 / V11）**：
+
+- V9 建 `product_specs` / `product_spec_values` / `product_skus`，并**给存量商品回填默认 SKU**
+- V10 `cart_items` 加 `sku_id`，唯一键 `uk_user_product` → `uk_user_sku`
+- V11 `order_items` 加 `sku_id` + **`spec_text` 快照**
+
+**关键设计**：`spec_value_ids`（升序逗号分隔）作规格组合的规范键、落成唯一索引 ——
+关联表表达不了「值集合唯一」。`products` 的 price/stock/sales 退化成汇总值，
+列表页分页因此**零改动**。
+
+**后端**：`ProductSkuService`（整组覆盖保存，**按组合键匹配以保住库存**）、
+`ProductSkuMapper`（SKU 级条件更新）、`StockService` 改成 SKU 粒度并新增批量
+`currentSkuStocks`（一次 multiGet）、详情与库存接口带上 SKU 列表。
+
+**前端**：详情页规格选择栏（选中联动价格/库存/图片）、加购与立即购买带 `skuId`、
+列表页多规格显示「¥19.8 起」且按钮变「选规格」、订单页显示规格快照。
+
+**新增测试 19 条**（共 95）：`ProductSkuControllerTest` 7、`SkuCartTest` 5、
+`SkuOrderTest` 5、`SkuStockConcurrencyTest` 2 —— 最后那条专门盯
+「同商品两款互不串扰」，这是 SKU 化新引入的风险。
+
+**踩的坑见 §5.21**（直插库的商品没 SKU、`reload` 传错 id）。
+**种子数据也更新了**：HDMI 线配了长度三选一、键鼠套装配了颜色 × 版本四组合 ——
+前端才有东西可看。
+
+**验证**：浏览器里真走了一遍 —— 选规格后价格 129→149、库存 88→4 件跟着变，
+加购、立即购买、下单、订单里显示「颜色:白色;版本:静音版」；
+回查数据库确认**只扣了那一款**（4→3），另外三款纹丝不动。
 
 ### 2026-10-16 · 测试改用独立的库和 Redis db
 
