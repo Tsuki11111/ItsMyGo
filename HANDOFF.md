@@ -39,9 +39,6 @@
 配色规矩、登录态怎么存、下单链路怎么串、和后端对接的四个约定都在那。
 前端**还没有自动化测试**，也没进 CI。
 
-⚠️ **库里留着种子数据时，跑测试会有 5 条失败**（`CategoryControllerTest` /
-`ProductControllerTest` 断言的是「全表只有 N 条」）。这是**已知缺口，不是回归**，见 §5.20。
-
 下一步：**购物车页 → 我的订单 → 管理端**。
 
 ---
@@ -123,7 +120,7 @@ src/main/java/com/tsuk1/itsmygo/
 
 ### 3.3 数据库
 
-- 库名 `its_mygo`（在共用的 `mysql` 容器里）
+- 开发库 `its_mygo`、测试库 `its_mygo_test`（都在共用的 `mysql` 容器里，为什么要分开见 §5.20）
 - 迁移脚本在 `src/main/resources/db/migration/`，**当前 schema 版本 v8**
 - 已建表：`users`（V1，V3 加 `role`）、`addresses`（V2）、`categories`（V4）、
   `products`（V5）、`cart_items`（V6）、`orders` / `order_items`（V7，V8 加 `status_before_refund`）、
@@ -259,9 +256,13 @@ docker start mysql redis minio
 
 | 中间件 | 连接 | 本项目隔离方式 |
 |---|---|---|
-| MySQL 8.0（`mysql`） | `localhost:3306` | 独立 database `its_mygo` |
-| Redis 7（`redis`） | `localhost:6379` | key 前缀 `its-mygo:` |
-| MinIO（`minio`） | `localhost:9000`（Console `:9001`） | 独立 bucket `its-mygo-product-images` |
+| MySQL 8.0（`mysql`） | `localhost:3306` | 开发库 `its_mygo`；**测试库 `its_mygo_test`** |
+| Redis 7（`redis`） | `localhost:6379` | 开发 db 0、**测试 db 1**；key 前缀一律 `its-my-go:` |
+| MinIO（`minio`） | `localhost:9000`（Console `:9001`） | 独立 bucket `its-my-go-product-images` |
+
+**测试库**（为什么这么分见 §5.20）：测试跑在自己的库和 Redis db 上，与开发数据互不影响。
+**库要事先建好** —— Flyway 只建表不建库；建库命令写在
+`src/test/resources/application-test.yml` 顶部的注释里，直接复制执行即可。
 
 - `mysql` 容器里还有 `dw` / `meta` / `pharma_db` 三个**别的项目**的库，**不要动**
 - **MinIO 是 rag_helper 在用的实例**：它的 bucket 是 `rag-helper-knowledge-files`
@@ -632,7 +633,8 @@ addressMapper.delete(null);
 生成的 SQL 就是 `DELETE FROM orders`，整张表清空。
 
 这两个测试刻意不加 `@Transactional`（并发要的是真实提交），所以清理是**真删**；
-而**本地开发库和测试库是同一个库** —— 跑一次测试，开发时下的订单、加过的购物车、
+而**当时开发库和测试库还是同一个库**（当天晚些就分开了，见 §5.20）—— 跑一次测试，
+开发时下的订单、加过的购物车、
 存过的收货地址全都没了。
 
 **发现过程**：改完「立即购买」跑了一次全量测试，之后发现页面上的购物车空了、
@@ -649,26 +651,67 @@ addressMapper.delete(null);
 问题不在于它删了什么，而在于它删了**不属于这次测试**的东西。
 写测试清理时都问一句：**这条 SQL 会碰到别人造的数据吗**。
 
-### 5.20 开发库有种子数据时，一批测试会失败（2026-10-16 记录，**尚未解决**）
+### 5.20 ★ 测试和开发共用一个库，互相踩（2026-10-16 记录并解决）
 
-`CategoryControllerTest` / `ProductControllerTest` 有几条断言的是**全表条数**：
+**症状**：开发库里导入种子数据（10 个分类、23 个商品）之后，
+`CategoryControllerTest` / `ProductControllerTest` 有 5 条会失败 ——
+它们断言的是**全表条数**，以为库里只有自己造的那一条：
 
 ```java
-.andExpect(jsonPath("$.data.total").value(1));   // 以为库里只有自己造的那一条
+.andExpect(jsonPath("$.data.total").value(1));
 ```
 
-但 `sql/seed-data.sql` 导进去的是 **10 个分类、23 个商品**，于是报
-`expected:<1> but was:<24>`。
+报 `expected:<1> but was:<24>`。反过来也一样：测试里那些**不加 `@Transactional`**
+的并发用例会往库里真写数据，污染开发环境。
 
-**这是「测试和开发共用一个库」的必然结果，不是代码 bug** —— 每次 5 条，两条命令就能复现。
-CI 不受影响（它的 MySQL 是干净的 service 容器）。
+**解法：测试跑在自己的库和 Redis database 上。**
 
-**正解是让测试跑在独立的库上**（如 `its_mygo_test` + `application-test.yml` 指过去），
-代价是要多建一个库、多一份配置。在那之前：**本地跑测试前先清掉种子数据**。
+| | 开发 | 测试 |
+|---|---|---|
+| MySQL | `its_mygo` | `its_mygo_test` |
+| Redis | db 0 | **db 1** |
+
+配置都在 `src/test/resources/` 下，两个文件：
+
+- **`application.properties`** —— 只写一句 `spring.profiles.active=test`。
+  **刻意不写成测试类上的 `@ActiveProfiles`**：两个并发测试类不继承 `ApiTestBase`
+  （它们要的是另一套注解组合），用注解一定会漏掉谁。放这里对 classpath 上所有
+  `@SpringBootTest` 一视同仁，也不依赖注解在父类上的继承行为
+- **`application-test.yml`** —— 覆盖数据源
+
+**Redis 也要分 db 的原因**：库存计数器、商品缓存这些 key 都按**商品 id** 命名。
+两个库各自维护自己的自增序列，迟早会撞到同一个 id —— 共用 db 的话，
+测试会读到开发环境的库存，反之亦然。
+
+**效果**：本地 76 条全绿（之前 5 红），**连跑两次稳定**，跑完开发库数据一条没少。
+
+**测试库脏了怎么办**：正常不会 —— `@Transactional` 的用例自动回滚，
+并发用例自己在 `@AfterEach` 里清理（见 §5.19），实测跑完 `products` / `orders` 都是 0。
+真跑脏了就 `DROP DATABASE its_mygo_test` 再重建，Flyway 下次启动会重新建表。
 
 ---
 
 ## 6. 历史记录
+
+### 2026-10-16 · 测试改用独立的库和 Redis db
+
+**起因**：用户要求「搞个测试库」，解决的正是上一条里记的 §5.20（测试和开发共用一个库，
+开发库导了种子数据后 5 条测试失败；反方向则是并发测试往开发库里写数据）。
+
+**做法**：
+
+- 建库 `its_mygo_test`（utf8mb4 / `utf8mb4_0900_ai_ci`，与 `its_mygo` 一致），授权给 `tsuk1`
+- `src/test/resources/application.properties` 里写一句 `spring.profiles.active=test`
+  —— **刻意不用测试类上的 `@ActiveProfiles`**：两个并发测试类不继承 `ApiTestBase`，
+  用注解一定会漏掉谁
+- `src/test/resources/application-test.yml` 覆盖数据源，并把 Redis 指到 **db 1**
+- CI 的 `MYSQL_DATABASE` 跟着改成 `its_mygo_test`（CI 只跑测试，建这一个库就够）
+
+**为什么 Redis 也要分 db**：库存计数器、商品缓存都按**商品 id** 命名，
+两个库的自增序列各走各的，早晚撞到同一个 id。
+
+**效果**：本地 76 条全绿（之前 5 红），**连跑两次稳定**，跑完开发库数据一条没少。
+顺带改正了 §4.3 中间件表格里两处 `its-mygo` 的笔误（正确写法是 `its-my-go`）。
 
 ### 2026-10-16 · 立即购买 + 结算页 + 订单详情
 
@@ -695,7 +738,7 @@ CI 不受影响（它的 MySQL 是干净的 service 容器）。
 **验证**：浏览器里真走了「未登录点立即购买 → 跳登录 → 回跳 → 结算 → 新增地址 → 下单 → 支付」
 全流程；另外用接口确认**立即购买前后，购物车里那条商品和它的库存纹丝不动**。
 
-**遗留**：§5.20 尚未解决 —— 开发库里留着种子数据时，跑测试有 5 条会失败。
+**当时的遗留**：§5.20 —— 测试和开发共用一个库。**当天晚些就解决了**，见下一条。
 
 ### 2026-10-16 · M5 前端续：商品详情页 + 登录注册
 

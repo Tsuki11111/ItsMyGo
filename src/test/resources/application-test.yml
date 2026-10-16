@@ -1,0 +1,21 @@
+# 测试专用配置 —— 由同目录的 application.properties 激活（spring.profiles.active=test）。
+#
+# 目的是把测试和开发彻底分开：共用一套库的话，两边会互相踩 ——
+# 开发库里导了种子数据，测试断言「全表只有 N 条」就会失败；
+# 而测试里那些不加 @Transactional 的并发用例又会往开发库里写数据。
+#
+# 库本身要事先建好（Flyway 只会建表，不会建库）：
+#   docker exec mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" \
+#     -e "CREATE DATABASE IF NOT EXISTS its_mygo_test
+#         DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+#         GRANT ALL PRIVILEGES ON its_mygo_test.* TO \"tsuk1\"@\"%\"; FLUSH PRIVILEGES;"'
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/its_mygo_test?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+  data:
+    redis:
+      # 和开发分到不同的 database。
+      # 库存计数器、商品缓存这些 key 都是按**商品 id** 命名的（its-my-go:stock:<id>），
+      # 而两个库各自维护自己的自增序列，迟早会撞到同一个 id ——
+      # 共用 database 的话，测试会读到开发环境的库存，反之亦然。
+      database: 1

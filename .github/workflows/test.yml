@@ -16,12 +16,15 @@ jobs:
     # 本项目的测试是「真连库、真连 Redis、真传 MinIO」的，
     # 所以要把这三个依赖也起起来 —— 端口映射到 localhost，
     # 正好与 application.yml 里的连接串一致，无需改任何应用配置。
+    #
+    # 库名是 its_mygo_test：测试跑在**独立的库**上（见 src/test/resources/application-test.yml），
+    # 跟开发库分开，两边不互相踩。CI 里只跑测试、不跑应用，所以建这一个就够。
     services:
       mysql:
         image: mysql:8.0
         env:
           MYSQL_ROOT_PASSWORD: ci-root-password
-          MYSQL_DATABASE: its_mygo
+          MYSQL_DATABASE: its_mygo_test
           MYSQL_USER: ci
           MYSQL_PASSWORD: ci-password
         ports:

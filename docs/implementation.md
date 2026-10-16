@@ -805,9 +805,8 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 存过的收货地址会被一起抹掉 —— 而且很难往「是测试干的」上想。
 （这个问题 2026-10-16 发现并修掉，见 HANDOFF §5.19。）
 
-⚠️ **反方向的坑：开发库里有种子数据时，一批测试会失败**（`CategoryControllerTest` /
-`ProductControllerTest` 断言的是「全表只有 N 条」，而库里躺着 10 个分类、23 个商品）。
-这是**已知且尚未解决**的问题，正解是让测试跑在独立的库上，见 HANDOFF §5.20。
+**测试跑在独立的库和 Redis database 上**（`its_mygo_test` / db 1），跟开发环境彻底分开 ——
+为什么非分不可、怎么配的，见 HANDOFF §5.20。
 
 覆盖重点（当前 **76** 条；CI 上跳过 3 条依赖 MinIO 的，跑 73）：
 

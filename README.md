@@ -61,7 +61,7 @@
 
 | 中间件 | 容器 | 连接 |
 |---|---|---|
-| MySQL 8.0 | `mysql` | `localhost:3306`，库 `its_mygo` |
+| MySQL 8.0 | `mysql` | `localhost:3306`，库 `its_mygo`（测试用 `its_mygo_test`） |
 | Redis 7 | `redis` | `localhost:6379`，key 前缀 `its-mygo:` |
 | MinIO | `minio` | `localhost:9000`（Console `:9001`），bucket `its-mygo-product-images` |
 
@@ -91,8 +91,8 @@
 种子数据见 [sql/seed-data.sql](sql/seed-data.sql)，详见 [HANDOFF §3.4](HANDOFF.md)。
 
 **CI**：每次 push 自动在干净环境跑测试（[`.github/workflows/test.yml`](.github/workflows/test.yml)）。
-本地 76 条，CI 跳过 3 条依赖 MinIO 的、跑 73 条（MinIO 已停止公开分发镜像，详见 [HANDOFF §5.12](HANDOFF.md)）。
-⚠️ 本地库里留着种子数据时，会有 5 条断言「全表只有 N 条」的测试失败 —— 是已知缺口，见 [HANDOFF §5.20](HANDOFF.md)。
+本地 76 条全绿，CI 跳过 3 条依赖 MinIO 的、跑 73 条（MinIO 已停止公开分发镜像，详见 [HANDOFF §5.12](HANDOFF.md)）。
+**测试跑在独立的库** `its_mygo_test`（Redis 用 db 1），和开发数据互不影响 —— 见 [HANDOFF §5.20](HANDOFF.md)。
 
 各里程碑的可验收产物见 [docs/decisions-ecommerce.md](docs/decisions-ecommerce.md) §4。
 
