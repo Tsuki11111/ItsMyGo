@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import {
   Box, Briefcase, Coin, Connection, Cpu, Files, Monitor, Mouse, Printer, Share,
 } from '@element-plus/icons-vue'
@@ -9,6 +9,7 @@ import ProductImage from '@/components/ProductImage.vue'
 import { fetchCategoryTree, fetchProducts } from '@/api/product'
 import type { CategoryNode, Product } from '@/api/types'
 
+const route = useRoute()
 const router = useRouter()
 
 const products = ref<Product[]>([])
@@ -17,6 +18,8 @@ const total = ref(0)
 const page = ref(1)
 const size = ref(12)
 const categoryId = ref<number | undefined>(undefined)
+/** 当前搜索词。品牌专区点进来时会带上它 */
+const keyword = ref('')
 const loading = ref(false)
 
 /** 分类名 → 图标。匹配不上就用 Box 兜底，新增分类不会把页面搞崩 */
@@ -44,7 +47,23 @@ const banners = [
   { title: '办公设备节', desc: '满 2000 减 200', from: '#e8638f', to: '#ef8aab' },
 ]
 
+/**
+ * 品牌专区。**暂时硬编码** —— 后端还没有品牌表，所以这里只放商品名里
+ * 真实出现过的词，点进去才搜得到东西。将来要让商户自己维护，
+ * 就得建 brands 表 + 商品关联 + 管理端接口。
+ */
+const BRANDS = ['奔图', '联想', '兄弟', '至像', 'H3C', 'Aolynk', 'HUAWEI']
+
+/** 品牌色块用的渐变，跟无图占位同一套（见 ProductImage.vue） */
+const BRAND_GRADIENTS = [
+  'linear-gradient(135deg, #FFE4EF, #FFD6E7)',
+  'linear-gradient(135deg, #FFE9F0, #FFDCE8)',
+  'linear-gradient(135deg, #FFF0F5, #FFE2EC)',
+  'linear-gradient(135deg, #FFE6F0, #FFD9E6)',
+]
+
 const currentCategoryName = computed(() => {
+  if (keyword.value) return `“${keyword.value}” 的搜索结果`
   if (categoryId.value === undefined) return '全部商品'
   return categories.value.find((c) => c.id === categoryId.value)?.name ?? '全部商品'
 })
@@ -56,6 +75,7 @@ async function load() {
       page: page.value,
       size: size.value,
       categoryId: categoryId.value,
+      keyword: keyword.value || undefined,
     })
     products.value = result.records
     total.value = result.total
@@ -64,10 +84,12 @@ async function load() {
   }
 }
 
+/**
+ * 筛选条件（分类、搜索词）**只存在 URL 里** —— 组件不再各存一份，
+ * 免得两处状态打架：刷新能保持、品牌专区点进来天然就是「搜这个品牌」。
+ */
 function selectCategory(id?: number) {
-  categoryId.value = id
-  page.value = 1
-  load()
+  router.push({ path: '/', query: id === undefined ? {} : { categoryId: id } })
 }
 
 function onPageChange(next: number) {
@@ -79,9 +101,21 @@ function goDetail(product: Product) {
   router.push(`/product/${product.id}`)
 }
 
+/** 把 URL 上的筛选条件翻译成状态，然后拉数据 */
+function applyQuery() {
+  const query = route.query
+  categoryId.value = query.categoryId ? Number(query.categoryId) : undefined
+  keyword.value = typeof query.keyword === 'string' ? query.keyword : ''
+  page.value = 1
+  load()
+}
+
+// 同一个路由只改 query 时组件不会重建，所以得盯着 fullPath
+watch(() => route.fullPath, applyQuery)
+
 onMounted(async () => {
   categories.value = await fetchCategoryTree()
-  await load()
+  applyQuery()
 })
 </script>
 
@@ -129,6 +163,27 @@ onMounted(async () => {
           </el-carousel-item>
         </el-carousel>
       </div>
+
+      <!-- 品牌专区：点进去就是「搜这个品牌」，复用列表页现成的筛选 -->
+      <aside class="brand-panel">
+        <div class="brand-head">品牌专区</div>
+        <div class="brand-grid">
+          <RouterLink
+            v-for="(brand, index) in BRANDS"
+            :key="brand"
+            :to="{ path: '/', query: { keyword: brand } }"
+            class="brand-item"
+          >
+            <span
+              class="brand-mark"
+              :style="{ background: BRAND_GRADIENTS[index % BRAND_GRADIENTS.length] }"
+            >
+              {{ brand.charAt(0) }}
+            </span>
+            <span class="brand-name">{{ brand }}</span>
+          </RouterLink>
+        </div>
+      </aside>
     </section>
 
     <!-- ── 商品区 ── -->
@@ -189,7 +244,8 @@ onMounted(async () => {
 /* ── 首屏 ── */
 .hero {
   display: grid;
-  grid-template-columns: 190px 1fr;
+  /* 品类栏 | 轮播 | 品牌专区 */
+  grid-template-columns: 190px 1fr 240px;
   gap: 14px;
   /* 高度要能把全部品类装下，否则品类栏自己出滚动条（内容 375 + 头部 ~41 + 内边距） */
   height: 428px;
@@ -289,6 +345,69 @@ onMounted(async () => {
   margin: 10px 0 0;
   font-size: 14px;
   opacity: 0.9;
+}
+
+/* ── 品牌专区 ── */
+.brand-panel {
+  background: #fff;
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 和品类栏的头部样式保持一致 */
+.brand-head {
+  padding: 12px 16px 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--c-pink);
+  border-bottom: 1px solid var(--c-border);
+}
+
+.brand-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  /* 行高均分：七个品牌排不满时，别让下半截空着 */
+  grid-auto-rows: 1fr;
+  gap: 6px;
+  padding: 10px;
+  overflow-y: auto;
+}
+
+.brand-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 4px;
+  border-radius: var(--radius-tag);
+  text-decoration: none;
+  transition: background 0.14s;
+}
+
+.brand-item:hover {
+  background: var(--c-pink-tint);
+}
+
+.brand-mark {
+  width: 42px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+  font-weight: 600;
+  color: rgba(232, 99, 143, 0.55);
+  border-radius: var(--radius-tag);
+}
+
+.brand-name {
+  font-size: 12px;
+  line-height: 1;
+  color: var(--c-text-2);
 }
 
 /* ── 商品区 ── */
@@ -397,7 +516,7 @@ onMounted(async () => {
   padding: 20px 0 8px;
 }
 
-/* 窄屏：品类栏收成横向滚动条，别占满整屏 */
+/* 窄屏：品类栏收成横向滚动条，品牌专区直接藏起来（移动端首屏不该塞品牌墙） */
 @media (max-width: 820px) {
   .hero {
     grid-template-columns: 1fr;
@@ -405,6 +524,9 @@ onMounted(async () => {
   }
   .cat-panel {
     height: auto;
+  }
+  .brand-panel {
+    display: none;
   }
   .cat-list {
     display: flex;

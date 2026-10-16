@@ -1,9 +1,31 @@
 <script setup lang="ts">
-import { RouterView } from 'vue-router'
+import { ref, watch } from 'vue'
+import { RouterView, useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
 
+const route = useRoute()
+const router = useRouter()
 const userStore = useUserStore()
+
+const searchKeyword = ref('')
+
+/**
+ * 搜索框跟 URL 走：从品牌专区点进来时，框里也要显示正在搜什么。
+ * 搜索词本身存在 URL 的 query 里（和分类一样），组件不另存一份状态。
+ */
+watch(
+  () => route.query.keyword,
+  (value) => {
+    searchKeyword.value = typeof value === 'string' ? value : ''
+  },
+  { immediate: true },
+)
+
+function submitSearch() {
+  const keyword = searchKeyword.value.trim()
+  router.push({ path: '/', query: keyword ? { keyword } : {} })
+}
 
 function onLogout() {
   userStore.logout()
@@ -16,7 +38,13 @@ function onLogout() {
     <div class="topbar-inner">
       <RouterLink to="/" class="logo">一次买够</RouterLink>
       <div class="search">
-        <el-input placeholder="搜索打印机、路由器、笔记本…" clearable />
+        <el-input
+          v-model="searchKeyword"
+          placeholder="搜索打印机、路由器、笔记本…"
+          clearable
+          @keyup.enter="submitSearch"
+          @clear="submitSearch"
+        />
       </div>
       <nav class="actions">
         <RouterLink to="/cart" class="link">购物车</RouterLink>
@@ -44,7 +72,8 @@ function onLogout() {
 }
 
 .topbar-inner {
-  max-width: 1200px;
+  /* 和 .page 保持同一个宽度，否则顶栏和内容会错开 */
+  max-width: 1440px;
   margin: 0 auto;
   padding: 14px 24px;
   display: flex;
@@ -98,7 +127,7 @@ function onLogout() {
 }
 
 .page {
-  max-width: 1200px;
+  max-width: 1440px;
   margin: 0 auto;
   padding: 24px;
 }
