@@ -28,13 +28,16 @@
 
 ## 1. 当前状态一句话
 
-**M5（前端）进行中（2026-10-16）。** 工程骨架已搭好、商品列表页已跑通；
-后端 M0–M4 完整，**自动化测试 73 个全绿**。
+**M5（前端）进行中（2026-10-16）。** 工程骨架 + **商品列表页（品类栏 + 轮播 + 商品网格）
+已跑通**；后端 M0–M4 完整，**自动化测试 73 个全绿**。
 
 前端技术栈：Vite 8 + Vue 3.5 + TypeScript 5.9 + Element Plus 2.14 + Pinia + Vue Router。
 配色定稿为「浅粉做面 + 深粉做点」，见 [docs/color-preview.html](docs/color-preview.html)。
 
-下一步：**继续做前端剩余页面**。
+**做之前先看 [docs/implementation.md](docs/implementation.md) §4** —— 前端的工程结构、
+配色规矩、和后端对接的三个约定都在那。前端**还没有自动化测试**，也没进 CI。
+
+下一步：**商品详情页 → 登录注册 → 购物车 → 结算下单 → 我的订单 → 管理端**。
 
 ---
 
@@ -143,7 +146,7 @@ npm run dev          # → http://localhost:5173
 ```
 
 **演示账号**：`testuser` / `123456`
-**种子数据**：[sql/seed-data.sql](sql/seed-data.sql)（8 个商品、4 个分类，
+**种子数据**：[sql/seed-data.sql](sql/seed-data.sql)（**10 个分类、23 个商品**，
 型号取自 rag_helper 的产品手册语料）。导入方式：
 
 ```bash
@@ -153,9 +156,39 @@ docker exec -i mysql sh -c 'mysql --default-character-set=utf8mb4 -utsuk1 -p"$MY
 > ⚠️ **导完种子数据要重启后端** —— 布隆过滤器只在启动时预热，
 > 应用运行期间手工插的商品不在过滤器里，点详情会被判"不存在"（见 §5.12 的说明）。
 
+**页面结构**（`views/ProductList.vue`）：首屏是「左品类栏 + 右轮播」两栏
+（`grid` 190px + 1fr，高 428px），下面才是商品网格。
+
+- 品类栏 11 项（全部 + 10 个分类），图标按**分类名映射**（`ICONS` 表，匹配不上用 `Box` 兜底）。
+  那个 428px 是量出来的：内容 `scrollHeight` 375 + 头部，少了就出滚动条
+- 轮播用 `el-carousel`，**它的 `height` 参数只认具体像素**，传 `100%` 会塌成空白 ——
+  得用 `:deep(.el-carousel__container) { height: 100% }` 撑满
+- 窄屏（≤820px）时品类栏收成横向滚动条
+
 ---
 
 ## 4. 环境与约定（已就绪，勿重复劳动）
+
+### 4.0 ⚡ 动手前先确认这些在不在跑
+
+上一次会话结束时**后台跑着这些进程**，但它们随会话结束就可能没了 ——
+**先确认再动手，别直接重复启动，会撞端口**：
+
+| 服务 | 端口 | 起来的方式 | 怎么确认 |
+|---|---|---|---|
+| 后端 | 8080 | `./mvnw spring-boot:run` | `curl http://localhost:8080/api/health` |
+| 前端 | 5173 | `cd frontend && npm run dev` | 浏览器开 http://localhost:5173 |
+| MySQL / Redis / MinIO | — | `docker start mysql redis minio` | `docker ps` |
+
+**端口被占但进程是僵尸时**（我踩过两次：停后台任务没杀干净 Java 进程）：
+
+```bash
+netstat -ano | grep ":8080" | grep LISTENING     # 查 PID
+taskkill //PID <pid> //F                          # 杀
+```
+
+**启动后端时不要加 `| tail`** —— tail 要等进程结束才输出，会把日志全憋住，
+出问题的时候什么都看不到。让日志直接落到后台任务文件里。
 
 ### 4.1 JDK 与 Maven
 
