@@ -73,4 +73,10 @@ public class OrderController {
     public Result<OrderView> confirm(@AuthenticationPrincipal CurrentUser user, @PathVariable Long id) {
         return Result.ok(orderService.confirmReceipt(user.id(), id));
     }
+
+    /** 申请退款：进入「退款中」，等管理员审核 */
+    @PostMapping("/{id}/refund")
+    public Result<OrderView> applyRefund(@AuthenticationPrincipal CurrentUser user, @PathVariable Long id) {
+        return Result.ok(orderService.applyRefund(user.id(), id));
+    }
 }

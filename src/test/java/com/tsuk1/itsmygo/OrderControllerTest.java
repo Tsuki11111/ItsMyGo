@@ -1,16 +1,24 @@
 package com.tsuk1.itsmygo;
 
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.tsuk1.itsmygo.dto.AddressRequest;
 import com.tsuk1.itsmygo.dto.CartAddRequest;
 import com.tsuk1.itsmygo.dto.CategoryRequest;
 import com.tsuk1.itsmygo.dto.CreateOrderRequest;
 import com.tsuk1.itsmygo.dto.ProductRequest;
 import com.tsuk1.itsmygo.dto.ShipRequest;
+import com.tsuk1.itsmygo.entity.Order;
+import com.tsuk1.itsmygo.entity.Payment;
+import com.tsuk1.itsmygo.mapper.OrderMapper;
+import com.tsuk1.itsmygo.mapper.PaymentMapper;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -18,6 +26,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class OrderControllerTest extends ApiTestBase {
+
+    @Autowired
+    private PaymentMapper paymentMapper;
+
+    @Autowired
+    private OrderMapper orderMapper;
 
     private long createProduct(String adminToken, String name, String price, int stock) throws Exception {
         String catBody = mockMvc.perform(post("/api/admin/categories")
@@ -378,6 +392,191 @@ class OrderControllerTest extends ApiTestBase {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new CreateOrderRequest(addressId, ""))))
                 .andExpect(jsonPath("$.code").value(400));
+    }
+
+    // ── M4：支付流水与退款 ──
+
+    /** 支付要留下可查的流水，而不是只在 orders 上改个状态 */
+    @Test
+    void payingCreatesPaymentRecord() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        String token = customerToken("c" + System.nanoTime());
+        long productId = createProduct(admin, "Payable", "99.00", 5);
+        long addressId = createAddress(token);
+        addToCart(token, productId, 1);
+        long orderId = placeOrder(token, addressId);
+
+        mockMvc.perform(post("/api/orders/" + orderId + "/pay").header("Authorization", bearer(token)))
+                .andExpect(jsonPath("$.data.statusLabel").value("已支付"));
+
+        Payment payment = paymentMapper.selectOne(
+                Wrappers.<Payment>lambdaQuery().eq(Payment::getOrderId, orderId));
+        assertThat(payment).isNotNull();
+        assertThat(payment.getPaymentNo()).startsWith("PAY");
+        assertThat(payment.getAmount()).isEqualByComparingTo("99.00");
+        assertThat(payment.getStatus()).isEqualTo(Payment.STATUS_SUCCESS);
+        assertThat(payment.getPaidAt()).isNotNull();
+        assertThat(payment.getRefundedAt()).isNull();
+        // 冗余的订单号也要对得上，排查问题时才不用 join
+        assertThat(payment.getOrderNo()).isNotBlank();
+    }
+
+    /** 完整退款：申请 → 同意 → 库存回滚 + 支付流水置为已退款 */
+    @Test
+    void refundFlowRestoresStockAndMarksPaymentRefunded() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        String token = customerToken("c" + System.nanoTime());
+        long productId = createProduct(admin, "Refundable", "50.00", 5);
+        long addressId = createAddress(token);
+        addToCart(token, productId, 2);
+        long orderId = placeOrder(token, addressId);
+
+        mockMvc.perform(post("/api/orders/" + orderId + "/pay").header("Authorization", bearer(token)));
+        assertProductStock(token, productId, 3);
+
+        mockMvc.perform(post("/api/orders/" + orderId + "/refund").header("Authorization", bearer(token)))
+                .andExpect(jsonPath("$.data.statusLabel").value("退款中"));
+
+        // 审核期间库存**还不能**回滚 —— 万一被驳回呢
+        assertProductStock(token, productId, 3);
+
+        mockMvc.perform(post("/api/admin/orders/" + orderId + "/refund/approve")
+                        .header("Authorization", bearer(admin)))
+                .andExpect(jsonPath("$.data.statusLabel").value("已退款"));
+
+        // 钱退了，货也要退
+        assertProductStock(token, productId, 5);
+
+        Payment payment = paymentMapper.selectOne(
+                Wrappers.<Payment>lambdaQuery().eq(Payment::getOrderId, orderId));
+        assertThat(payment.getStatus()).isEqualTo(Payment.STATUS_REFUNDED);
+        assertThat(payment.getRefundedAt()).isNotNull();
+    }
+
+    /** 驳回退款：回到申请前的状态，库存不动 */
+    @Test
+    void rejectedRefundReturnsToPreviousStatus() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        String token = customerToken("c" + System.nanoTime());
+        long productId = createProduct(admin, "Reject", "30.00", 5);
+        long addressId = createAddress(token);
+        addToCart(token, productId, 1);
+        long orderId = placeOrder(token, addressId);
+
+        mockMvc.perform(post("/api/orders/" + orderId + "/pay").header("Authorization", bearer(token)));
+        mockMvc.perform(post("/api/admin/orders/" + orderId + "/ship")
+                .header("Authorization", bearer(admin))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new ShipRequest("SF999"))));
+
+        // 从「已发货」申请退款
+        mockMvc.perform(post("/api/orders/" + orderId + "/refund").header("Authorization", bearer(token)))
+                .andExpect(jsonPath("$.data.statusLabel").value("退款中"));
+
+        // 驳回后要回到「已发货」而不是别的什么状态
+        mockMvc.perform(post("/api/admin/orders/" + orderId + "/refund/reject")
+                        .header("Authorization", bearer(admin)))
+                .andExpect(jsonPath("$.data.statusLabel").value("已发货"));
+
+        assertProductStock(token, productId, 4);
+    }
+
+    @Test
+    void unpaidOrderCannotBeRefunded() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        String token = customerToken("c" + System.nanoTime());
+        long productId = createProduct(admin, "Unpaid", "10.00", 5);
+        long addressId = createAddress(token);
+        addToCart(token, productId, 1);
+        long orderId = placeOrder(token, addressId);
+
+        mockMvc.perform(post("/api/orders/" + orderId + "/refund").header("Authorization", bearer(token)))
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.message").value("订单当前是「待支付」，不能申请退款"));
+    }
+
+    /** 已退款的订单是终态，不能再申请一次 */
+    @Test
+    void refundedOrderCannotBeRefundedAgain() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        String token = customerToken("c" + System.nanoTime());
+        long productId = createProduct(admin, "Twice", "10.00", 5);
+        long addressId = createAddress(token);
+        addToCart(token, productId, 1);
+        long orderId = placeOrder(token, addressId);
+
+        mockMvc.perform(post("/api/orders/" + orderId + "/pay").header("Authorization", bearer(token)));
+        mockMvc.perform(post("/api/orders/" + orderId + "/refund").header("Authorization", bearer(token)));
+        mockMvc.perform(post("/api/admin/orders/" + orderId + "/refund/approve")
+                .header("Authorization", bearer(admin)));
+
+        mockMvc.perform(post("/api/orders/" + orderId + "/refund").header("Authorization", bearer(token)))
+                .andExpect(jsonPath("$.code").value(400));
+    }
+
+    /** 顾客不能自己批退款 */
+    @Test
+    void customerCannotApproveRefund() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        String token = customerToken("c" + System.nanoTime());
+        long productId = createProduct(admin, "NoApprove", "10.00", 5);
+        long addressId = createAddress(token);
+        addToCart(token, productId, 1);
+        long orderId = placeOrder(token, addressId);
+        mockMvc.perform(post("/api/orders/" + orderId + "/pay").header("Authorization", bearer(token)));
+        mockMvc.perform(post("/api/orders/" + orderId + "/refund").header("Authorization", bearer(token)));
+
+        mockMvc.perform(post("/api/admin/orders/" + orderId + "/refund/approve")
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isForbidden());
+    }
+
+    /** 超时未支付自动取消，并回滚库存 */
+    @Test
+    void cancelExpiredOrdersRestoresStock() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        String token = customerToken("c" + System.nanoTime());
+        long productId = createProduct(admin, "Expired", "20.00", 8);
+        long addressId = createAddress(token);
+        addToCart(token, productId, 3);
+        long orderId = placeOrder(token, addressId);
+
+        assertProductStock(token, productId, 5);
+
+        // 把创建时间往前拨，模拟「已经放了 2 小时没人付」。
+        // 这里必须用**数据库的** NOW() 来算 —— 业务判断超时用的也是它。
+        // 用 JVM 的 LocalDateTime.now() 拨的话，在「MySQL 跑 UTC、应用跑 UTC+8」
+        // 的环境下会拨出个「未来时间」，测试和业务就永远对不上。
+        orderMapper.update(null, Wrappers.<Order>lambdaUpdate()
+                .eq(Order::getId, orderId)
+                .setSql("created_at = DATE_SUB(NOW(), INTERVAL 2 HOUR)"));
+
+        mockMvc.perform(post("/api/admin/orders/cancel-expired?minutes=30")
+                        .header("Authorization", bearer(admin)))
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data").value(1));
+
+        mockMvc.perform(get("/api/orders/" + orderId).header("Authorization", bearer(token)))
+                .andExpect(jsonPath("$.data.statusLabel").value("已取消"));
+        assertProductStock(token, productId, 8);
+    }
+
+    /** 刚下的单不该被超时任务误伤 */
+    @Test
+    void freshOrderIsNotCancelledByExpiryJob() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        String token = customerToken("c" + System.nanoTime());
+        long productId = createProduct(admin, "Fresh", "20.00", 5);
+        long addressId = createAddress(token);
+        addToCart(token, productId, 1);
+        long orderId = placeOrder(token, addressId);
+
+        mockMvc.perform(post("/api/admin/orders/cancel-expired?minutes=30")
+                        .header("Authorization", bearer(admin)))
+                .andExpect(jsonPath("$.data").value(0));
+
+        mockMvc.perform(get("/api/orders/" + orderId).header("Authorization", bearer(token)))
+                .andExpect(jsonPath("$.data.statusLabel").value("待支付"));
     }
 
     @Test

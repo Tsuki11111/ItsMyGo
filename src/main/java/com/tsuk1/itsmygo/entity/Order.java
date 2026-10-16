@@ -33,6 +33,9 @@ public class Order {
 
     private String trackingNo;
 
+    /** 申请退款前的状态，仅 REFUNDING 期间有值；驳回时回退到它 */
+    private String statusBeforeRefund;
+
     private LocalDateTime paidAt;
 
     private LocalDateTime shippedAt;

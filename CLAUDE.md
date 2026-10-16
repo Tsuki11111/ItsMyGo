@@ -99,5 +99,6 @@ docker start mysql redis minio     # 缺哪个就拉哪个
 
 ### 5. 技术栈已定，别擅自换
 
-见 README 的技术栈表。**唯一的未验证项**是 MyBatis-Plus 对 Spring Boot 4.1.1 的适配 ——
-M0 阶段实测，不通过才整体切 Spring Data JPA，其余选型不受影响。
+见 README 的技术栈表。选型阶段的风险（MyBatis-Plus / Flyway / Spring Security 在
+Boot 4.1.1 上的适配）**已在 M0–M1 实测通过**，不要再回头质疑。
+真正会绊人的是 **Boot 4 的模块化差异**，见 HANDOFF §5.1–§5.4、§5.9。

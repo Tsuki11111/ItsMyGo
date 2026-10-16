@@ -13,11 +13,13 @@ import com.tsuk1.itsmygo.entity.CartItem;
 import com.tsuk1.itsmygo.entity.Order;
 import com.tsuk1.itsmygo.entity.OrderItem;
 import com.tsuk1.itsmygo.entity.OrderStatus;
+import com.tsuk1.itsmygo.entity.Payment;
 import com.tsuk1.itsmygo.entity.Product;
 import com.tsuk1.itsmygo.mapper.AddressMapper;
 import com.tsuk1.itsmygo.mapper.CartItemMapper;
 import com.tsuk1.itsmygo.mapper.OrderItemMapper;
 import com.tsuk1.itsmygo.mapper.OrderMapper;
+import com.tsuk1.itsmygo.mapper.PaymentMapper;
 import com.tsuk1.itsmygo.mapper.ProductMapper;
 import com.tsuk1.itsmygo.service.OrderService;
 import com.tsuk1.itsmygo.service.StockService;
@@ -37,6 +39,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -47,24 +50,28 @@ public class OrderServiceImpl implements OrderService {
     private static final int ON_SALE = 1;
     private static final int MAX_PAGE_SIZE = 100;
     private static final DateTimeFormatter ORDER_NO_TIME = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
+    /** 超时未支付自动取消的默认时长（分钟） */
+    private static final int DEFAULT_CANCEL_EXPIRED_MINUTES = 30;
 
     private final OrderMapper orderMapper;
     private final OrderItemMapper orderItemMapper;
     private final CartItemMapper cartItemMapper;
     private final ProductMapper productMapper;
     private final AddressMapper addressMapper;
+    private final PaymentMapper paymentMapper;
     private final StockService stockService;
     private final StringRedisTemplate redisTemplate;
 
     public OrderServiceImpl(OrderMapper orderMapper, OrderItemMapper orderItemMapper,
                             CartItemMapper cartItemMapper, ProductMapper productMapper,
-                            AddressMapper addressMapper, StockService stockService,
-                            StringRedisTemplate redisTemplate) {
+                            AddressMapper addressMapper, PaymentMapper paymentMapper,
+                            StockService stockService, StringRedisTemplate redisTemplate) {
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
         this.cartItemMapper = cartItemMapper;
         this.productMapper = productMapper;
         this.addressMapper = addressMapper;
+        this.paymentMapper = paymentMapper;
         this.stockService = stockService;
         this.redisTemplate = redisTemplate;
     }
@@ -228,7 +235,123 @@ public class OrderServiceImpl implements OrderService {
     public OrderView pay(Long userId, Long orderId) {
         Order order = requireOwned(userId, orderId);
         transition(order, OrderStatus.PAID, order::setPaidAt);
+
+        // 落支付流水。uk_order_id 是数据库层兜底：即使有并发请求绕过了状态机，
+        // 第二条也会撞唯一索引，绝不会出现「一个订单两条成功支付记录」。
+        Payment payment = new Payment();
+        payment.setPaymentNo(generatePaymentNo("PAY"));
+        payment.setOrderId(order.getId());
+        payment.setOrderNo(order.getOrderNo());
+        payment.setUserId(userId);
+        payment.setAmount(order.getTotalAmount());
+        payment.setMethod("MOCK");
+        payment.setStatus(Payment.STATUS_SUCCESS);
+        payment.setPaidAt(order.getPaidAt());
+        paymentMapper.insert(payment);
+
         return view(order);
+    }
+
+    // ── 售后：退款 ──
+
+    @Override
+    @Transactional
+    public OrderView applyRefund(Long userId, Long orderId) {
+        Order order = requireOwned(userId, orderId);
+        OrderStatus current = OrderStatus.valueOf(order.getStatus());
+        if (!current.refundable()) {
+            throw new BizException(ResultCode.BAD_REQUEST,
+                    "订单当前是「" + current.label() + "」，不能申请退款");
+        }
+
+        // 先记下申请前的状态 —— 管理员驳回时要回退到它。
+        // 必须在 transition 之前设置：transition 内部的 updateById 会一并写进去。
+        order.setStatusBeforeRefund(current.name());
+        transition(order, OrderStatus.REFUNDING, t -> { });
+        return view(order);
+    }
+
+    @Override
+    @Transactional
+    public OrderView approveRefund(Long orderId) {
+        Order order = requireExists(orderId);
+        if (OrderStatus.valueOf(order.getStatus()) != OrderStatus.REFUNDING) {
+            throw new BizException(ResultCode.BAD_REQUEST, "该订单没有待处理的退款申请");
+        }
+
+        transition(order, OrderStatus.REFUNDED, t -> { });
+
+        // 钱退回去了，货也要退回来
+        restoreStock(order);
+
+        // 支付流水同步置为已退款（这是退款真正的凭据）
+        Payment payment = paymentMapper.selectOne(
+                Wrappers.<Payment>lambdaQuery().eq(Payment::getOrderId, orderId));
+        if (payment != null) {
+            payment.setStatus(Payment.STATUS_REFUNDED);
+            payment.setRefundedAt(LocalDateTime.now());
+            paymentMapper.updateById(payment);
+        }
+
+        order.setStatusBeforeRefund(null);
+        orderMapper.updateById(order);
+        return view(order);
+    }
+
+    @Override
+    @Transactional
+    public OrderView rejectRefund(Long orderId) {
+        Order order = requireExists(orderId);
+        if (OrderStatus.valueOf(order.getStatus()) != OrderStatus.REFUNDING) {
+            throw new BizException(ResultCode.BAD_REQUEST, "该订单没有待处理的退款申请");
+        }
+        String before = order.getStatusBeforeRefund();
+        if (before == null) {
+            // 理论上不会发生；真发生了说明数据坏了，别猜，直接拒绝
+            throw new BizException(ResultCode.INTERNAL_ERROR, "订单缺少退款前的状态，无法驳回");
+        }
+
+        transition(order, OrderStatus.valueOf(before), t -> { });
+        order.setStatusBeforeRefund(null);
+        orderMapper.updateById(order);
+        return view(order);
+    }
+
+    /**
+     * 取消超时未支付的订单并回滚库存。
+     * 先做成管理端手动触发；将来要自动化，挂个定时任务调这个方法即可
+     * （注意多实例下要加分布式锁，否则会重复执行 —— 虽然幂等，但白跑）。
+     */
+    @Override
+    @Transactional
+    public int cancelExpired(int minutes) {
+        int window = minutes > 0 ? minutes : DEFAULT_CANCEL_EXPIRED_MINUTES;
+
+        // ⚠️ 时间基准必须用数据库的 NOW()，不能拿 JVM 的 LocalDateTime.now() 去比。
+        // 本机 MySQL 容器跑在 UTC、应用跑在 UTC+8，两者差 8 小时 ——
+        // 用应用时间去比的话，刚下单的订单会被当成「已经超时 8 小时」立刻取消掉。
+        // （这个 bug 是测试 freshOrderIsNotCancelledByExpiryJob 抓出来的。）
+        List<Order> expired = orderMapper.selectList(Wrappers.<Order>lambdaQuery()
+                .eq(Order::getStatus, OrderStatus.PENDING_PAYMENT.name())
+                .apply("created_at < DATE_SUB(NOW(), INTERVAL {0} MINUTE)", window));
+
+        int cancelled = 0;
+        for (Order order : expired) {
+            try {
+                transition(order, OrderStatus.CANCELLED, order::setCancelledAt);
+                restoreStock(order);
+                cancelled++;
+            } catch (RuntimeException e) {
+                // 单个失败不影响其他的（典型情况：刚好在这一刻被人支付了）。
+                // 这里 catch 住了不会标记 rollback-only —— transition 是同类内部调用、
+                // 不走事务代理，异常没有穿过任何 @Transactional 边界。
+                log.warn("取消超时订单失败: orderNo={} err={}", order.getOrderNo(), e.getMessage());
+            }
+        }
+        if (cancelled > 0) {
+            log.info("已取消 {} 笔超时未支付订单（阈值 {} 分钟）", cancelled, window);
+        }
+        return cancelled;
     }
 
     @Override
@@ -296,16 +419,52 @@ public class OrderServiceImpl implements OrderService {
     /**
      * 状态流转的唯一入口：先查状态机允许不允许，再改状态和时间戳。
      * 非法流转在这里被挡住（例如「已取消」的订单不能被发货）。
+     *
+     * ⚠️ **关键在最后那步用的是条件更新而不是 updateById**：
+     * 如果写成「transition 里 updateById」，那么「读出来判断」和「写回去」之间是有窗口的 ——
+     * 两个并发的支付请求会双双读到 PENDING_PAYMENT、双双通过 canTransitionTo 检查，
+     * 结果一个订单产生两条支付流水。改成 {@code WHERE status = 期望值} 之后，
+     * 第二个请求影响行数为 0，直接被拒。
+     *
+     * 这跟库存扣减用的是同一个套路（§3.8）：**把判断和修改合成一条 SQL**。
      */
-    private void transition(Order order, OrderStatus target, java.util.function.Consumer<LocalDateTime> stampSetter) {
+    private void transition(Order order, OrderStatus target, Consumer<LocalDateTime> stampSetter) {
         OrderStatus current = OrderStatus.valueOf(order.getStatus());
         if (!current.canTransitionTo(target)) {
             throw new BizException(ResultCode.BAD_REQUEST,
                     "订单当前是「" + current.label() + "」，不能变成「" + target.label() + "」");
         }
+
+        if (orderMapper.compareAndSetStatus(order.getId(), current.name(), target.name()) == 0) {
+            throw new BizException(ResultCode.BAD_REQUEST, "订单状态已变化，请刷新后重试");
+        }
+
+        // 状态已经被上面那条 SQL 改掉了，这里只是把时间戳补上
         order.setStatus(target.name());
         stampSetter.accept(LocalDateTime.now());
         orderMapper.updateById(order);
+    }
+
+    private String generateOrderNo() {
+        return generateNo("");
+    }
+
+    private String generatePaymentNo(String prefix) {
+        return generateNo(prefix);
+    }
+
+    private String generateNo(String prefix) {
+        return prefix + ORDER_NO_TIME.format(LocalDateTime.now())
+                + String.format("%06d", ThreadLocalRandom.current().nextInt(1_000_000));
+    }
+
+    /** 管理端用：订单不存在就报错，不做归属校验 */
+    private Order requireExists(Long orderId) {
+        Order order = orderMapper.selectById(orderId);
+        if (order == null) {
+            throw new BizException(ResultCode.NOT_FOUND, "订单不存在");
+        }
+        return order;
     }
 
     private OrderView view(Order order) {
@@ -321,11 +480,6 @@ public class OrderServiceImpl implements OrderService {
             throw new BizException(ResultCode.NOT_FOUND, "订单不存在");
         }
         return order;
-    }
-
-    private String generateOrderNo() {
-        return ORDER_NO_TIME.format(LocalDateTime.now())
-                + String.format("%06d", ThreadLocalRandom.current().nextInt(1_000_000));
     }
 
     private int normalizePage(int page) {

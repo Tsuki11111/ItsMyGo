@@ -29,6 +29,9 @@ public interface OrderService {
 
     OrderView confirmReceipt(Long userId, Long orderId);
 
+    /** 申请退款：已支付 / 已发货 / 已完成 的订单可申请 */
+    OrderView applyRefund(Long userId, Long orderId);
+
     // ── 管理端 ──
 
     PageResponse<Order> pageForAdmin(int page, int size, String status);
@@ -36,4 +39,17 @@ public interface OrderService {
     OrderView detailForAdmin(Long orderId);
 
     OrderView ship(Long orderId, ShipRequest request);
+
+    /** 同意退款：状态转已退款、回滚库存、支付流水置为已退款 */
+    OrderView approveRefund(Long orderId);
+
+    /** 驳回退款：回到申请前的状态，库存不动 */
+    OrderView rejectRefund(Long orderId);
+
+    /**
+     * 取消超时未支付的订单并回滚库存。
+     * @param minutes 超过多少分钟算超时；≤0 用默认值
+     * @return 实际取消的订单数
+     */
+    int cancelExpired(int minutes);
 }
