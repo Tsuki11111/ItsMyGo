@@ -130,14 +130,11 @@ public class OrderServiceImpl implements OrderService {
             throw new BizException(ResultCode.NOT_FOUND, "收货地址不存在");
         }
 
-        List<CartItem> cartItems = cartItemMapper.selectList(Wrappers.<CartItem>lambdaQuery()
-                .eq(CartItem::getUserId, userId)
-                .eq(CartItem::getSelected, 1));
-        if (cartItems.isEmpty()) {
-            throw new BizException(ResultCode.BAD_REQUEST, "请先勾选要购买的商品");
-        }
+        // 商品有两种来源，之后一视同仁：立即购买（直接给定）or 购物车勾选项
+        boolean fromCart = request.items() == null || request.items().isEmpty();
+        List<OrderLine> lines = fromCart ? selectedCartLines(userId) : buyNowLines(request.items());
 
-        List<Long> productIds = cartItems.stream().map(CartItem::getProductId).toList();
+        List<Long> productIds = lines.stream().map(OrderLine::productId).toList();
         Map<Long, Product> products = productMapper.selectByIds(productIds).stream()
                 .collect(Collectors.toMap(Product::getId, Function.identity()));
 
@@ -146,16 +143,17 @@ public class OrderServiceImpl implements OrderService {
         Map<Long, Integer> reserved = new LinkedHashMap<>();
 
         try {
-            List<OrderItem> items = new ArrayList<>(cartItems.size());
+            List<OrderItem> items = new ArrayList<>(lines.size());
             BigDecimal total = BigDecimal.ZERO;
 
-            for (CartItem cartItem : cartItems) {
-                Product product = products.get(cartItem.getProductId());
+            for (OrderLine line : lines) {
+                Product product = products.get(line.productId());
                 if (product == null || !Integer.valueOf(ON_SALE).equals(product.getStatus())) {
-                    throw new BizException(ResultCode.BAD_REQUEST, "商品已下架，请先移出购物车");
+                    throw new BizException(ResultCode.BAD_REQUEST,
+                            fromCart ? "商品已下架，请先移出购物车" : "商品已下架");
                 }
 
-                reserveStock(product.getId(), cartItem.getQuantity(), reserved);
+                reserveStock(product.getId(), line.quantity(), reserved);
 
                 OrderItem item = new OrderItem();
                 item.setProductId(product.getId());
@@ -163,8 +161,8 @@ public class OrderServiceImpl implements OrderService {
                 item.setProductName(product.getName());
                 item.setProductImage(product.getMainImage());
                 item.setUnitPrice(product.getPrice());
-                item.setQuantity(cartItem.getQuantity());
-                item.setSubtotal(product.getPrice().multiply(BigDecimal.valueOf(cartItem.getQuantity())));
+                item.setQuantity(line.quantity());
+                item.setSubtotal(product.getPrice().multiply(BigDecimal.valueOf(line.quantity())));
                 items.add(item);
 
                 total = total.add(item.getSubtotal());
@@ -187,10 +185,12 @@ public class OrderServiceImpl implements OrderService {
                 orderItemMapper.insert(item);
             }
 
-            // 下单成功，把已下单的购物车行清掉
-            cartItemMapper.delete(Wrappers.<CartItem>lambdaQuery()
-                    .eq(CartItem::getUserId, userId)
-                    .eq(CartItem::getSelected, 1));
+            // 只有购物车结算才清空勾选行 —— 「立即购买」从头到尾没碰过购物车
+            if (fromCart) {
+                cartItemMapper.delete(Wrappers.<CartItem>lambdaQuery()
+                        .eq(CartItem::getUserId, userId)
+                        .eq(CartItem::getSelected, 1));
+            }
 
             return new OrderView(order, OrderStatus.PENDING_PAYMENT.label(), items, items.size());
 
@@ -198,6 +198,28 @@ public class OrderServiceImpl implements OrderService {
             reserved.forEach(stockService::release);
             throw e;
         }
+    }
+
+    /** 下单的商品行 —— 购物车来的和「立即购买」来的，后面走同一套流程 */
+    private record OrderLine(Long productId, int quantity) {
+    }
+
+    private List<OrderLine> selectedCartLines(Long userId) {
+        List<CartItem> cartItems = cartItemMapper.selectList(Wrappers.<CartItem>lambdaQuery()
+                .eq(CartItem::getUserId, userId)
+                .eq(CartItem::getSelected, 1));
+        if (cartItems.isEmpty()) {
+            throw new BizException(ResultCode.BAD_REQUEST, "请先勾选要购买的商品");
+        }
+        return cartItems.stream()
+                .map(cartItem -> new OrderLine(cartItem.getProductId(), cartItem.getQuantity()))
+                .toList();
+    }
+
+    private List<OrderLine> buyNowLines(List<CreateOrderRequest.BuyNowItem> items) {
+        return items.stream()
+                .map(item -> new OrderLine(item.productId(), item.quantity()))
+                .toList();
     }
 
     /**

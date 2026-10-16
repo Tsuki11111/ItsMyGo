@@ -1,5 +1,6 @@
 package com.tsuk1.itsmygo;
 
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.tsuk1.itsmygo.common.Roles;
 import com.tsuk1.itsmygo.dto.CreateOrderRequest;
 import com.tsuk1.itsmygo.entity.Address;
@@ -140,7 +141,7 @@ class StockConcurrencyTest {
                     start.await();
                     // 每个买家各领一个令牌 —— 这测的是并发抢库存，不是重复提交
                     String submitToken = orderService.issueToken(userId);
-                    orderService.create(userId, new CreateOrderRequest(addressId, submitToken));
+                    orderService.create(userId, new CreateOrderRequest(addressId, submitToken, null));
                     succeeded.incrementAndGet();
                 } catch (Exception e) {
                     // 库存不足是预期结果之一
@@ -163,24 +164,40 @@ class StockConcurrencyTest {
         assertThat(after.getStock()).isZero();
         assertThat(after.getSales()).isEqualTo(STOCK);
 
-        // 数据库里的订单数也要对得上
-        long orderCount = orderMapper.selectCount(null);
+        // 数据库里的订单数也要对得上。
+        // 只数本次测试这些买家的 —— 数全表的话，库里只要有别的订单这条就恒真，等于没测
+        long orderCount = orderMapper.selectCount(Wrappers.<Order>lambdaQuery()
+                .in(Order::getUserId, createdUserIds));
         assertThat(orderCount).isGreaterThanOrEqualTo(STOCK);
     }
 
+    /**
+     * ⚠️ **只删本次测试造出来的那些行。**
+     *
+     * 这里原来写的是 `orderMapper.delete(null)`、`cartItemMapper.delete(null)` 这种 ——
+     * MyBatis-Plus 里 **Wrapper 传 null 等于没有 where 条件**，也就是 `DELETE FROM 整张表`。
+     * 本地开发库和测试库是同一个，跑一次测试就会把开发时下的订单、加过的购物车、
+     * 存过的收货地址一并抹掉，而且很难往「是测试干的」上想。
+     */
     @AfterEach
     void cleanup() {
-        // 先删订单项再删订单（没有外键，但按依赖顺序删更清楚）
-        orderItemMapper.delete(null);
-        orderMapper.delete(null);
+        if (!createdUserIds.isEmpty()) {
+            List<Long> orderIds = orderMapper.selectList(Wrappers.<Order>lambdaQuery()
+                            .in(Order::getUserId, createdUserIds))
+                    .stream().map(Order::getId).toList();
+            if (!orderIds.isEmpty()) {
+                orderItemMapper.delete(Wrappers.<OrderItem>lambdaQuery().in(OrderItem::getOrderId, orderIds));
+                orderMapper.delete(Wrappers.<Order>lambdaQuery().in(Order::getId, orderIds));
+            }
+            cartItemMapper.delete(Wrappers.<CartItem>lambdaQuery().in(CartItem::getUserId, createdUserIds));
+            addressMapper.delete(Wrappers.<Address>lambdaQuery().in(Address::getUserId, createdUserIds));
+        }
         if (createdProductId != null) {
-            cartItemMapper.delete(null);
             productMapper.deleteById(createdProductId);
         }
         if (createdCategoryId != null) {
             categoryMapper.deleteById(createdCategoryId);
         }
-        addressMapper.delete(null);
         for (Long userId : createdUserIds) {
             userMapper.deleteById(userId);
         }

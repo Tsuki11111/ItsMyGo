@@ -25,6 +25,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -100,16 +101,29 @@ class OrderControllerTest extends ApiTestBase {
         return objectMapper.readTree(body).path("data").asText();
     }
 
+    /** 购物车结算：items 留空，商品从购物车勾选项取 */
     private long placeOrder(String token, long addressId) throws Exception {
+        return placeOrder(token, addressId, null);
+    }
+
+    private long placeOrder(String token, long addressId,
+                            List<CreateOrderRequest.BuyNowItem> items) throws Exception {
         String body = mockMvc.perform(post("/api/orders")
                         .header("Authorization", bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
-                                new CreateOrderRequest(addressId, fetchOrderToken(token)))))
+                                new CreateOrderRequest(addressId, fetchOrderToken(token), items))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200))
                 .andReturn().getResponse().getContentAsString();
         return objectMapper.readTree(body).path("data").path("order").path("id").asLong();
+    }
+
+    /** 「立即购买」：直接指定商品，不走购物车 */
+    private long placeBuyNowOrder(String token, long addressId, long productId, int quantity)
+            throws Exception {
+        return placeOrder(token, addressId,
+                List.of(new CreateOrderRequest.BuyNowItem(productId, quantity)));
     }
 
     /**
@@ -149,6 +163,86 @@ class OrderControllerTest extends ApiTestBase {
         mockMvc.perform(get("/api/products/" + productId))
                 .andExpect(jsonPath("$.data.stock").value(7))
                 .andExpect(jsonPath("$.data.name").value("Realtime"));
+    }
+
+    /**
+     * 「立即购买」的语义就是**完全不碰购物车** —— 这是它和「加入购物车再结算」唯一的区别，
+     * 所以三件事要同时成立：订单里的商品对、库存只扣立即购买的那件、购物车里那条一动不动。
+     */
+    @Test
+    void buyNowDoesNotTouchCart() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        String token = customerToken("c" + System.nanoTime());
+        long inCartProduct = createProduct(admin, "InCart", "20.00", 10);
+        long buyNowProduct = createProduct(admin, "BuyNow", "30.00", 10);
+        long addressId = createAddress(token);
+
+        // 购物车里先躺着一件勾选中的商品 —— 立即购买不该动它，更不该把它一起下单
+        addToCart(token, inCartProduct, 2);
+
+        long orderId = placeBuyNowOrder(token, addressId, buyNowProduct, 3);
+
+        mockMvc.perform(get("/api/orders/" + orderId).header("Authorization", bearer(token)))
+                .andExpect(jsonPath("$.data.items.length()").value(1))
+                .andExpect(jsonPath("$.data.items[0].productId").value(buyNowProduct))
+                .andExpect(jsonPath("$.data.items[0].quantity").value(3))
+                .andExpect(jsonPath("$.data.order.totalAmount").value(90.00));
+
+        assertProductStock(token, buyNowProduct, 7);
+
+        // 购物车原样：那条还在、数量没变，它对应的商品库存也没动
+        mockMvc.perform(get("/api/cart").header("Authorization", bearer(token)))
+                .andExpect(jsonPath("$.data.items.length()").value(1))
+                .andExpect(jsonPath("$.data.items[0].productId").value(inCartProduct))
+                .andExpect(jsonPath("$.data.items[0].quantity").value(2));
+        assertProductStock(token, inCartProduct, 10);
+    }
+
+    /** 立即购买走的是同一条库存防线，超量照样被拒，且订单不落地 */
+    @Test
+    void buyNowRejectsQuantityOverStock() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        String token = customerToken("c" + System.nanoTime());
+        long productId = createProduct(admin, "Tight", "10.00", 2);
+        long addressId = createAddress(token);
+
+        mockMvc.perform(post("/api/orders")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new CreateOrderRequest(
+                                addressId, fetchOrderToken(token),
+                                List.of(new CreateOrderRequest.BuyNowItem(productId, 3))))))
+                .andExpect(jsonPath("$.code").value(400));
+
+        assertProductStock(token, productId, 2);
+    }
+
+    /**
+     * 多件立即购买时，后面那件库存不足 → 整单失败。
+     *
+     * ⚠️ 这里最容易漏的是**第一件的 Redis 预扣**：数据库那边有 `@Transactional` 兜着，
+     * 但 Redis 不在事务里，只能靠 `doCreate` 的 catch 手动补回来。
+     * 少了那一步，一次失败的下单会凭空吃掉库存。
+     */
+    @Test
+    void buyNowRollsBackReservedStockWhenLaterItemFails() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        String token = customerToken("c" + System.nanoTime());
+        long okProduct = createProduct(admin, "Enough", "10.00", 5);
+        long shortProduct = createProduct(admin, "Short", "10.00", 1);
+        long addressId = createAddress(token);
+
+        mockMvc.perform(post("/api/orders")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new CreateOrderRequest(
+                                addressId, fetchOrderToken(token),
+                                List.of(new CreateOrderRequest.BuyNowItem(okProduct, 2),
+                                        new CreateOrderRequest.BuyNowItem(shortProduct, 2))))))
+                .andExpect(jsonPath("$.code").value(400));
+
+        assertProductStock(token, okProduct, 5);
+        assertProductStock(token, shortProduct, 1);
     }
 
     /** 管理员改库存也要同步到计数器，否则顾客看到的是旧数字 */
@@ -195,7 +289,7 @@ class OrderControllerTest extends ApiTestBase {
                         .header("Authorization", bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
-                                new CreateOrderRequest(addressId, fetchOrderToken(token)))))
+                                new CreateOrderRequest(addressId, fetchOrderToken(token), null))))
                 .andExpect(jsonPath("$.data.statusLabel").value("待支付"))
                 .andExpect(jsonPath("$.data.order.totalAmount").value(3998.00))
                 // 收货信息是快照
@@ -320,7 +414,7 @@ class OrderControllerTest extends ApiTestBase {
                         .header("Authorization", bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
-                                new CreateOrderRequest(addressId, fetchOrderToken(token)))))
+                                new CreateOrderRequest(addressId, fetchOrderToken(token), null))))
                 .andExpect(jsonPath("$.code").value(400))
                 .andExpect(jsonPath("$.message").value("请先勾选要购买的商品"));
     }
@@ -337,7 +431,7 @@ class OrderControllerTest extends ApiTestBase {
         addToCart(token, productId, 1);
 
         String submitToken = fetchOrderToken(token);
-        String body = objectMapper.writeValueAsString(new CreateOrderRequest(addressId, submitToken));
+        String body = objectMapper.writeValueAsString(new CreateOrderRequest(addressId, submitToken, null));
 
         mockMvc.perform(post("/api/orders")
                         .header("Authorization", bearer(token))
@@ -372,7 +466,7 @@ class OrderControllerTest extends ApiTestBase {
         mockMvc.perform(post("/api/orders")
                         .header("Authorization", bearer(bob))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new CreateOrderRequest(bobAddress, aliceToken))))
+                        .content(objectMapper.writeValueAsString(new CreateOrderRequest(bobAddress, aliceToken, null))))
                 .andExpect(jsonPath("$.code").value(400));
 
         // Bob 用自己的令牌照样能下单
@@ -387,7 +481,7 @@ class OrderControllerTest extends ApiTestBase {
         long addressId = createAddress(token);
 
         String submitToken = fetchOrderToken(token);
-        String body = objectMapper.writeValueAsString(new CreateOrderRequest(addressId, submitToken));
+        String body = objectMapper.writeValueAsString(new CreateOrderRequest(addressId, submitToken, null));
 
         // 购物车是空的 → 失败
         mockMvc.perform(post("/api/orders")
@@ -414,7 +508,7 @@ class OrderControllerTest extends ApiTestBase {
         mockMvc.perform(post("/api/orders")
                         .header("Authorization", bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new CreateOrderRequest(addressId, ""))))
+                        .content(objectMapper.writeValueAsString(new CreateOrderRequest(addressId, "", null))))
                 .andExpect(jsonPath("$.code").value(400));
     }
 

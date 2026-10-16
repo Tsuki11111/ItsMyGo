@@ -139,7 +139,8 @@ class PaymentConcurrencyTest {
         cartItemMapper.insert(cartItem);
 
         orderId = orderService.create(buyerId,
-                new CreateOrderRequest(address.getId(), orderService.issueToken(buyerId))).order().getId();
+                new CreateOrderRequest(address.getId(), orderService.issueToken(buyerId), null))
+                .order().getId();
     }
 
     /** 让 N 个线程卡在起跑线上，一声令下同时执行；返回成功次数 */
@@ -204,12 +205,28 @@ class PaymentConcurrencyTest {
         assertThat(orderMapper.selectById(orderId).getStatus()).isEqualTo("CANCELLED");
     }
 
+    /**
+     * ⚠️ **只删本次测试造出来的那些行。**
+     *
+     * 这里原来写的是 `paymentMapper.delete(null)`、`orderMapper.delete(null)` 这种 ——
+     * MyBatis-Plus 里 **Wrapper 传 null 等于没有 where 条件**，也就是 `DELETE FROM 整张表`。
+     * 本地开发库和测试库是同一个，跑一次测试就会把开发时下的订单、支付流水、
+     * 加过的购物车、存过的收货地址一并抹掉，而且很难往「是测试干的」上想。
+     */
     @AfterEach
     void cleanup() {
-        paymentMapper.delete(null);
-        orderItemMapper.delete(null);
-        orderMapper.delete(null);
-        cartItemMapper.delete(null);
+        if (!createdUserIds.isEmpty()) {
+            List<Long> orderIds = orderMapper.selectList(Wrappers.<Order>lambdaQuery()
+                            .in(Order::getUserId, createdUserIds))
+                    .stream().map(Order::getId).toList();
+            if (!orderIds.isEmpty()) {
+                paymentMapper.delete(Wrappers.<Payment>lambdaQuery().in(Payment::getOrderId, orderIds));
+                orderItemMapper.delete(Wrappers.<OrderItem>lambdaQuery().in(OrderItem::getOrderId, orderIds));
+                orderMapper.delete(Wrappers.<Order>lambdaQuery().in(Order::getId, orderIds));
+            }
+            cartItemMapper.delete(Wrappers.<CartItem>lambdaQuery().in(CartItem::getUserId, createdUserIds));
+            addressMapper.delete(Wrappers.<Address>lambdaQuery().in(Address::getUserId, createdUserIds));
+        }
         if (createdProductId != null) {
             productMapper.deleteById(createdProductId);
             createdProductId = null;
@@ -218,7 +235,6 @@ class PaymentConcurrencyTest {
             categoryMapper.deleteById(createdCategoryId);
             createdCategoryId = null;
         }
-        addressMapper.delete(null);
         for (Long userId : createdUserIds) {
             userMapper.deleteById(userId);
         }

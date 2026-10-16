@@ -97,7 +97,7 @@ class RateLimitTest extends ApiTestBase {
                             .header("Authorization", bearer(token))
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(new com.tsuk1.itsmygo.dto.CreateOrderRequest(
-                                    addressIdOf(token), tokenOf(token)))))
+                                    addressIdOf(token), tokenOf(token), null))))
                     .andReturn().getResponse().getContentAsString();
             int code = objectMapper.readTree(response).path("code").asInt();
             if (code == 429) {
