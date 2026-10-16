@@ -1,11 +1,20 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import {
   Box, Briefcase, Coin, Connection, Cpu, Files, Monitor, Mouse, Printer, Share,
 } from '@element-plus/icons-vue'
 import type { Component } from 'vue'
+import ProductImage from '@/components/ProductImage.vue'
 import { fetchCategoryTree, fetchProducts } from '@/api/product'
+import { addToCart } from '@/api/cart'
+import { useUserStore } from '@/stores/user'
 import type { CategoryNode, Product } from '@/api/types'
+
+const route = useRoute()
+const router = useRouter()
+const userStore = useUserStore()
 
 const products = ref<Product[]>([])
 const categories = ref<CategoryNode[]>([])
@@ -14,6 +23,8 @@ const page = ref(1)
 const size = ref(12)
 const categoryId = ref<number | undefined>(undefined)
 const loading = ref(false)
+/** 正在加购的商品 id —— 用来给按钮上个"进行中"的样子，防连点 */
+const addingId = ref<number | null>(null)
 
 /** 分类名 → 图标。匹配不上就用 Box 兜底，新增分类不会把页面搞崩 */
 const ICONS: Record<string, Component> = {
@@ -71,25 +82,26 @@ function onPageChange(next: number) {
   load()
 }
 
-function hasImage(product: Product): boolean {
-  return Boolean(product.mainImage)
+function goDetail(product: Product) {
+  router.push(`/product/${product.id}`)
 }
 
-/**
- * 无图占位：按 id 取的粉色渐变 + 商品名首字。
- * 用渐变而不是灰底，是为了让"图占大头"的版式效果能看出来。
- */
-const GRADIENTS = [
-  'linear-gradient(135deg, #FFE4EF, #FFD6E7)',
-  'linear-gradient(135deg, #FFE9F0, #FFDCE8)',
-  'linear-gradient(135deg, #FFF0F5, #FFE2EC)',
-  'linear-gradient(135deg, #FFE6F0, #FFD9E6)',
-]
-function placeholderStyle(product: Product) {
-  return { background: GRADIENTS[product.id % GRADIENTS.length] }
-}
-function initialOf(product: Product): string {
-  return product.name.trim().charAt(0)
+async function onAdd(product: Product) {
+  if (!userStore.isLoggedIn) {
+    ElMessage.warning('请先登录')
+    router.push({ path: '/login', query: { redirect: route.fullPath } })
+    return
+  }
+
+  addingId.value = product.id
+  try {
+    await addToCart(product.id, 1)
+    ElMessage.success('已加入购物车')
+  } catch {
+    // 库存不足等业务失败，拦截器已经提示过
+  } finally {
+    addingId.value = null
+  }
 }
 
 onMounted(async () => {
@@ -149,12 +161,14 @@ onMounted(async () => {
       <h3 class="goods-title">{{ currentCategoryName }}</h3>
 
       <div v-loading="loading" class="grid">
-        <article v-for="product in products" :key="product.id" class="card">
+        <article
+          v-for="product in products"
+          :key="product.id"
+          class="card"
+          @click="goDetail(product)"
+        >
           <div class="thumb">
-            <img v-if="hasImage(product)" :src="product.mainImage" :alt="product.name" />
-            <div v-else class="thumb-placeholder" :style="placeholderStyle(product)">
-              {{ initialOf(product) }}
-            </div>
+            <ProductImage :src="product.mainImage" :name="product.name" :id="product.id" />
           </div>
 
           <div class="info">
@@ -169,7 +183,13 @@ onMounted(async () => {
 
             <p class="meta">已售 {{ product.sales }}</p>
 
-            <button class="add-btn">加入购物车</button>
+            <button
+              class="add-btn"
+              :disabled="addingId === product.id"
+              @click.stop="onAdd(product)"
+            >
+              加入购物车
+            </button>
           </div>
         </article>
       </div>
@@ -322,6 +342,7 @@ onMounted(async () => {
   border-radius: var(--radius-card);
   overflow: hidden;
   box-shadow: var(--shadow-card);
+  cursor: pointer;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
@@ -338,23 +359,8 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   overflow: hidden;
-}
-
-.thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.thumb-placeholder {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  /* 无图占位的首字字号，见 ProductImage.vue */
   font-size: 40px;
-  font-weight: 600;
-  color: rgba(232, 99, 143, 0.35);
 }
 
 .info {
@@ -420,8 +426,13 @@ onMounted(async () => {
   transition: background 0.15s;
 }
 
-.add-btn:hover {
+.add-btn:hover:not(:disabled) {
   background: var(--c-pink-hover);
+}
+
+.add-btn:disabled {
+  background: var(--c-text-3);
+  cursor: not-allowed;
 }
 
 .pager {

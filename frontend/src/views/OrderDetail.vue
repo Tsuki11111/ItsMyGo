@@ -1,0 +1,320 @@
+<script setup lang="ts">
+import { computed, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import ProductImage from '@/components/ProductImage.vue'
+import { fetchOrder, payOrder } from '@/api/order'
+import type { OrderView } from '@/api/types'
+
+const route = useRoute()
+const router = useRouter()
+
+const view = ref<OrderView | null>(null)
+const loading = ref(true)
+const paying = ref(false)
+const notFound = ref(false)
+
+const order = computed(() => view.value?.order ?? null)
+const payable = computed(() => order.value?.status === 'PENDING_PAYMENT')
+
+/** 后端给的是 LocalDateTime（`2026-10-16T18:34:30`），显示时把 T 换掉就行 */
+function formatTime(value: string | null): string {
+  return value ? value.replace('T', ' ').slice(0, 19) : '—'
+}
+
+async function load() {
+  loading.value = true
+  notFound.value = false
+  try {
+    view.value = await fetchOrder(Number(route.params.id))
+  } catch {
+    // 不存在 / 不是自己的订单 —— 后端一律当「不存在」返回 404
+    view.value = null
+    notFound.value = true
+  } finally {
+    loading.value = false
+  }
+}
+
+async function onPay() {
+  if (!order.value) return
+  paying.value = true
+  try {
+    view.value = await payOrder(order.value.id)
+    ElMessage.success('支付成功')
+  } catch {
+    // 状态已经变了（比如刚好被超时任务取消），拦截器已提示；重新拉一次看真实状态
+    await load()
+  } finally {
+    paying.value = false
+  }
+}
+
+onMounted(load)
+</script>
+
+<template>
+  <div v-loading="loading" class="order-page">
+    <el-empty v-if="notFound" description="订单不存在">
+      <el-button type="primary" @click="router.push('/')">回到首页</el-button>
+    </el-empty>
+
+    <template v-else-if="view && order">
+      <el-breadcrumb separator="/" class="crumb">
+        <el-breadcrumb-item :to="{ path: '/' }">首页</el-breadcrumb-item>
+        <el-breadcrumb-item>订单详情</el-breadcrumb-item>
+      </el-breadcrumb>
+
+      <!-- ── 状态 ── -->
+      <section class="block status-block">
+        <div class="status-main">
+          <span class="status-label">{{ view.statusLabel }}</span>
+          <span class="order-no">订单号 {{ order.orderNo }}</span>
+        </div>
+        <button
+          v-if="payable"
+          type="button"
+          class="pay-btn"
+          :disabled="paying"
+          @click="onPay"
+        >
+          {{ paying ? '支付中…' : '立即支付' }}
+        </button>
+      </section>
+
+      <!-- ── 收货信息 ── -->
+      <section class="block">
+        <h2 class="block-title">收货信息</h2>
+        <p class="line">
+          <span class="line-name">{{ order.receiver }}</span>
+          <span class="line-sub">{{ order.phone }}</span>
+        </p>
+        <p class="line-sub">{{ order.address }}</p>
+      </section>
+
+      <!-- ── 商品清单 ── -->
+      <section class="block">
+        <h2 class="block-title">商品清单</h2>
+        <div v-for="item in view.items" :key="item.id" class="goods-row">
+          <div class="goods-thumb">
+            <ProductImage :src="item.productImage" :name="item.productName" :id="item.productId" />
+          </div>
+          <div class="goods-info">
+            <p class="goods-name">{{ item.productName }}</p>
+            <p class="goods-unit">
+              ¥{{ item.unitPrice.toFixed(2) }} × {{ item.quantity }}
+            </p>
+          </div>
+          <div class="price goods-subtotal">
+            <span class="price-symbol">¥</span>
+            <span class="price-num">{{ item.subtotal.toFixed(2) }}</span>
+          </div>
+        </div>
+
+        <div class="total-row">
+          <span class="total-label">合计</span>
+          <span class="price">
+            <span class="price-symbol">¥</span>
+            <span class="price-num total-num">{{ order.totalAmount.toFixed(2) }}</span>
+          </span>
+        </div>
+      </section>
+
+      <!-- ── 时间线 ── -->
+      <section class="block">
+        <h2 class="block-title">订单信息</h2>
+        <dl class="meta">
+          <dt>下单时间</dt>
+          <dd>{{ formatTime(order.createdAt) }}</dd>
+          <template v-if="order.paidAt">
+            <dt>支付时间</dt>
+            <dd>{{ formatTime(order.paidAt) }}</dd>
+          </template>
+          <template v-if="order.shippedAt">
+            <dt>发货时间</dt>
+            <dd>{{ formatTime(order.shippedAt) }}</dd>
+          </template>
+          <template v-if="order.trackingNo">
+            <dt>物流单号</dt>
+            <dd>{{ order.trackingNo }}</dd>
+          </template>
+          <template v-if="order.cancelledAt">
+            <dt>取消时间</dt>
+            <dd>{{ formatTime(order.cancelledAt) }}</dd>
+          </template>
+        </dl>
+      </section>
+    </template>
+  </div>
+</template>
+
+<style scoped>
+.crumb {
+  margin-bottom: 16px;
+}
+
+.block {
+  margin-bottom: 18px;
+  padding: 20px 22px;
+  background: var(--c-card);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+}
+
+.block-title {
+  margin: 0 0 14px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--c-text);
+}
+
+/* ── 状态 ── */
+.status-block {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.status-main {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+}
+
+/* 状态是「选中态之外最该被看见的东西」，但仍用中性色 —— 粉色留给主按钮 */
+.status-label {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--c-text);
+}
+
+.order-no {
+  font-size: 12.5px;
+  color: var(--c-text-3);
+}
+
+.pay-btn {
+  margin-left: auto;
+  flex: none;
+  width: 140px;
+  padding: 11px 0;
+  font-size: 14px;
+  font-family: inherit;
+  color: #fff;
+  background: var(--c-pink);
+  border: none;
+  border-radius: var(--radius-btn);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.pay-btn:hover:not(:disabled) {
+  background: var(--c-pink-hover);
+}
+
+.pay-btn:disabled {
+  background: var(--c-text-3);
+  cursor: not-allowed;
+}
+
+/* ── 收货信息 ── */
+.line {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 0 0 4px;
+}
+
+.line-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--c-text);
+}
+
+.line-sub {
+  margin: 0;
+  font-size: 13px;
+  color: var(--c-text-2);
+}
+
+/* ── 商品行 ── */
+.goods-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.goods-row:last-of-type {
+  border-bottom: none;
+}
+
+.goods-thumb {
+  width: 56px;
+  height: 56px;
+  flex: none;
+  border-radius: var(--radius-tag);
+  overflow: hidden;
+  background: var(--c-pink-tint);
+  font-size: 20px;
+}
+
+.goods-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.goods-name {
+  margin: 0;
+  font-size: 14px;
+  color: var(--c-text);
+}
+
+.goods-unit {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--c-text-3);
+}
+
+.goods-subtotal .price-num {
+  font-size: 15px;
+}
+
+.total-row {
+  display: flex;
+  justify-content: flex-end;
+  align-items: baseline;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--c-border);
+}
+
+.total-label {
+  font-size: 13px;
+  color: var(--c-text-2);
+}
+
+.total-num {
+  font-size: 24px;
+}
+
+/* ── 订单信息 ── */
+.meta {
+  display: grid;
+  grid-template-columns: 88px 1fr;
+  gap: 8px 12px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.meta dt {
+  color: var(--c-text-3);
+}
+
+.meta dd {
+  margin: 0;
+  color: var(--c-text-2);
+}
+</style>

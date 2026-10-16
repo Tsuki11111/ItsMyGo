@@ -3,6 +3,18 @@ import { ElMessage } from 'element-plus'
 import type { Result } from './types'
 
 const TOKEN_KEY = 'its-my-go:token'
+const USER_KEY = 'its-my-go:user'
+
+/** 登录态失效时广播，store 收到后同步清掉内存里的用户信息 */
+export const UNAUTHORIZED_EVENT = 'its-my-go:unauthorized'
+
+/** 存进 localStorage 的身份信息 —— 是后端 AuthResult 去掉 token 的部分 */
+export interface StoredUser {
+  userId: number
+  username: string
+  nickname: string
+  role: string
+}
 
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY)
@@ -12,8 +24,25 @@ export function setToken(token: string): void {
   localStorage.setItem(TOKEN_KEY, token)
 }
 
-export function clearToken(): void {
+export function getStoredUser(): StoredUser | null {
+  const raw = localStorage.getItem(USER_KEY)
+  if (!raw) return null
+  try {
+    return JSON.parse(raw) as StoredUser
+  } catch {
+    // 存坏了就当没登录，别让整个应用起不来
+    localStorage.removeItem(USER_KEY)
+    return null
+  }
+}
+
+export function setStoredUser(user: StoredUser): void {
+  localStorage.setItem(USER_KEY, JSON.stringify(user))
+}
+
+export function clearAuth(): void {
   localStorage.removeItem(TOKEN_KEY)
+  localStorage.removeItem(USER_KEY)
 }
 
 const instance = axios.create({
@@ -38,6 +67,13 @@ instance.interceptors.response.use(
     //    而 400（参数错）、404（不存在）、429（限流）只体现在 body 的 code 里，HTTP 仍然是 200。
     //    所以下面 success 分支按 body.code 判断，这里只兜「HTTP 层就失败」的情况。
     const body = error.response?.data as Result<unknown> | undefined
+
+    if (error.response?.status === 401) {
+      // token 过期或无效：直接清掉登录态，别让用户卡在"看起来已登录、但什么都做不了"
+      clearAuth()
+      window.dispatchEvent(new Event(UNAUTHORIZED_EVENT))
+    }
+
     ElMessage.error(body?.message || '网络异常，请稍后重试')
     return Promise.reject(error)
   },

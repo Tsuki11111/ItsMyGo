@@ -1,5 +1,14 @@
 <script setup lang="ts">
 import { RouterView } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import { useUserStore } from '@/stores/user'
+
+const userStore = useUserStore()
+
+function onLogout() {
+  userStore.logout()
+  ElMessage.success('已退出登录')
+}
 </script>
 
 <template>
@@ -11,7 +20,11 @@ import { RouterView } from 'vue-router'
       </div>
       <nav class="actions">
         <RouterLink to="/cart" class="link">购物车</RouterLink>
-        <RouterLink to="/login" class="link">登录</RouterLink>
+        <template v-if="userStore.isLoggedIn">
+          <span class="who">{{ userStore.displayName }}</span>
+          <button type="button" class="link link-btn" @click="onLogout">退出</button>
+        </template>
+        <RouterLink v-else to="/login" class="link">登录 / 注册</RouterLink>
       </nav>
     </div>
   </header>
@@ -68,6 +81,20 @@ import { RouterView } from 'vue-router'
 
 .link:hover {
   color: var(--c-pink);
+}
+
+/* 「退出」是个按钮，但长相要和旁边的链接一致 */
+.link-btn {
+  padding: 0;
+  font-family: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.who {
+  font-size: 14px;
+  color: var(--c-text);
 }
 
 .page {

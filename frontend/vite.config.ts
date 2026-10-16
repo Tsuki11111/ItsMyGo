@@ -10,7 +10,9 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
+    // PORT 优先 —— 让预览 / 测试工具能挑空闲端口，避免和已在跑的 dev server 撞车。
+    // 平时 `npm run dev` 没设 PORT，仍然是 5173。
+    port: Number(process.env.PORT) || 5173,
     // 开发时把 /api 代理到后端 —— 这样浏览器看到的是同源请求，
     // 后端一行 CORS 配置都不用加。生产环境用 Nginx 做同样的事。
     proxy: {
