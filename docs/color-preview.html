@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>一次买够 · 配色对比</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: #f2f2f4;
+    padding: 32px;
+    color: #2D2D2D;
+  }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  .sub { color: #888; font-size: 13px; margin-bottom: 28px; }
+
+  .scheme {
+    background: #fff;
+    border-radius: 14px;
+    padding: 22px;
+    margin-bottom: 24px;
+    border: 1px solid #e8e8ec;
+  }
+  .scheme-title { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
+  .scheme-desc { font-size: 13px; color: #888; margin-bottom: 18px; line-height: 1.6; }
+  .swatches { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; }
+  .sw {
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 11px; padding: 6px 10px; border-radius: 6px;
+    border: 1px solid rgba(0,0,0,.08);
+  }
+
+  /* 商品卡片通用骨架 */
+  .stage { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+  .card {
+    width: 200px; border-radius: 16px; overflow: hidden;
+    transition: transform .2s, box-shadow .2s;
+  }
+  .card:hover { transform: translateY(-4px); }
+  .thumb {
+    height: 140px; display: flex; align-items: center; justify-content: center;
+    font-size: 12px; color: #b9b9b9; letter-spacing: 1px;
+  }
+  .info { padding: 12px 14px 16px; }
+  .name { font-size: 13px; line-height: 1.45; margin-bottom: 8px; }
+  .price { font-family: ui-monospace, Consolas, monospace; font-weight: 700; }
+  .price small { font-size: 11px; font-weight: 500; }
+  .meta { font-size: 11px; color: #b0b0b0; margin-top: 6px; }
+  .tag {
+    display: inline-block; font-size: 11px; padding: 2px 8px;
+    border-radius: 6px; margin-bottom: 8px;
+  }
+  .btn {
+    display: block; width: 100%; margin-top: 12px; padding: 10px 0;
+    border: none; border-radius: 24px; font-size: 13px;
+    font-family: inherit; cursor: pointer; font-weight: 500;
+  }
+
+  /* ── A：糖果粉为主 ── */
+  .a .card { background: #fff; box-shadow: 0 4px 16px rgba(255,123,169,.18); }
+  .a .thumb { background: #FFF5F9; }
+  .a .name { color: #2D2D2D; }
+  .a .price { color: #FF7BA9; font-size: 18px; }
+  .a .tag { background: #FFE4EF; color: #E8638F; }
+  .a .btn { background: #FF7BA9; color: #fff; }
+
+  /* ── B：浅粉为主 ── */
+  .b .card { background: #FFD6E7; box-shadow: 0 4px 16px rgba(255,182,213,.30); }
+  .b .thumb { background: #FFE9F2; color: #e0a8c4; }
+  .b .name { color: #2D2D2D; }
+  .b .price { color: #C9557F; font-size: 18px; }
+  .b .tag { background: #fff; color: #C9557F; }
+  .b .btn { background: #FFD6E7; color: #2D2D2D; }
+
+  /* ── C：浅粉做面 + 深粉做点 ── */
+  .c .card { background: #fff; box-shadow: 0 4px 18px rgba(255,123,169,.14); }
+  .c .thumb { background: #FFF5F9; }
+  .c .name { color: #2D2D2D; }
+  .c .price { color: #E8638F; font-size: 18px; }
+  .c .tag { background: #FFE4EF; color: #E8638F; }
+  .c .btn { background: #E8638F; color: #fff; }
+
+  .note {
+    margin-top: 16px; font-size: 12.5px; line-height: 1.7;
+    padding: 12px 14px; border-radius: 10px;
+  }
+  .note.bad { background: #FFF4F4; color: #a35; }
+  .note.good { background: #F3FBF6; color: #2a6b45; }
+
+  .banner {
+    border-radius: 12px; padding: 18px 22px; margin-bottom: 18px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .banner h3 { font-size: 15px; margin-bottom: 4px; }
+  .banner p { font-size: 12.5px; opacity: .75; }
+  .banner .go { border-radius: 20px; padding: 9px 22px; font-size: 13px; border: none; font-family: inherit; }
+</style>
+</head>
+<body>
+
+<h1>一次买够 · 配色对比</h1>
+<p class="sub">同一套布局，三种粉色用法。把鼠标移到卡片上看看 hover 效果。</p>
+
+<!-- ══ A ══ -->
+<section class="scheme a">
+  <div class="scheme-title">A · 糖果粉为主</div>
+  <div class="scheme-desc">粉色出现在所有强调位：价格、按钮、标签。够独特、够抢眼。</div>
+  <div class="swatches">
+    <span class="sw" style="background:#FF7BA9;color:#fff">#FF7BA9 主</span>
+    <span class="sw" style="background:#E8638F;color:#fff">#E8638F 深</span>
+    <span class="sw" style="background:#FFE4EF">#FFE4EF 浅</span>
+  </div>
+  <div class="stage">
+    <div>
+      <div class="card">
+        <div class="thumb">商品图</div>
+        <div class="info">
+          <span class="tag">热销</span>
+          <div class="name">兄弟 HAK 180 烫金机</div>
+          <div class="price"><small>¥</small>1,999</div>
+          <div class="meta">已售 328</div>
+        </div>
+      </div>
+    </div>
+    <div style="flex:1;min-width:240px">
+      <div class="banner" style="background: linear-gradient(135deg,#FF7BA9,#FF9EC4);color:#fff">
+        <div><h3>限时秒杀</h3><p>每天 10:00 开抢</p></div>
+        <button class="go" style="background:#fff;color:#E8638F">去看看</button>
+      </div>
+      <button class="btn a" style="margin-top:0;background:#FF7BA9;color:#fff">立即支付</button>
+    </div>
+  </div>
+  <div class="note bad">⚠ 白字在 #FF7BA9 上对比度约 2.5:1，达不到 WCAG AA（要 4.5:1）。按钮文字换深色、或用 #E8638F 作按钮底色。</div>
+</section>
+
+<!-- ══ B ══ -->
+<section class="scheme b">
+  <div class="scheme-title">B · 浅粉为主</div>
+  <div class="scheme-desc">粉色铺满整个卡片，白色只做点缀。最"糖果"，但压力全在文字上。</div>
+  <div class="swatches">
+    <span class="sw" style="background:#FFD6E7">#FFD6E7 主</span>
+    <span class="sw" style="background:#C9557F;color:#fff">#C9557F 文字</span>
+    <span class="sw" style="background:#fff">#FFFFFF 点缀</span>
+  </div>
+  <div class="stage">
+    <div>
+      <div class="card">
+        <div class="thumb">商品图（白底图会浮起来）</div>
+        <div class="info">
+          <span class="tag">热销</span>
+          <div class="name">兄弟 HAK 180 烫金机</div>
+          <div class="price"><small>¥</small>1,999</div>
+          <div class="meta" style="color:#b8829c">已售 328</div>
+        </div>
+      </div>
+    </div>
+    <div style="flex:1;min-width:240px">
+      <div class="banner" style="background:#FFD6E7;color:#7a3f58">
+        <div><h3>限时秒杀</h3><p>每天 10:00 开抢</p></div>
+        <button class="go" style="background:#fff;color:#C9557F">去看看</button>
+      </div>
+      <button class="btn b" style="margin-top:0">立即支付</button>
+      <div class="note bad" style="margin-top:12px">
+        ⚠ 按钮是浅粉的，点起来"没有确定感"；<br>
+        ⚠ 商品图多是白底，贴在浅粉卡片上会像"贴膏药"（上面那块占位图就能看出边界）。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ C ══ -->
+<section class="scheme c">
+  <div class="scheme-title">C · 浅粉做面 + 深粉做点　（推荐）</div>
+  <div class="scheme-desc">大面积是白和极浅粉，只有价格和主按钮是饱和粉。粉的量没少，但每个粉都在干正事。</div>
+  <div class="swatches">
+    <span class="sw" style="background:#FFF5F9">#FFF5F9 面</span>
+    <span class="sw" style="background:#FFE4EF">#FFE4EF 浅</span>
+    <span class="sw" style="background:#E8638F;color:#fff">#E8638F 点</span>
+  </div>
+  <div class="stage">
+    <div>
+      <div class="card">
+        <div class="thumb">商品图</div>
+        <div class="info">
+          <span class="tag">热销</span>
+          <div class="name">兄弟 HAK 180 烫金机</div>
+          <div class="price"><small>¥</small>1,999</div>
+          <div class="meta">已售 328</div>
+        </div>
+      </div>
+    </div>
+    <div style="flex:1;min-width:240px">
+      <div class="banner" style="background:#FFE4EF;color:#8a3a5c">
+        <div><h3>限时秒杀</h3><p>每天 10:00 开抢</p></div>
+        <button class="go" style="background:#E8638F;color:#fff">去看看</button>
+      </div>
+      <button class="btn c" style="margin-top:0">立即支付</button>
+      <div class="note good" style="margin-top:12px">
+        ✓ 白字在 #E8638F 上对比度约 3.8:1，接近合格线；<br>
+        ✓ 商品图贴在白底上，不会有颜色边界；<br>
+        ✓ 粉色总量其实更多（浅粉铺得开），但视线只被价格和按钮抓住。
+      </div>
+    </div>
+  </div>
+</section>
+
+</body>
+</html>

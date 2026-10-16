@@ -640,7 +640,75 @@ redisTemplate.rename(tempKey, KEY);   // 原子切换
 
 ---
 
-## 4. 测试怎么写的
+## 4. 前端（`frontend/`）
+
+### 4.1 工程与启动
+
+```
+frontend/
+├── vite.config.ts          # /api 代理到 8080，开发时不需要后端配 CORS
+├── src/
+│   ├── api/
+│   │   ├── http.ts         # axios 封装 + 拦截器
+│   │   ├── types.ts        # 与后端 DTO 一一对应的类型（手写）
+│   │   └── product.ts      # 商品相关接口
+│   ├── styles/theme.css    # 色板 + Element Plus 主题覆盖
+│   ├── router/index.ts
+│   ├── views/ProductList.vue
+│   ├── App.vue             # 顶栏 + 内容区
+│   └── main.ts
+└── .gitignore
+```
+
+启动（后端要同时跑着）：`npm run dev` → http://localhost:5173
+
+### 4.2 配色：浅粉做面 + 深粉做点
+
+定稿方案见 [color-preview.html](color-preview.html)（三个方案的 A/B/C 对比）。
+
+```
+--c-pink:       #e8638f   点：价格、主按钮、选中态
+--c-pink-soft:  #ffe4ef   浅：标签底、选中背景
+--c-pink-tint:  #fff5f9   更浅：区块背景、商品图占位
+--c-text:       #2d2d2d   近黑 —— 粉色页面很"轻"，得靠它压住
+```
+
+**规矩：粉色只出现在「价格 / 主按钮 / 选中态」三个位置**，其余一律中性色
+（卡片边框、分类导航、销量文字全是灰）。粉色一多就腻，一腻就廉价。
+
+另外两个让它不显廉价的技术点：
+
+- **圆角要大**（卡片 16px、按钮 24px）—— 小圆角 + 糖果粉 = 廉价，大圆角就是另一个气质
+- **阴影带粉色不灰**：`rgba(232,99,143,.14)`。灰阴影配粉背景会显脏
+
+价格用 **`ui-monospace` 等宽字体** —— 一列 `¥259.00` / `¥2680.00` 的小数点会垂直对齐，
+成本几乎为零，质感差别很大。
+
+### 4.3 与后端对接的三个约定
+
+**① 响应拦截器按 body 的 `code` 判断，不能只看 HTTP 状态码**
+
+后端的 HTTP 状态码**不总是语义化的**：401/403 是真状态码（Spring Security 的 entry point
+手动 `setStatus` 的），而 400/404/429 只体现在 body 的 code 里、HTTP 仍是 200。
+`http.ts` 里因此统一剥掉外层 `Result` 包装，业务失败走 `result.code !== 200` 分支。
+
+**② 库存走独立接口**
+
+`GET /api/products/{id}/stock`，不要用商品详情里的 `stock` 字段
+（详情虽然也会替换成实时值，但独立接口语义更清楚，且不用为一个数字拉整个详情）。
+
+**③ 下单要先领提交令牌**
+
+进结算页 → `GET /api/orders/token` → 提交时带上。不传会被拒（见 §3.7）。
+
+### 4.4 无图占位
+
+商品 `mainImage` 为空时，用**按 id 取的粉色渐变块 + 商品名首字**占位，
+而不是灰底"暂无图片"。这样既不会让卡片塌掉，也能看出"图占大头"的版式效果。
+
+---
+
+## 5. 测试怎么写的
 
 `ApiTestBase` 是基类，提供两样东西：
 
@@ -677,7 +745,7 @@ redisTemplate.rename(tempKey, KEY);   // 原子切换
 
 ---
 
-## 5. 几条贯穿全局的约定
+## 6. 几条贯穿全局的约定
 
 | 约定 | 原因 |
 |---|---|
@@ -691,10 +759,11 @@ redisTemplate.rename(tempKey, KEY);   // 原子切换
 
 ---
 
-## 6. 还没实现的部分
+## 7. 还没实现的部分
 
-M4 起才有：**支付（模拟）的独立模块**、退款、前端、gRPC 客服接入。
+M5 前端只起了个骨架（商品列表页），其余页面待做：商品详情、购物车、登录注册、
+结算下单、我的订单、以及整个管理端。
+
+M6 / M7 是客服链路：gRPC 接入（`rag_helper` 那边已就绪）、查订单环回。
+
 详见 [decisions-ecommerce.md](decisions-ecommerce.md) §4 的分阶段路线。
-
-> 注意 M3 已经把「模拟支付」简化为一个状态流转（`POST /api/orders/{id}/pay`）——
-> 真实项目这里要接支付网关并处理异步回调，本项目的定位不做。

@@ -192,7 +192,7 @@ public class OrderServiceImpl implements OrderService {
                     .eq(CartItem::getUserId, userId)
                     .eq(CartItem::getSelected, 1));
 
-            return new OrderView(order, OrderStatus.PENDING_PAYMENT.label(), items);
+            return new OrderView(order, OrderStatus.PENDING_PAYMENT.label(), items, items.size());
 
         } catch (RuntimeException e) {
             reserved.forEach(stockService::release);
@@ -217,12 +217,52 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
+    /**
+     * 顾客端订单列表 —— **两条查询 + 内存组装**，不是 N+1、也不是 JOIN。
+     *
+     * ① 按条件分页查订单（分页只在这一步做，符合直觉）
+     * ② 用 IN 把这一页的明细一次捞回来
+     * ③ 按 orderId 分组，内存里拼成 OrderView
+     *
+     * **为什么不用 JOIN**：{@code LEFT JOIN order_items ... LIMIT 10} 里的 LIMIT
+     * 限制的是 JOIN 之后的行数而不是订单数 —— 10 个订单若有 30 件商品，
+     * 只能拿到前 3 个订单，分页直接错。要修就得套子查询或聚合，SQL 会难读到没人愿意维护。
+     *
+     * 真实电商（淘宝/京东那类）也是这个路子；流量再大才会考虑在 orders 上冗余商品摘要，
+     * 让列表连第二条查询都省掉。
+     */
     @Override
-    public PageResponse<Order> pageForCustomer(Long userId, int page, int size) {
-        Page<Order> pageRequest = new Page<>(normalizePage(page), normalizeSize(size));
-        return PageResponse.of(orderMapper.selectPage(pageRequest, Wrappers.<Order>lambdaQuery()
-                .eq(Order::getUserId, userId)
-                .orderByDesc(Order::getId)));
+    public PageResponse<OrderView> pageForCustomer(Long userId, int page, int size, int previewLimit) {
+        Page<Order> orderPage = orderMapper.selectPage(
+                new Page<>(normalizePage(page), normalizeSize(size)),
+                Wrappers.<Order>lambdaQuery()
+                        .eq(Order::getUserId, userId)
+                        .orderByDesc(Order::getId));
+
+        List<Order> orders = orderPage.getRecords();
+        if (orders.isEmpty()) {
+            return new PageResponse<>(List.of(), orderPage.getTotal(),
+                    orderPage.getCurrent(), orderPage.getSize());
+        }
+
+        List<Long> orderIds = orders.stream().map(Order::getId).toList();
+        Map<Long, List<OrderItem>> itemsByOrder = orderItemMapper.selectList(
+                        Wrappers.<OrderItem>lambdaQuery().in(OrderItem::getOrderId, orderIds))
+                .stream()
+                .collect(Collectors.groupingBy(OrderItem::getOrderId));
+
+        List<OrderView> views = new ArrayList<>(orders.size());
+        for (Order order : orders) {
+            List<OrderItem> all = itemsByOrder.getOrDefault(order.getId(), List.of());
+            List<OrderItem> shown = (previewLimit > 0 && all.size() > previewLimit)
+                    ? all.subList(0, previewLimit)
+                    : all;
+            views.add(new OrderView(order,
+                    OrderStatus.valueOf(order.getStatus()).label(), shown, all.size()));
+        }
+
+        return new PageResponse<>(views, orderPage.getTotal(),
+                orderPage.getCurrent(), orderPage.getSize());
     }
 
     @Override
@@ -470,7 +510,7 @@ public class OrderServiceImpl implements OrderService {
     private OrderView view(Order order) {
         List<OrderItem> items = orderItemMapper.selectList(
                 Wrappers.<OrderItem>lambdaQuery().eq(OrderItem::getOrderId, order.getId()));
-        return new OrderView(order, OrderStatus.valueOf(order.getStatus()).label(), items);
+        return OrderView.full(order, OrderStatus.valueOf(order.getStatus()).label(), items);
     }
 
     private Order requireOwned(Long userId, Long orderId) {

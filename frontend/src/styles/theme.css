@@ -1,0 +1,68 @@
+/*
+ * 色板 —— 对应 docs/color-preview.html 的「方案 C：浅粉做面 + 深粉做点」。
+ *
+ * 规则：粉色只出现在三个地方 —— 价格、主按钮、选中态。
+ * 其他一切（卡片边框、分类导航、销量文字）用中性色。
+ * 这条规矩比具体色值重要：粉色一多就腻，一腻就廉价。
+ */
+:root {
+  /* ── 品牌粉 ── */
+  --c-pink: #e8638f;          /* 点：价格、主按钮、选中态 */
+  --c-pink-hover: #d9537e;
+  --c-pink-soft: #ffe4ef;     /* 浅：标签底、选中背景 */
+  --c-pink-tint: #fff5f9;     /* 更浅：区块背景、商品图占位 */
+
+  /* ── 中性色 ── */
+  --c-text: #2d2d2d;          /* 近黑。粉色页面很"轻"，得靠它压住 */
+  --c-text-2: #7a7a7a;
+  --c-text-3: #b8b8b8;
+
+  --c-bg: #fffbfd;            /* 带一丝粉的页面底 */
+  --c-card: #ffffff;
+  --c-border: #f5e6ec;
+
+  /* ── 圆角：糖果风的核心视觉语言，别用小圆角 ── */
+  --radius-card: 16px;
+  --radius-btn: 24px;
+  --radius-tag: 8px;
+
+  /* ── 阴影：带粉色，不用灰色（灰阴影配粉背景会显脏）── */
+  --shadow-card: 0 4px 18px rgba(232, 99, 143, 0.14);
+  --shadow-card-hover: 0 10px 28px rgba(232, 99, 143, 0.22);
+
+  /* ── Element Plus 主题覆盖 ── */
+  --el-color-primary: #e8638f;
+  --el-color-primary-light-3: #ef8aab;
+  --el-color-primary-light-5: #f4a9c3;
+  --el-color-primary-light-7: #f9c8db;
+  --el-color-primary-light-8: #fbd8e6;
+  --el-color-primary-light-9: #ffe4ef;
+  --el-color-primary-dark-2: #d9537e;
+
+  --el-border-radius-base: 10px;
+  --el-text-color-primary: #2d2d2d;
+  --el-text-color-regular: #7a7a7a;
+  --el-border-color-lighter: #f5e6ec;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  /* 略收紧字距 —— 这是"潮"和"可爱"之间的分界线，见对话里的说明 */
+  letter-spacing: -0.01em;
+  background: var(--c-bg);
+  color: var(--c-text);
+}
+
+/* 价格用等宽字体：一列 ¥1999 / ¥299 / ¥5499 的小数点会垂直对齐。
+   成本几乎为零，质感差别很大。 */
+.price-num {
+  font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+  font-weight: 700;
+}

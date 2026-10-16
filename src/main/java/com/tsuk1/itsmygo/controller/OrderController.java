@@ -46,11 +46,18 @@ public class OrderController {
         return Result.ok(orderService.create(user.id(), request));
     }
 
+    /**
+     * 我的订单列表 —— 带明细。
+     *
+     * @param previewLimit 每个订单最多返回几条明细，默认 3（列表卡片只显示前几件 + 「共 N 件」）；
+     *                     传 0 表示全给
+     */
     @GetMapping
-    public Result<PageResponse<Order>> page(@AuthenticationPrincipal CurrentUser user,
-                                            @RequestParam(defaultValue = "1") int page,
-                                            @RequestParam(defaultValue = "10") int size) {
-        return Result.ok(orderService.pageForCustomer(user.id(), page, size));
+    public Result<PageResponse<OrderView>> page(@AuthenticationPrincipal CurrentUser user,
+                                                @RequestParam(defaultValue = "1") int page,
+                                                @RequestParam(defaultValue = "10") int size,
+                                                @RequestParam(defaultValue = "3") int previewLimit) {
+        return Result.ok(orderService.pageForCustomer(user.id(), page, size, previewLimit));
     }
 
     @GetMapping("/{id}")

@@ -1,0 +1,27 @@
+{
+  "name": "its-my-go-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "一次买够 · 前端（顾客端 + 管理端）",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "type-check": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "axios": "^1.20.0",
+    "element-plus": "^2.14.7",
+    "pinia": "^4.1.0",
+    "vue": "^3.5.44",
+    "vue-router": "^5.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@vitejs/plugin-vue": "^6.0.10",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.4",
+    "vue-tsc": "^3.3.13"
+  }
+}

@@ -5,18 +5,27 @@ import com.tsuk1.itsmygo.dto.AddressRequest;
 import com.tsuk1.itsmygo.dto.CartAddRequest;
 import com.tsuk1.itsmygo.dto.CategoryRequest;
 import com.tsuk1.itsmygo.dto.CreateOrderRequest;
+import com.tsuk1.itsmygo.dto.OrderView;
+import com.tsuk1.itsmygo.dto.PageResponse;
 import com.tsuk1.itsmygo.dto.ProductRequest;
 import com.tsuk1.itsmygo.dto.ShipRequest;
 import com.tsuk1.itsmygo.entity.Order;
 import com.tsuk1.itsmygo.entity.Payment;
+import com.tsuk1.itsmygo.mapper.AddressMapper;
+import com.tsuk1.itsmygo.mapper.CartItemMapper;
+import com.tsuk1.itsmygo.mapper.OrderItemMapper;
 import com.tsuk1.itsmygo.mapper.OrderMapper;
 import com.tsuk1.itsmygo.mapper.PaymentMapper;
+import com.tsuk1.itsmygo.mapper.ProductMapper;
+import com.tsuk1.itsmygo.service.StockService;
+import com.tsuk1.itsmygo.service.impl.OrderServiceImpl;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -32,6 +41,21 @@ class OrderControllerTest extends ApiTestBase {
 
     @Autowired
     private OrderMapper orderMapper;
+
+    @Autowired
+    private OrderItemMapper orderItemMapper;
+
+    @Autowired
+    private CartItemMapper cartItemMapper;
+
+    @Autowired
+    private ProductMapper productMapper;
+
+    @Autowired
+    private AddressMapper addressMapper;
+
+    @Autowired
+    private StockService stockService;
 
     private long createProduct(String adminToken, String name, String price, int stock) throws Exception {
         String catBody = mockMvc.perform(post("/api/admin/categories")
@@ -392,6 +416,98 @@ class OrderControllerTest extends ApiTestBase {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new CreateOrderRequest(addressId, ""))))
                 .andExpect(jsonPath("$.code").value(400));
+    }
+
+    // ── 订单列表（带明细）──
+
+    /** 列表要带明细，前端才能显示「买了什么」 */
+    @Test
+    void orderListCarriesItemsAndTotalCount() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        String token = customerToken("c" + System.nanoTime());
+        long productId = createProduct(admin, "Listed", "25.00", 20);
+        long addressId = createAddress(token);
+        addToCart(token, productId, 2);
+        placeOrder(token, addressId);
+
+        mockMvc.perform(get("/api/orders").header("Authorization", bearer(token)))
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.records[0].statusLabel").value("待支付"))
+                .andExpect(jsonPath("$.data.records[0].items.length()").value(1))
+                .andExpect(jsonPath("$.data.records[0].items[0].productName").value("Listed"))
+                .andExpect(jsonPath("$.data.records[0].itemCount").value(1))
+                // 快照字段要在，否则前端显示的金额可能和实付对不上
+                .andExpect(jsonPath("$.data.records[0].items[0].unitPrice").isNumber())
+                .andExpect(jsonPath("$.data.records[0].order.orderNo").isNotEmpty());
+    }
+
+    /** 列表只给前几件明细，但 itemCount 是**总件数** */
+    @Test
+    void orderListTruncatesItemsButKeepsTotalCount() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        String token = customerToken("c" + System.nanoTime());
+        long addressId = createAddress(token);
+
+        // 一个订单里放 4 件不同商品
+        for (int i = 0; i < 4; i++) {
+            long pid = createProduct(admin, "Multi" + i + "_" + System.nanoTime(), "10.00", 10);
+            addToCart(token, pid, 1);
+        }
+        placeOrder(token, addressId);
+
+        mockMvc.perform(get("/api/orders?previewLimit=2").header("Authorization", bearer(token)))
+                .andExpect(jsonPath("$.data.records[0].items.length()").value(2))
+                .andExpect(jsonPath("$.data.records[0].itemCount").value(4));
+
+        // 传 0 表示不截断
+        mockMvc.perform(get("/api/orders?previewLimit=0").header("Authorization", bearer(token)))
+                .andExpect(jsonPath("$.data.records[0].items.length()").value(4))
+                .andExpect(jsonPath("$.data.records[0].itemCount").value(4));
+    }
+
+    /**
+     * 列表里的明细必须是**一次批量查询**捞回来的，不是逐个订单查（N+1）。
+     *
+     * 用一条 IN 查询 + 内存分组：3 个订单只发 1 条明细 SQL。
+     * 写成循环里 orderItemMapper.selectList(...) 的话这里会是 3。
+     */
+    @Test
+    void orderListLoadsItemsInOneBatchQuery() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        String token = customerToken("c" + System.nanoTime());
+        long productId = createProduct(admin, "Batch", "10.00", 30);
+        long addressId = createAddress(token);
+
+        for (int i = 0; i < 3; i++) {
+            addToCart(token, productId, 1);
+            placeOrder(token, addressId);
+        }
+
+        AtomicInteger itemQueries = new AtomicInteger();
+        OrderItemMapper countingMapper = Mockito.mock(OrderItemMapper.class);
+        Mockito.when(countingMapper.selectList(Mockito.any())).thenAnswer(invocation -> {
+            itemQueries.incrementAndGet();
+            return orderItemMapper.selectList(invocation.getArgument(0));
+        });
+
+        // 只把 orderItemMapper 换成计数版，其余依赖用容器里的真货
+        OrderServiceImpl service = new OrderServiceImpl(orderMapper, countingMapper, cartItemMapper,
+                productMapper, addressMapper, paymentMapper, stockService, redisTemplate);
+
+        PageResponse<OrderView> result = service.pageForCustomer(
+                currentUserId(token), 1, 10, 3);
+
+        assertThat(result.total()).isEqualTo(3);
+        assertThat(result.records()).hasSize(3);
+        // 三个订单，明细只查了一次
+        assertThat(itemQueries.get()).isEqualTo(1);
+    }
+
+    /** 从 /api/auth/me 拿当前用户 id */
+    private Long currentUserId(String token) throws Exception {
+        String body = mockMvc.perform(get("/api/auth/me").header("Authorization", bearer(token)))
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(body).path("data").path("id").asLong();
     }
 
     // ── M4：支付流水与退款 ──

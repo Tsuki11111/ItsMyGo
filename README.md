@@ -77,12 +77,18 @@
 | M1 账号体系 | ✅ 完成（2026-10-12） |
 | M2 商品与分类 | ✅ 完成（2026-10-13） |
 | M3 购物车与下单 | ✅ 完成（2026-10-15）—— 防超卖、缓存三防、Cache-Aside、防重复提交、接口限流 |
-| **M4 支付与售后** | ✅ **完成**（2026-10-16）—— **支付流水**、**退款审核**、**超时取消**、**原子状态流转**，共 70 个测试全绿 |
-| M5 前端 | ⬜ 未开始 |
+| M4 支付与售后 | ✅ 完成（2026-10-16）—— 支付流水、退款审核、超时取消、原子状态流转 |
+| **M5 前端** | 🔄 **进行中** —— 工程骨架 + 商品列表页已跑通（Vite + Vue 3 + TS + Element Plus，配色见 [color-preview](docs/color-preview.html)） |
 | M6 客服接入 → M7 查订单环回 | ⬜ 未开始 |
 
 **交易闭环已通**：浏览商品 → 加购 → 下单（扣库存）→ 支付 → 发货 → 收货，
 以及取消、超时自动取消、退款（申请 → 审核 → 回滚库存）。
+
+## 本地起来看看
+
+两个终端：后端 `./mvnw spring-boot:run`，前端 `cd frontend && npm run dev`，
+然后开 http://localhost:5173（演示账号 `testuser` / `123456`）。
+种子数据见 [sql/seed-data.sql](sql/seed-data.sql)，详见 [HANDOFF §3.4](HANDOFF.md)。
 
 **CI**：每次 push 自动在干净环境跑测试（[`.github/workflows/test.yml`](.github/workflows/test.yml)）。
 本地 60 条全跑；CI 跳过 3 条依赖 MinIO 的（MinIO 已停止公开分发镜像，详见 [HANDOFF §5.12](HANDOFF.md)）。

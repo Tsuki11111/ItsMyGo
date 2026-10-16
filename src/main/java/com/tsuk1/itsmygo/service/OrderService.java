@@ -17,7 +17,14 @@ public interface OrderService {
     /** 结算下单：从购物车勾选项生成订单并扣库存 */
     OrderView create(Long userId, CreateOrderRequest request);
 
-    PageResponse<Order> pageForCustomer(Long userId, int page, int size);
+    /**
+     * 顾客端订单列表（**带明细**）。
+     *
+     * @param previewLimit 每个订单最多返回几条明细；≤0 表示不截断。
+     *                     列表页传 3 就够（卡片上只显示前几件 + 「共 N 件」），
+     *                     避免把几十条明细全传过去
+     */
+    PageResponse<OrderView> pageForCustomer(Long userId, int page, int size, int previewLimit);
 
     OrderView detailForCustomer(Long userId, Long orderId);
 

@@ -28,32 +28,32 @@
 
 ## 1. 当前状态一句话
 
-**M4（支付与售后）已完成（2026-10-16）。**
+**M5（前端）进行中（2026-10-16）。** 工程骨架已搭好、商品列表页已跑通；
+后端 M0–M4 完整，**自动化测试 73 个全绿**。
 
-M0 → M4 五段全部落地，**自动化测试 70 个全绿**。
-支付流水、退款（申请/同意/驳回）、超时未支付自动取消都已跑通；
-**订单状态流转改成原子条件更新**（并发取消不再回滚多次库存）。
-数据库 schema 到 **v8**。
+前端技术栈：Vite 8 + Vue 3.5 + TypeScript 5.9 + Element Plus 2.14 + Pinia + Vue Router。
+配色定稿为「浅粉做面 + 深粉做点」，见 [docs/color-preview.html](docs/color-preview.html)。
 
-下一步：**M5（前端）**。
+下一步：**继续做前端剩余页面**。
 
 ---
 
-## 2. 下一步做什么：M5 · 前端
+## 2. 下一步做什么：M5 前端的剩余页面
 
-参考工期 1–2 周。后端已经完整（M0–M4），终于轮到界面了。
+工程骨架和商品列表页已完成。按这个顺序往下做：
 
-1. **顾客端**（Vue 3 + TypeScript + Element Plus + Pinia）
-   - 注册登录、商品列表/搜索/详情、购物车、结算下单、我的订单
-   - **下单流程要带提交令牌**：进结算页先 `GET /api/orders/token`，提交时带上（见 implementation §3.7）
-   - **库存要调独立接口** `GET /api/products/{id}/stock`，别用详情里的 stock 字段（它虽然会被替换成实时值，但独立接口语义更清楚）
-2. **管理端**：分类/商品 CRUD、图片上传、订单列表与发货、**退款审核**
-3. 跨域：本地开发时 Vite 需要 proxy 到 8080，或者后端配 CORS
-4. 验收：浏览器里能走完「浏览 → 加购 → 下单 → 支付」，管理端能发货与审批退款
+1. **商品详情页** — 含实时库存（走 `GET /api/products/{id}/stock`）、加入购物车
+2. **购物车页** — 改数量、勾选、删除、算总价
+3. **登录注册页** — 把 Pinia 的登录态接上（token 存 localStorage，key 是 `its-my-go:token`）
+4. **结算下单** — 选地址 → **领提交令牌** → 下单
+5. **我的订单** — 列表已支持带明细（`GET /api/orders`，`previewLimit` 控制每个订单给几条）
+6. **管理端** — 分类/商品 CRUD、传图、发货、退款审核、超时取消
 
-⚠️ 后端接口清单见 [docs/implementation.md](docs/implementation.md) 与各 Controller；
-**统一响应格式是 `{code, message, data}`，HTTP 状态码不总是语义化的**
-（401/403 是真状态码，400/404/429 在 body 的 code 里）—— 前端拦截器按 body code 判断更稳。
+⚠️ **三个对接约定**（细节见 implementation §4.3）：
+响应拦截器按 **body 的 `code`** 判断而不是 HTTP 状态码；库存走独立接口；
+下单必须先领提交令牌。
+
+⚠️ 管理端**直接套 Element Plus 默认样式，别折腾**——后台没人看颜值，时间投在顾客端。
 
 ---
 
@@ -121,6 +121,37 @@ src/main/java/com/tsuk1/itsmygo/
   （另有 Flyway 自建的 `flyway_schema_history`，是迁移记录表，**不要动**）
 - **迁移脚本只增不改**：已执行过的脚本再改内容会让 Flyway 校验失败
 - **容器时区已设为 +08:00**（见 §5.14），与开发机一致
+
+---
+
+### 3.4 前端结构
+
+```
+frontend/
+├── vite.config.ts          # /api 代理到 8080（开发时后端不用配 CORS）
+├── src/
+│   ├── api/http.ts         # axios 封装：拦截器按 body 的 code 判断
+│   ├── api/types.ts        # 与后端 DTO 对应的类型（手写）
+│   ├── styles/theme.css    # 色板 + Element Plus 主题覆盖（必须在 element-plus 之后引入）
+│   ├── router/ · views/ · App.vue · main.ts
+```
+
+**启动**（后端要同时跑着）：
+
+```bash
+npm run dev          # → http://localhost:5173
+```
+
+**演示账号**：`testuser` / `123456`
+**种子数据**：[sql/seed-data.sql](sql/seed-data.sql)（8 个商品、4 个分类，
+型号取自 rag_helper 的产品手册语料）。导入方式：
+
+```bash
+docker exec -i mysql sh -c 'mysql --default-character-set=utf8mb4 -utsuk1 -p"$MYSQL_PASSWORD" its_mygo' < sql/seed-data.sql
+```
+
+> ⚠️ **导完种子数据要重启后端** —— 布隆过滤器只在启动时预热，
+> 应用运行期间手工插的商品不在过滤器里，点详情会被判"不存在"（见 §5.12 的说明）。
 
 ---
 
@@ -479,7 +510,41 @@ docker exec mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" \
 **教训**：写并发测试先问一句「这里有没有别的机制会兜住？」——
 被兜底掩盖的"通过"比失败更危险，它会让人以为防线已经生效了。
 
-### 5.16 `git push` 报错但实际成功（本机网络特征，遇见别慌）
+### 5.16 ★ TypeScript 7 刚发布，前端工具链还没跟上（2026-10-16 踩到）
+
+`npm install -D typescript` 默认装的是 **7.0.2**（Go 重写的那版），
+而 `vue-tsc` 还不支持它，跑类型检查直接抛：
+
+```
+Error [ERR_PACKAGE_PATH_NOT_EXPORTED]: Package subpath './lib/tsc' is not defined
+  by "exports" in .../typescript/package.json
+```
+
+**降到 TypeScript 5.x** 解决：`npm install -D typescript@5`。
+
+这和 §5.1–§5.4、§5.9 是同一类问题：**依赖的"最新版"不一定是"能用的版本"**。
+装之前先去 npm 看一眼生态跟没跟上。
+
+### 5.17 在 Windows Git Bash 里给数据库/接口传中文会乱码（2026-10-16 踩到）
+
+两个现场：
+
+| 做法 | 结果 |
+|---|---|
+| `docker exec mysql -e "INSERT ... '中文'"` | 库里存成 `å¥”å›¾`（latin1 解释 UTF-8） |
+| `curl -d '{"nickname":"测试用户"}'` | 后端抛 `Invalid UTF-8 start byte 0xb2` |
+
+**都不是应用的问题**——是 Git Bash 把中文按 GBK 发出去了。
+`mysql` 客户端还会另报一个 `character_set_client = latin1`（表本身是 utf8mb4，没毛病）。
+
+**绕法**：
+- SQL：写成 UTF-8 文件，`docker exec -i mysql mysql --default-character-set=utf8mb4 ... < file.sql`
+- HTTP：测试时用 ASCII；要发中文就用文件 `curl -d @body.json`
+
+**排查提示**：遇到这类问题先确认「是不是我这条命令的编码」，别一上来就怀疑应用。
+看 `SHOW VARIABLES LIKE 'character_set_client'` 和响应里的错误字节，能很快定位。
+
+### 5.18 `git push` 报错但实际成功（本机网络特征，遇见别慌）
 本项目已**两次**出现「push 返回错误，但远端其实已经更新成功」：
 
 | 时间 | 报错 | 实际结果 |
@@ -495,6 +560,27 @@ docker exec mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" \
 ---
 
 ## 6. 历史记录
+
+### 2026-10-16 · M5 前端起步：工程骨架 + 商品列表页
+
+**先讨论了设计再动手**（用户明确要求"探讨一下前端设计"）：
+
+- **一个工程还是两个** → 选一个（顾客端 `/` + 管理端 `/admin` 路由区分），
+  两端共用 TypeScript 类型和 axios 封装
+- **TypeScript 类型怎么对齐后端** → 手写（十几个 DTO，量不大）
+- **订单列表缺明细** → 顺着这个问题聊了真实电商的做法：**1 条查订单 + 1 条 IN 查明细 +
+  内存分组**，而不是 `JOIN ... LIMIT`（那会分页错乱，因为 LIMIT 限制的是 JOIN 后的行数）。
+  已按这个改掉 `pageForCustomer`，加了 `previewLimit` 参数和 `itemCount` 字段，
+  并补了测试验证「3 个订单只发 1 条明细 SQL」
+- **配色** → 做了 [docs/color-preview.html](docs/color-preview.html) 三方案对比，
+  用户选了「浅粉做面 + 深粉做点」
+
+**产出**：Vite 8 + Vue 3.5 + TS 5.9 + Element Plus 2.14 + Pinia + Vue Router 的骨架；
+`theme.css` 色板（含 Element 主题覆盖）；axios 封装；商品列表页；
+种子数据（8 个商品，型号取自 rag_helper 手册语料）。
+**目前还没有前端自动化测试。**
+
+**踩了两个坑**（记进 §5.16 / §5.17）：TypeScript 7 生态没跟上、Git Bash 传中文乱码。
 
 ### 2026-10-16 · M4 支付与售后完成
 
