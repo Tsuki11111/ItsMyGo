@@ -6,24 +6,58 @@ import ProductImage from '@/components/ProductImage.vue'
 import { fetchProduct, fetchProducts, fetchStock } from '@/api/product'
 import { addToCart } from '@/api/cart'
 import { useUserStore } from '@/stores/user'
-import type { Product } from '@/api/types'
+import type { Product, ProductSku } from '@/api/types'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 
 const product = ref<Product | null>(null)
-/** 实时库存 —— 来自独立接口，不是详情里的 stock 字段 */
-const stock = ref(0)
+/** 规格定义。无规格商品是空数组 */
+const specs = computed(() => product.value?.specs ?? [])
+/** 选中的规格值：specId → valueId */
+const selectedValues = ref<Record<number, number>>({})
 const quantity = ref(1)
 const related = ref<Product[]>([])
 const loading = ref(true)
 const adding = ref(false)
 const notFound = ref(false)
 
+/**
+ * 当前选中的 SKU。
+ *
+ * 无规格商品只有一条默认 SKU（`specValueIds` 是空串），直接用它 ——
+ * 交互跟没有这套东西的时候一模一样。有规格时每组都得选满才定位得到 SKU。
+ */
+const selectedSku = computed<ProductSku | null>(() => {
+  const skus = product.value?.skus ?? []
+  if (!skus.length) return null
+  if (!specs.value.length) return skus[0]
+
+  const chosen = specs.value.map((spec) => selectedValues.value[spec.id])
+  if (chosen.some((v) => v === undefined)) return null
+
+  // 按**数值**升序拼成「11,12」再匹配 —— 规则必须和后端存 spec_value_ids 时一致，
+  // 差一点就匹配不上（按字符串排的话 "10" 会排在 "2" 前面）
+  const key = [...chosen].sort((a, b) => a - b).join(',')
+  return skus.find((sku) => sku.specValueIds === key) ?? null
+})
+
+/** 规格还没选全 */
+const needPickSpec = computed(() => specs.value.length > 0 && !selectedSku.value)
+/** 选全了就是那一款的价格；没选全先用商品的最低价兜着 */
+const displayPrice = computed(() => selectedSku.value?.price ?? product.value?.price ?? 0)
+/** 同上：选全了看那一款的余量，没选全看总库存 */
+const displayStock = computed(() => selectedSku.value?.stock ?? product.value?.stock ?? 0)
+const displayImage = computed(() => selectedSku.value?.image || product.value?.mainImage || '')
+
 /** 库存为 0 时输入框仍要有个合法的 max，否则 el-input-number 会报警告 */
-const maxQuantity = computed(() => Math.max(stock.value, 1))
-const soldOut = computed(() => stock.value === 0)
+const maxQuantity = computed(() => Math.max(displayStock.value, 1))
+const soldOut = computed(() => displayStock.value === 0)
+
+function pickSpecValue(specId: number, valueId: number) {
+  selectedValues.value = { ...selectedValues.value, [specId]: valueId }
+}
 
 function currentId(): number {
   return Number(route.params.id)
@@ -34,9 +68,10 @@ async function load() {
   loading.value = true
   notFound.value = false
   quantity.value = 1
+  selectedValues.value = {}
   try {
+    // 详情接口已经带上每个 SKU 的**实时**库存了，不用再单独拉一次
     product.value = await fetchProduct(id)
-    stock.value = (await fetchStock(id)).stock
   } catch {
     // 404（不存在 / 已下架）已经在拦截器里提示过一次，这里只负责渲染空状态
     product.value = null
@@ -63,6 +98,12 @@ async function loadRelated(id: number) {
 async function onAdd() {
   if (!product.value) return
 
+  const sku = selectedSku.value
+  if (!sku) {
+    ElMessage.warning('请先选择规格')
+    return
+  }
+
   if (!userStore.isLoggedIn) {
     ElMessage.warning('请先登录')
     // 带上回跳地址，登录完能回到这件商品
@@ -72,7 +113,7 @@ async function onAdd() {
 
   adding.value = true
   try {
-    await addToCart(product.value.id, quantity.value)
+    await addToCart(product.value.id, sku.id, quantity.value)
     ElMessage.success(`已加入购物车 ${quantity.value} 件`)
   } catch {
     // 库存不足 / 未登录过期等，拦截器已提示；重新拉一次库存，让页面上的数字回到真相
@@ -82,9 +123,15 @@ async function onAdd() {
   }
 }
 
-/** 立即购买：跳过购物车，直接带着这件商品去结算 —— 和主流电商语义一致 */
+/** 立即购买：跳过购物车，直接带着这一款去结算 —— 和主流电商语义一致 */
 function onBuyNow() {
   if (!product.value) return
+
+  const sku = selectedSku.value
+  if (!sku) {
+    ElMessage.warning('请先选择规格')
+    return
+  }
 
   if (!userStore.isLoggedIn) {
     ElMessage.warning('请先登录')
@@ -94,14 +141,21 @@ function onBuyNow() {
 
   router.push({
     path: '/checkout',
-    query: { productId: product.value.id, quantity: quantity.value },
+    query: { productId: product.value.id, skuId: sku.id, quantity: quantity.value },
   })
 }
 
+/** 加购失败后重新拉一次实时库存，让页面上的数字回到真相 */
 async function refreshStock() {
   if (!product.value) return
   try {
-    stock.value = (await fetchStock(product.value.id)).stock
+    const view = await fetchStock(product.value.id)
+    const latest = new Map(view.skus.map((s) => [s.skuId, s.stock]))
+    for (const sku of product.value.skus ?? []) {
+      const value = latest.get(sku.id)
+      if (value !== undefined) sku.stock = value
+    }
+    product.value.stock = view.stock
   } catch {
     // 拿不到就保持原值，下一次操作还会再拉
   }
@@ -126,7 +180,7 @@ onMounted(load)
       <!-- ── 主区：左图 右信息 ── -->
       <section class="main">
         <div class="gallery">
-          <ProductImage :src="product.mainImage" :name="product.name" :id="product.id" />
+          <ProductImage :src="displayImage" :name="product.name" :id="product.id" />
         </div>
 
         <div class="info">
@@ -137,15 +191,34 @@ onMounted(load)
           <div class="price-box">
             <span class="price">
               <span class="price-symbol">¥</span>
-              <span class="price-num">{{ product.price.toFixed(2) }}</span>
+              <span class="price-num">{{ displayPrice.toFixed(2) }}</span>
             </span>
             <span class="sales">已售 {{ product.sales }} 件</span>
           </div>
 
+          <!-- ── 规格选择栏：选中哪一款，价格 / 库存 / 图片就跟着变 ── -->
+          <div v-for="spec in specs" :key="spec.id" class="row spec-row">
+            <span class="row-label">{{ spec.name }}</span>
+            <div class="spec-values">
+              <button
+                v-for="value in spec.values"
+                :key="value.id"
+                type="button"
+                class="spec-value"
+                :class="{ active: selectedValues[spec.id] === value.id }"
+                @click="pickSpecValue(spec.id, value.id)"
+              >
+                {{ value.value }}
+              </button>
+            </div>
+          </div>
+
+          <p v-if="selectedSku?.specText" class="picked">已选 {{ selectedSku.specText }}</p>
+
           <div class="row">
             <span class="row-label">库存</span>
             <span class="row-value" :class="{ 'is-empty': soldOut }">
-              {{ soldOut ? '暂时缺货' : `${stock} 件` }}
+              {{ soldOut ? '暂时缺货' : `${displayStock} 件` }}
             </span>
           </div>
 
@@ -165,7 +238,7 @@ onMounted(load)
               加入购物车
             </button>
             <button class="buy-btn" :disabled="soldOut || adding" @click="onBuyNow">
-              {{ soldOut ? '已售罄' : '立即购买' }}
+              {{ needPickSpec ? '请选择规格' : soldOut ? '已售罄' : '立即购买' }}
             </button>
           </div>
 
@@ -307,6 +380,48 @@ onMounted(load)
 
 .row-value.is-empty {
   color: var(--c-text-3);
+}
+
+/* ── 规格选择栏 ── */
+.spec-row {
+  align-items: flex-start;
+}
+
+.spec-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.spec-value {
+  padding: 6px 14px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--c-text);
+  background: #fff;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-tag);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.spec-value:hover {
+  color: var(--c-pink);
+  border-color: var(--c-pink-soft);
+}
+
+/* 选中态 —— 粉色允许出现的三个位置之一 */
+.spec-value.active {
+  color: var(--c-pink);
+  background: var(--c-pink-tint);
+  border-color: var(--c-pink);
+  font-weight: 600;
+}
+
+.picked {
+  margin: 14px 0 0;
+  font-size: 13px;
+  color: var(--c-text-2);
 }
 
 /* 两个都是主操作，但「立即购买」更主动 —— 一实心一描边拉开层级 */

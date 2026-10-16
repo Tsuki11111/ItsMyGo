@@ -38,13 +38,59 @@ export interface Product {
   /** 后端是 DECIMAL / BigDecimal，序列化成 JSON 数字。
    *  本项目金额量级远小于 2^53，用 number 安全；真做金融系统应该让它序列化成字符串。 */
   price: number
+  /** 多规格商品这里是各 SKU 的**汇总**，具体某一款的余量看 `skus` */
   stock: number
   sales: number
+  /** 1 有多规格 / 0 单规格 —— 列表页据此显示「¥19.8 起」 */
+  hasSpecs: number
   detail: string | null
   /** 1 上架 / 0 下架 */
   status: number
   createdAt: string
   updatedAt: string
+  /** 规格定义。**只有详情接口会返回**（列表页里是 undefined） */
+  specs?: ProductSpec[]
+  /** SKU 列表（库存已是实时值）。同上，只有详情会返回 */
+  skus?: ProductSku[]
+}
+
+export interface ProductSpecValue {
+  id: number
+  specId: number
+  value: string
+  sort: number
+}
+
+export interface ProductSpec {
+  id: number
+  productId: number
+  name: string
+  sort: number
+  values: ProductSpecValue[]
+}
+
+export interface ProductSku {
+  id: number
+  productId: number
+  /**
+   * 升序逗号分隔的规格值 id，如 `"11,12"`。
+   * 它是组合的规范键 —— 前端也靠它匹配「当前选中的组合对应哪一条 SKU」。
+   * 无规格商品是空串。
+   */
+  specValueIds: string
+  /** 规格描述，如「颜色:黑色;版本:静音版」 */
+  specText: string
+  price: number
+  stock: number
+  sales: number
+  image: string
+  status: number
+}
+
+export interface SkuStockView {
+  skuId: number
+  stock: number
+  available: boolean
 }
 
 export interface CategoryNode {
@@ -62,6 +108,8 @@ export interface StockView {
   stock: number
   /** 库存 > 0 */
   available: boolean
+  /** 每个 SKU 的实时余量 —— 前端选规格时用它，不必为了一个数字重拉详情 */
+  skus: SkuStockView[]
 }
 
 /**
@@ -71,15 +119,19 @@ export interface StockView {
 export interface CartItemView {
   id: number
   productId: number
+  /** 具体买哪个规格 */
+  skuId: number
   productName: string
   productImage: string
+  /** 规格描述，如「颜色:黑色」；无规格商品是空串 */
+  specText: string
   price: number
   stock: number
   quantity: number
   subtotal: number
   selected: boolean
   onSale: boolean
-  /** 在售且库存够本次数量 */
+  /** 商品和规格都在售，且库存够本次数量 */
   available: boolean
 }
 
@@ -119,8 +171,12 @@ export interface OrderItem {
   id: number
   orderId: number
   productId: number
+  /** 买的是哪个规格，仅供追溯 */
+  skuId: number
   productName: string
   productImage: string
+  /** 规格快照，如「颜色:黑色;版本:静音版」；单规格时代的旧订单是空串 */
+  specText: string
   unitPrice: number
   quantity: number
   subtotal: number

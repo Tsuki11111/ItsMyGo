@@ -14,8 +14,8 @@ export function fetchOrderToken(): Promise<string> {
 export interface CreateOrderPayload {
   addressId: number
   token: string
-  /** 「立即购买」：直接指定商品；不传则从购物车勾选项下单 */
-  items?: { productId: number; quantity: number }[]
+  /** 「立即购买」：直接指定商品与规格；不传则从购物车勾选项下单 */
+  items?: { productId: number; skuId: number; quantity: number }[]
 }
 
 export function createOrder(payload: CreateOrderPayload): Promise<OrderView> {

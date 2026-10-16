@@ -1,20 +1,15 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { useRouter } from 'vue-router'
 import {
   Box, Briefcase, Coin, Connection, Cpu, Files, Monitor, Mouse, Printer, Share,
 } from '@element-plus/icons-vue'
 import type { Component } from 'vue'
 import ProductImage from '@/components/ProductImage.vue'
 import { fetchCategoryTree, fetchProducts } from '@/api/product'
-import { addToCart } from '@/api/cart'
-import { useUserStore } from '@/stores/user'
 import type { CategoryNode, Product } from '@/api/types'
 
-const route = useRoute()
 const router = useRouter()
-const userStore = useUserStore()
 
 const products = ref<Product[]>([])
 const categories = ref<CategoryNode[]>([])
@@ -23,8 +18,6 @@ const page = ref(1)
 const size = ref(12)
 const categoryId = ref<number | undefined>(undefined)
 const loading = ref(false)
-/** 正在加购的商品 id —— 用来给按钮上个"进行中"的样子，防连点 */
-const addingId = ref<number | null>(null)
 
 /** 分类名 → 图标。匹配不上就用 Box 兜底，新增分类不会把页面搞崩 */
 const ICONS: Record<string, Component> = {
@@ -84,24 +77,6 @@ function onPageChange(next: number) {
 
 function goDetail(product: Product) {
   router.push(`/product/${product.id}`)
-}
-
-async function onAdd(product: Product) {
-  if (!userStore.isLoggedIn) {
-    ElMessage.warning('请先登录')
-    router.push({ path: '/login', query: { redirect: route.fullPath } })
-    return
-  }
-
-  addingId.value = product.id
-  try {
-    await addToCart(product.id, 1)
-    ElMessage.success('已加入购物车')
-  } catch {
-    // 库存不足等业务失败，拦截器已经提示过
-  } finally {
-    addingId.value = null
-  }
 }
 
 onMounted(async () => {
@@ -175,21 +150,15 @@ onMounted(async () => {
             <h3 class="name">{{ product.name }}</h3>
             <p v-if="product.subtitle" class="subtitle">{{ product.subtitle }}</p>
 
-            <!-- 价格：主色 + 等宽数字，全卡片最"响"的元素之一 -->
+            <!-- 价格：主色 + 等宽数字，全卡片最"响"的元素之一。
+                 多规格商品这里显示的是**最低价**，加个「起」免得点进去发现不是那个价 -->
             <p class="price">
               <span class="price-symbol">¥</span>
               <span class="price-num">{{ product.price.toFixed(2) }}</span>
+              <span v-if="product.hasSpecs === 1" class="price-from">起</span>
             </p>
 
             <p class="meta">已售 {{ product.sales }}</p>
-
-            <button
-              class="add-btn"
-              :disabled="addingId === product.id"
-              @click.stop="onAdd(product)"
-            >
-              加入购物车
-            </button>
           </div>
         </article>
       </div>
@@ -353,7 +322,10 @@ onMounted(async () => {
 }
 
 .thumb {
-  height: 160px;
+  /* 正方形：用 aspect-ratio 跟着卡片宽度走。
+     写死 height 的话，卡片一宽就变成横长方形、一窄就变竖的 —— 而卡片宽度本身
+     是 minmax(200px, 1fr)，随屏幕伸缩的 */
+  aspect-ratio: 1 / 1;
   background: var(--c-pink-tint);
   display: flex;
   align-items: center;
@@ -406,33 +378,17 @@ onMounted(async () => {
   font-size: 19px;
 }
 
+/* 「起」比价格小一号、也不加粗 —— 它只是注解，不能抢价格的戏 */
+.price-from {
+  margin-left: 2px;
+  font-size: 12px;
+  font-weight: 400;
+}
+
 .meta {
   margin: 6px 0 0;
   font-size: 11.5px;
   color: var(--c-text-3);
-}
-
-.add-btn {
-  width: 100%;
-  margin-top: 12px;
-  padding: 9px 0;
-  font-size: 13px;
-  font-family: inherit;
-  color: #fff;
-  background: var(--c-pink);
-  border: none;
-  border-radius: var(--radius-btn);
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.add-btn:hover:not(:disabled) {
-  background: var(--c-pink-hover);
-}
-
-.add-btn:disabled {
-  background: var(--c-text-3);
-  cursor: not-allowed;
 }
 
 .pager {

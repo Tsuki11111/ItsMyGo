@@ -102,6 +102,8 @@ onMounted(load)
           <div class="goods-info">
             <p class="goods-name">{{ item.productName }}</p>
             <p class="goods-unit">
+              <!-- 规格是下单时的快照：商户后来改了规格名，这里也不会跟着变 -->
+              <span v-if="item.specText" class="goods-spec">{{ item.specText }}</span>
               ¥{{ item.unitPrice.toFixed(2) }} × {{ item.quantity }}
             </p>
           </div>
@@ -275,6 +277,11 @@ onMounted(load)
   margin: 4px 0 0;
   font-size: 12px;
   color: var(--c-text-3);
+}
+
+.goods-spec {
+  margin-right: 8px;
+  color: var(--c-text-2);
 }
 
 .goods-subtotal .price-num {

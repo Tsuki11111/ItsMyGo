@@ -4,11 +4,11 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import ProductImage from '@/components/ProductImage.vue'
-import { fetchProduct, fetchStock } from '@/api/product'
+import { fetchProduct } from '@/api/product'
 import { createAddress, fetchAddresses } from '@/api/address'
 import { createOrder, fetchOrderToken } from '@/api/order'
 import { useUserStore } from '@/stores/user'
-import type { Address, Product } from '@/api/types'
+import type { Address, Product, ProductSku } from '@/api/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -29,7 +29,23 @@ const submitting = ref(false)
 
 /** 「立即购买」的商品来自 URL —— 刷新页面也不丢 */
 const buyNowId = computed(() => Number(route.query.productId) || 0)
-const total = computed(() => (product.value ? product.value.price * quantity.value : 0))
+const buyNowSkuId = computed(() => Number(route.query.skuId) || 0)
+
+/**
+ * 要买的那一款。正常是详情页带上来的那个 skuId；
+ * 兜底取默认 SKU（无规格商品），免得老链接或者手敲 URL 时整页报错。
+ */
+const sku = computed<ProductSku | null>(() => {
+  const skus = product.value?.skus ?? []
+  if (!skus.length) return null
+  return skus.find((s) => s.id === buyNowSkuId.value)
+      ?? skus.find((s) => s.specValueIds === '')
+      ?? null
+})
+
+/** 单价取**那一款**的，不是商品的最低价 */
+const unitPrice = computed(() => sku.value?.price ?? product.value?.price ?? 0)
+const total = computed(() => unitPrice.value * quantity.value)
 
 function fullAddress(addr: Address): string {
   return `${addr.province}${addr.city}${addr.district}${addr.detail}`
@@ -57,10 +73,10 @@ async function loadProduct() {
   if (!buyNowId.value) return
   product.value = await fetchProduct(buyNowId.value)
 
-  // 数量按实时库存夹一下：详情页到结算页之间可能被人买走
-  const stock = (await fetchStock(buyNowId.value)).stock
+  // 数量按**这一款**的实时库存夹一下：从详情页走到结算页之间可能被人买走
+  const available = sku.value?.stock ?? 0
   const asked = Number(route.query.quantity) || 1
-  quantity.value = Math.min(Math.max(asked, 1), Math.max(stock, 1))
+  quantity.value = Math.min(Math.max(asked, 1), Math.max(available, 1))
 }
 
 async function loadAddresses() {
@@ -70,7 +86,7 @@ async function loadAddresses() {
 }
 
 async function submitOrder() {
-  if (!addressId.value || !product.value) {
+  if (!addressId.value || !product.value || !sku.value) {
     ElMessage.warning('请先选择收货地址')
     return
   }
@@ -81,7 +97,7 @@ async function submitOrder() {
       addressId: addressId.value,
       token: token.value,
       // 有 items 就是「立即购买」——后端不会碰购物车
-      items: [{ productId: product.value.id, quantity: quantity.value }],
+      items: [{ productId: product.value.id, skuId: sku.value.id, quantity: quantity.value }],
     })
     ElMessage.success('下单成功')
     router.replace(`/order/${view.order.id}`)
@@ -191,15 +207,17 @@ async function submitAddress() {
         <h2 class="block-title">商品清单</h2>
         <div class="goods-row">
           <div class="goods-thumb">
-            <ProductImage :src="product.mainImage" :name="product.name" :id="product.id" />
+            <ProductImage :src="sku?.image || product.mainImage" :name="product.name" :id="product.id" />
           </div>
           <div class="goods-info">
             <p class="goods-name">{{ product.name }}</p>
-            <p v-if="product.subtitle" class="goods-sub">{{ product.subtitle }}</p>
+            <!-- 有规格就显示规格（这才是「买的是哪一款」），没有才退回副标题 -->
+            <p v-if="sku?.specText" class="goods-sub">{{ sku.specText }}</p>
+            <p v-else-if="product.subtitle" class="goods-sub">{{ product.subtitle }}</p>
           </div>
           <div class="price goods-price">
             <span class="price-symbol">¥</span>
-            <span class="price-num">{{ product.price.toFixed(2) }}</span>
+            <span class="price-num">{{ unitPrice.toFixed(2) }}</span>
           </div>
           <div class="goods-qty">× {{ quantity }}</div>
         </div>
