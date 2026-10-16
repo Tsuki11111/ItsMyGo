@@ -1,9 +1,12 @@
 package com.tsuk1.itsmygo;
 
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.tsuk1.itsmygo.common.Roles;
 import com.tsuk1.itsmygo.dto.LoginRequest;
 import com.tsuk1.itsmygo.dto.RegisterRequest;
+import com.tsuk1.itsmygo.entity.ProductSku;
 import com.tsuk1.itsmygo.entity.User;
+import com.tsuk1.itsmygo.mapper.ProductSkuMapper;
 import com.tsuk1.itsmygo.mapper.UserMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -30,6 +33,9 @@ abstract class ApiTestBase {
 
     @Autowired
     protected UserMapper userMapper;
+
+    @Autowired
+    protected ProductSkuMapper productSkuMapper;
 
     @Autowired
     protected PasswordEncoder passwordEncoder;
@@ -84,6 +90,23 @@ abstract class ApiTestBase {
 
     protected String bearer(String token) {
         return "Bearer " + token;
+    }
+
+    /**
+     * 商品的**默认 SKU** id（无规格的那条）。
+     *
+     * 加购和下单都要求传 skuId，而测试通常是先建商品再操作的 ——
+     * 与其在每个测试里查一遍，不如统一从这里拿。
+     * 拿不到说明商品没铺 SKU（`create` 会自动建，直插库的才会漏），直接炸掉比默默用错 id 好。
+     */
+    protected long defaultSkuId(long productId) {
+        ProductSku sku = productSkuMapper.selectOne(Wrappers.<ProductSku>lambdaQuery()
+                .eq(ProductSku::getProductId, productId)
+                .eq(ProductSku::getSpecValueIds, ""));
+        if (sku == null) {
+            throw new IllegalStateException("商品 " + productId + " 没有默认 SKU —— 数据没铺开？");
+        }
+        return sku.getId();
     }
 
     private String tokenFrom(String responseBody) {

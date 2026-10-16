@@ -137,7 +137,8 @@ class RateLimitTest extends ApiTestBase {
         mockMvc.perform(post("/api/cart/items")
                 .header("Authorization", bearer(token))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(new CartAddRequest(productId, 1))));
+                .content(objectMapper.writeValueAsString(
+                        new CartAddRequest(productId, defaultSkuId(productId), 1))));
     }
 
     private long addressIdOf(String token) throws Exception {

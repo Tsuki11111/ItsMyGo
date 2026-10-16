@@ -18,6 +18,9 @@ public class CartItem {
 
     private Long productId;
 
+    /** 具体买哪个规格。同一个人可以把同一商品的不同规格各放一行 */
+    private Long skuId;
+
     private Integer quantity;
 
     /** 1 勾选 / 0 未勾选 */

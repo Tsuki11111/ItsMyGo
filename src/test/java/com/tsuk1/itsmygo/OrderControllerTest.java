@@ -89,7 +89,8 @@ class OrderControllerTest extends ApiTestBase {
         mockMvc.perform(post("/api/cart/items")
                         .header("Authorization", bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new CartAddRequest(productId, quantity))))
+                        .content(objectMapper.writeValueAsString(
+                                new CartAddRequest(productId, defaultSkuId(productId), quantity))))
                 .andExpect(status().isOk());
     }
 
@@ -123,7 +124,7 @@ class OrderControllerTest extends ApiTestBase {
     private long placeBuyNowOrder(String token, long addressId, long productId, int quantity)
             throws Exception {
         return placeOrder(token, addressId,
-                List.of(new CreateOrderRequest.BuyNowItem(productId, quantity)));
+                List.of(new CreateOrderRequest.BuyNowItem(productId, defaultSkuId(productId), quantity)));
     }
 
     /**
@@ -211,7 +212,8 @@ class OrderControllerTest extends ApiTestBase {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new CreateOrderRequest(
                                 addressId, fetchOrderToken(token),
-                                List.of(new CreateOrderRequest.BuyNowItem(productId, 3))))))
+                                List.of(new CreateOrderRequest.BuyNowItem(
+                                        productId, defaultSkuId(productId), 3))))))
                 .andExpect(jsonPath("$.code").value(400));
 
         assertProductStock(token, productId, 2);
@@ -237,8 +239,10 @@ class OrderControllerTest extends ApiTestBase {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new CreateOrderRequest(
                                 addressId, fetchOrderToken(token),
-                                List.of(new CreateOrderRequest.BuyNowItem(okProduct, 2),
-                                        new CreateOrderRequest.BuyNowItem(shortProduct, 2))))))
+                                List.of(new CreateOrderRequest.BuyNowItem(
+                                                okProduct, defaultSkuId(okProduct), 2),
+                                        new CreateOrderRequest.BuyNowItem(
+                                                shortProduct, defaultSkuId(shortProduct), 2))))))
                 .andExpect(jsonPath("$.code").value(400));
 
         assertProductStock(token, okProduct, 5);
@@ -586,7 +590,7 @@ class OrderControllerTest extends ApiTestBase {
 
         // 只把 orderItemMapper 换成计数版，其余依赖用容器里的真货
         OrderServiceImpl service = new OrderServiceImpl(orderMapper, countingMapper, cartItemMapper,
-                productMapper, addressMapper, paymentMapper, stockService, redisTemplate);
+                productMapper, productSkuMapper, addressMapper, paymentMapper, stockService, redisTemplate);
 
         PageResponse<OrderView> result = service.pageForCustomer(
                 currentUserId(token), 1, 10, 3);

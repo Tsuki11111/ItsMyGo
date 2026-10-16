@@ -9,6 +9,7 @@ import com.tsuk1.itsmygo.entity.Category;
 import com.tsuk1.itsmygo.entity.Order;
 import com.tsuk1.itsmygo.entity.OrderItem;
 import com.tsuk1.itsmygo.entity.Product;
+import com.tsuk1.itsmygo.entity.ProductSku;
 import com.tsuk1.itsmygo.entity.User;
 import com.tsuk1.itsmygo.mapper.AddressMapper;
 import com.tsuk1.itsmygo.mapper.CartItemMapper;
@@ -16,6 +17,7 @@ import com.tsuk1.itsmygo.mapper.CategoryMapper;
 import com.tsuk1.itsmygo.mapper.OrderItemMapper;
 import com.tsuk1.itsmygo.mapper.OrderMapper;
 import com.tsuk1.itsmygo.mapper.ProductMapper;
+import com.tsuk1.itsmygo.mapper.ProductSkuMapper;
 import com.tsuk1.itsmygo.mapper.UserMapper;
 import com.tsuk1.itsmygo.service.OrderService;
 import org.junit.jupiter.api.AfterEach;
@@ -57,6 +59,8 @@ class StockConcurrencyTest {
     @Autowired
     private ProductMapper productMapper;
     @Autowired
+    private ProductSkuMapper skuMapper;
+    @Autowired
     private CartItemMapper cartItemMapper;
     @Autowired
     private OrderMapper orderMapper;
@@ -68,6 +72,8 @@ class StockConcurrencyTest {
     private final List<Long> createdUserIds = new ArrayList<>();
     private Long createdCategoryId;
     private Long createdProductId;
+    /** 库存和下单都按 SKU 走，所以得记住商品的默认 SKU */
+    private Long createdSkuId;
 
     @Test
     void concurrentOrdersNeverOversell() throws Exception {
@@ -92,6 +98,10 @@ class StockConcurrencyTest {
         product.setStatus(1);
         productMapper.insert(product);
         createdProductId = product.getId();
+        // 直插库的商品不会自动有 SKU（那是管理端 create 接口做的事），补一条 ——
+        // 库存的真相和下单都挂在 SKU 上
+        Long skuId = insertDefaultSku(product.getId(), product.getPrice(), product.getStock());
+        createdSkuId = skuId;
 
         // 每个买家一份：账号 + 地址 + 购物车（1 件）
         List<Long> addressIds = new ArrayList<>(BUYERS);
@@ -121,6 +131,7 @@ class StockConcurrencyTest {
             CartItem cartItem = new CartItem();
             cartItem.setUserId(user.getId());
             cartItem.setProductId(product.getId());
+            cartItem.setSkuId(skuId);
             cartItem.setQuantity(1);
             cartItem.setSelected(1);
             cartItemMapper.insert(cartItem);
@@ -171,6 +182,21 @@ class StockConcurrencyTest {
         assertThat(orderCount).isGreaterThanOrEqualTo(STOCK);
     }
 
+    /** 给直插库的商品补一条默认 SKU（走接口的话 ProductServiceImpl 会代劳） */
+    private Long insertDefaultSku(Long productId, BigDecimal price, int stock) {
+        ProductSku sku = new ProductSku();
+        sku.setProductId(productId);
+        sku.setSpecValueIds("");
+        sku.setSpecText("");
+        sku.setPrice(price);
+        sku.setStock(stock);
+        sku.setSales(0);
+        sku.setImage("");
+        sku.setStatus(1);
+        skuMapper.insert(sku);
+        return sku.getId();
+    }
+
     /**
      * ⚠️ **只删本次测试造出来的那些行。**
      *
@@ -191,6 +217,10 @@ class StockConcurrencyTest {
             }
             cartItemMapper.delete(Wrappers.<CartItem>lambdaQuery().in(CartItem::getUserId, createdUserIds));
             addressMapper.delete(Wrappers.<Address>lambdaQuery().in(Address::getUserId, createdUserIds));
+        }
+        if (createdSkuId != null) {
+            skuMapper.deleteById(createdSkuId);
+            createdSkuId = null;
         }
         if (createdProductId != null) {
             productMapper.deleteById(createdProductId);

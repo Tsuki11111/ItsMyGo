@@ -10,6 +10,7 @@ import com.tsuk1.itsmygo.entity.Order;
 import com.tsuk1.itsmygo.entity.OrderItem;
 import com.tsuk1.itsmygo.entity.Payment;
 import com.tsuk1.itsmygo.entity.Product;
+import com.tsuk1.itsmygo.entity.ProductSku;
 import com.tsuk1.itsmygo.entity.User;
 import com.tsuk1.itsmygo.mapper.AddressMapper;
 import com.tsuk1.itsmygo.mapper.CartItemMapper;
@@ -18,6 +19,7 @@ import com.tsuk1.itsmygo.mapper.OrderItemMapper;
 import com.tsuk1.itsmygo.mapper.OrderMapper;
 import com.tsuk1.itsmygo.mapper.PaymentMapper;
 import com.tsuk1.itsmygo.mapper.ProductMapper;
+import com.tsuk1.itsmygo.mapper.ProductSkuMapper;
 import com.tsuk1.itsmygo.mapper.UserMapper;
 import com.tsuk1.itsmygo.service.OrderService;
 import org.junit.jupiter.api.AfterEach;
@@ -69,6 +71,8 @@ class PaymentConcurrencyTest {
     @Autowired
     private ProductMapper productMapper;
     @Autowired
+    private ProductSkuMapper skuMapper;
+    @Autowired
     private CartItemMapper cartItemMapper;
     @Autowired
     private OrderMapper orderMapper;
@@ -82,6 +86,8 @@ class PaymentConcurrencyTest {
     private final List<Long> createdUserIds = new ArrayList<>();
     private Long createdCategoryId;
     private Long createdProductId;
+    /** 库存和下单都按 SKU 走，所以得记住商品的默认 SKU */
+    private Long createdSkuId;
     private Long orderId;
     private Long buyerId;
 
@@ -108,6 +114,7 @@ class PaymentConcurrencyTest {
         product.setStatus(1);
         productMapper.insert(product);
         createdProductId = product.getId();
+        createdSkuId = insertDefaultSku(product.getId(), product.getPrice(), product.getStock());
 
         User user = new User();
         user.setUsername("payconc" + stamp);
@@ -134,6 +141,7 @@ class PaymentConcurrencyTest {
         CartItem cartItem = new CartItem();
         cartItem.setUserId(buyerId);
         cartItem.setProductId(createdProductId);
+        cartItem.setSkuId(createdSkuId);
         cartItem.setQuantity(1);
         cartItem.setSelected(1);
         cartItemMapper.insert(cartItem);
@@ -141,6 +149,24 @@ class PaymentConcurrencyTest {
         orderId = orderService.create(buyerId,
                 new CreateOrderRequest(address.getId(), orderService.issueToken(buyerId), null))
                 .order().getId();
+    }
+
+    /**
+     * 直插库的商品**不会**自动有 SKU（那是管理端 create 接口做的事），
+     * 而库存的真相和下单都挂在 SKU 上 —— 测试自己造数据就得自己补。
+     */
+    private Long insertDefaultSku(Long productId, BigDecimal price, int stock) {
+        ProductSku sku = new ProductSku();
+        sku.setProductId(productId);
+        sku.setSpecValueIds("");
+        sku.setSpecText("");
+        sku.setPrice(price);
+        sku.setStock(stock);
+        sku.setSales(0);
+        sku.setImage("");
+        sku.setStatus(1);
+        skuMapper.insert(sku);
+        return sku.getId();
     }
 
     /** 让 N 个线程卡在起跑线上，一声令下同时执行；返回成功次数 */
@@ -226,6 +252,10 @@ class PaymentConcurrencyTest {
             }
             cartItemMapper.delete(Wrappers.<CartItem>lambdaQuery().in(CartItem::getUserId, createdUserIds));
             addressMapper.delete(Wrappers.<Address>lambdaQuery().in(Address::getUserId, createdUserIds));
+        }
+        if (createdSkuId != null) {
+            skuMapper.deleteById(createdSkuId);
+            createdSkuId = null;
         }
         if (createdProductId != null) {
             productMapper.deleteById(createdProductId);

@@ -15,12 +15,14 @@ import com.tsuk1.itsmygo.entity.OrderItem;
 import com.tsuk1.itsmygo.entity.OrderStatus;
 import com.tsuk1.itsmygo.entity.Payment;
 import com.tsuk1.itsmygo.entity.Product;
+import com.tsuk1.itsmygo.entity.ProductSku;
 import com.tsuk1.itsmygo.mapper.AddressMapper;
 import com.tsuk1.itsmygo.mapper.CartItemMapper;
 import com.tsuk1.itsmygo.mapper.OrderItemMapper;
 import com.tsuk1.itsmygo.mapper.OrderMapper;
 import com.tsuk1.itsmygo.mapper.PaymentMapper;
 import com.tsuk1.itsmygo.mapper.ProductMapper;
+import com.tsuk1.itsmygo.mapper.ProductSkuMapper;
 import com.tsuk1.itsmygo.service.OrderService;
 import com.tsuk1.itsmygo.service.StockService;
 import lombok.extern.slf4j.Slf4j;
@@ -57,6 +59,7 @@ public class OrderServiceImpl implements OrderService {
     private final OrderItemMapper orderItemMapper;
     private final CartItemMapper cartItemMapper;
     private final ProductMapper productMapper;
+    private final ProductSkuMapper skuMapper;
     private final AddressMapper addressMapper;
     private final PaymentMapper paymentMapper;
     private final StockService stockService;
@@ -64,12 +67,14 @@ public class OrderServiceImpl implements OrderService {
 
     public OrderServiceImpl(OrderMapper orderMapper, OrderItemMapper orderItemMapper,
                             CartItemMapper cartItemMapper, ProductMapper productMapper,
-                            AddressMapper addressMapper, PaymentMapper paymentMapper,
-                            StockService stockService, StringRedisTemplate redisTemplate) {
+                            ProductSkuMapper skuMapper, AddressMapper addressMapper,
+                            PaymentMapper paymentMapper, StockService stockService,
+                            StringRedisTemplate redisTemplate) {
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
         this.cartItemMapper = cartItemMapper;
         this.productMapper = productMapper;
+        this.skuMapper = skuMapper;
         this.addressMapper = addressMapper;
         this.paymentMapper = paymentMapper;
         this.stockService = stockService;
@@ -134,11 +139,14 @@ public class OrderServiceImpl implements OrderService {
         boolean fromCart = request.items() == null || request.items().isEmpty();
         List<OrderLine> lines = fromCart ? selectedCartLines(userId) : buyNowLines(request.items());
 
-        List<Long> productIds = lines.stream().map(OrderLine::productId).toList();
-        Map<Long, Product> products = productMapper.selectByIds(productIds).stream()
-                .collect(Collectors.toMap(Product::getId, Function.identity()));
+        Map<Long, Product> products = productMapper.selectByIds(
+                        lines.stream().map(OrderLine::productId).distinct().toList())
+                .stream().collect(Collectors.toMap(Product::getId, Function.identity()));
+        Map<Long, ProductSku> skus = skuMapper.selectByIds(
+                        lines.stream().map(OrderLine::skuId).distinct().toList())
+                .stream().collect(Collectors.toMap(ProductSku::getId, Function.identity()));
 
-        // 已成功扣减的商品 → 数量；出错时按它回补 Redis
+        // 已成功扣减的 **SKU** → 数量；出错时按它回补 Redis
         // （数据库那边由 @Transactional 自动回滚，Redis 不在事务里，必须手动补）
         Map<Long, Integer> reserved = new LinkedHashMap<>();
 
@@ -152,17 +160,27 @@ public class OrderServiceImpl implements OrderService {
                     throw new BizException(ResultCode.BAD_REQUEST,
                             fromCart ? "商品已下架，请先移出购物车" : "商品已下架");
                 }
+                ProductSku sku = skus.get(line.skuId());
+                if (sku == null || !line.productId().equals(sku.getProductId())) {
+                    throw new BizException(ResultCode.BAD_REQUEST, "商品规格不存在，请重新选择");
+                }
+                if (!Integer.valueOf(ON_SALE).equals(sku.getStatus())) {
+                    throw new BizException(ResultCode.BAD_REQUEST, "该规格已停售");
+                }
 
-                reserveStock(product.getId(), line.quantity(), reserved);
+                reserveStock(sku, line.quantity(), reserved);
 
                 OrderItem item = new OrderItem();
                 item.setProductId(product.getId());
-                // 以下三项是快照，商品以后改价改名都不影响这张订单
+                item.setSkuId(sku.getId());
+                // 以下都是快照：商品改价改名、规格改名甚至被删，都不影响这张订单
                 item.setProductName(product.getName());
-                item.setProductImage(product.getMainImage());
-                item.setUnitPrice(product.getPrice());
+                item.setProductImage(StringUtils.hasText(sku.getImage())
+                        ? sku.getImage() : product.getMainImage());
+                item.setSpecText(sku.getSpecText());
+                item.setUnitPrice(sku.getPrice());
                 item.setQuantity(line.quantity());
-                item.setSubtotal(product.getPrice().multiply(BigDecimal.valueOf(line.quantity())));
+                item.setSubtotal(sku.getPrice().multiply(BigDecimal.valueOf(line.quantity())));
                 items.add(item);
 
                 total = total.add(item.getSubtotal());
@@ -201,7 +219,7 @@ public class OrderServiceImpl implements OrderService {
     }
 
     /** 下单的商品行 —— 购物车来的和「立即购买」来的，后面走同一套流程 */
-    private record OrderLine(Long productId, int quantity) {
+    private record OrderLine(Long productId, Long skuId, int quantity) {
     }
 
     private List<OrderLine> selectedCartLines(Long userId) {
@@ -212,31 +230,34 @@ public class OrderServiceImpl implements OrderService {
             throw new BizException(ResultCode.BAD_REQUEST, "请先勾选要购买的商品");
         }
         return cartItems.stream()
-                .map(cartItem -> new OrderLine(cartItem.getProductId(), cartItem.getQuantity()))
+                .map(cartItem -> new OrderLine(cartItem.getProductId(), cartItem.getSkuId(),
+                        cartItem.getQuantity()))
                 .toList();
     }
 
     private List<OrderLine> buyNowLines(List<CreateOrderRequest.BuyNowItem> items) {
         return items.stream()
-                .map(item -> new OrderLine(item.productId(), item.quantity()))
+                .map(item -> new OrderLine(item.productId(), item.skuId(), item.quantity()))
                 .toList();
     }
 
     /**
-     * 两层防线：
+     * 两层防线（粒度是 **SKU**）：
      *   1. Redis 预扣 —— 原子 Lua，把大部分并发挡在数据库外
      *   2. 数据库条件更新 —— {@code WHERE stock >= ?}，防超卖的最终真相
      * 第一层过了第二层没过（例如 Redis 数据偏乐观），照样按库存不足处理。
      */
-    private void reserveStock(Long productId, int quantity, Map<Long, Integer> reserved) {
-        if (!stockService.tryReserve(productId, quantity)) {
+    private void reserveStock(ProductSku sku, int quantity, Map<Long, Integer> reserved) {
+        if (!stockService.tryReserve(sku.getId(), quantity)) {
             throw new BizException(ResultCode.BAD_REQUEST, "库存不足");
         }
-        reserved.merge(productId, quantity, Integer::sum);
+        reserved.merge(sku.getId(), quantity, Integer::sum);
 
-        if (productMapper.deductStock(productId, quantity) == 0) {
+        if (skuMapper.deductStock(sku.getId(), quantity) == 0) {
             throw new BizException(ResultCode.BAD_REQUEST, "库存不足");
         }
+        // 商品上的库存/销量是各 SKU 的汇总，只服务列表页显示，**不参与任何判定**
+        productMapper.applyDeducted(sku.getProductId(), quantity);
     }
 
     /**
@@ -468,13 +489,14 @@ public class OrderServiceImpl implements OrderService {
         return view(order);
     }
 
-    /** 取消时把库存和销量都退回去（数据库 + Redis 两层） */
+    /** 取消时把库存和销量都退回去 —— SKU 行、Redis 计数器、商品汇总三处都要动 */
     private void restoreStock(Order order) {
         List<OrderItem> items = orderItemMapper.selectList(
                 Wrappers.<OrderItem>lambdaQuery().eq(OrderItem::getOrderId, order.getId()));
         for (OrderItem item : items) {
-            productMapper.restoreStock(item.getProductId(), item.getQuantity());
-            stockService.release(item.getProductId(), item.getQuantity());
+            skuMapper.restoreStock(item.getSkuId(), item.getQuantity());
+            stockService.release(item.getSkuId(), item.getQuantity());
+            productMapper.applyRestored(item.getProductId(), item.getQuantity());
         }
     }
 

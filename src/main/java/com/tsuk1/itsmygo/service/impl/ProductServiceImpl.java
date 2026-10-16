@@ -8,15 +8,21 @@ import com.tsuk1.itsmygo.common.ResultCode;
 import com.tsuk1.itsmygo.common.exception.BizException;
 import com.tsuk1.itsmygo.dto.PageResponse;
 import com.tsuk1.itsmygo.dto.ProductRequest;
+import com.tsuk1.itsmygo.dto.ProductSkuView;
 import com.tsuk1.itsmygo.dto.StockView;
 import com.tsuk1.itsmygo.entity.Product;
+import com.tsuk1.itsmygo.entity.ProductSku;
 import com.tsuk1.itsmygo.mapper.ProductMapper;
 import com.tsuk1.itsmygo.service.ProductService;
+import com.tsuk1.itsmygo.service.ProductSkuService;
 import com.tsuk1.itsmygo.service.StockService;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.Duration;
+import java.util.List;
+import java.util.Map;
 
 @Service
 public class ProductServiceImpl implements ProductService {
@@ -30,13 +36,16 @@ public class ProductServiceImpl implements ProductService {
     private final ProductBloomFilter bloomFilter;
     private final RedisCacheHelper cacheHelper;
     private final StockService stockService;
+    private final ProductSkuService productSkuService;
 
     public ProductServiceImpl(ProductMapper productMapper, ProductBloomFilter bloomFilter,
-                              RedisCacheHelper cacheHelper, StockService stockService) {
+                              RedisCacheHelper cacheHelper, StockService stockService,
+                              ProductSkuService productSkuService) {
         this.productMapper = productMapper;
         this.bloomFilter = bloomFilter;
         this.cacheHelper = cacheHelper;
         this.stockService = stockService;
+        this.productSkuService = productSkuService;
     }
 
     @Override
@@ -71,9 +80,41 @@ public class ProductServiceImpl implements ProductService {
             throw new BizException(ResultCode.NOT_FOUND, "商品不存在或已下架");
         }
         Product product = cacheHelper.getOrLoad(cacheKey(id), PRODUCT_CACHE_TTL, Product.class,
-                () -> requireOnSale(id));
-        // getOrLoad 出来的对象是反序列化的新实例，改它不会污染缓存
-        product.setStock(stockService.currentStock(id));
+                () -> loadDetail(id));
+        return withRealtimeStock(product);
+    }
+
+    /** 回源：商品本体 + 它的规格与 SKU。进缓存的是数据库里的库存值，展示时才换成实时值 */
+    private Product loadDetail(Long id) {
+        Product product = requireOnSale(id);
+        ProductSkuView view = productSkuService.get(id);
+        product.setSpecs(view.specs());
+        product.setSkus(view.skus());
+        return product;
+    }
+
+    /**
+     * 把库存换成**实时值**再返回：详情缓存里的库存会滞后（下单不会去失效它，
+     * 否则高频下单会把缓存打穿），而用户要知道的是「现在还能买多少」。
+     * 每个 SKU 也一并换掉 —— 前端选中某一款时要立刻看到它的余量。
+     *
+     * 改的是 getOrLoad 出来的副本，不会污染缓存。
+     */
+    private Product withRealtimeStock(Product product) {
+        List<ProductSku> skus = product.getSkus();
+        if (skus == null || skus.isEmpty()) {
+            product.setStock(0);
+            return product;
+        }
+        Map<Long, Integer> realtime = stockService.currentSkuStocks(
+                skus.stream().map(ProductSku::getId).toList());
+        int total = 0;
+        for (ProductSku sku : skus) {
+            int stock = realtime.getOrDefault(sku.getId(), 0);
+            sku.setStock(stock);
+            total += stock;
+        }
+        product.setStock(total);
         return product;
     }
 
@@ -81,8 +122,16 @@ public class ProductServiceImpl implements ProductService {
     @Override
     public StockView stockForCustomer(Long id) {
         requireOnSale(id);
-        int stock = stockService.currentStock(id);
-        return new StockView(id, stock, stock > 0);
+        // skuId 列表从详情缓存取，命中就零查库；库存走批量 multiGet
+        Product cached = cacheHelper.getOrLoad(cacheKey(id), PRODUCT_CACHE_TTL, Product.class,
+                () -> loadDetail(id));
+        withRealtimeStock(cached);
+
+        List<ProductSku> skus = cached.getSkus() == null ? List.of() : cached.getSkus();
+        List<StockView.SkuStockView> skuViews = skus.stream()
+                .map(sku -> new StockView.SkuStockView(sku.getId(), sku.getStock(), sku.getStock() > 0))
+                .toList();
+        return new StockView(id, cached.getStock(), cached.getStock() > 0, skuViews);
     }
 
     private Product requireOnSale(Long id) {
@@ -94,26 +143,33 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
+    @Transactional
     public Product create(ProductRequest request) {
         Product product = new Product();
         apply(product, request);
         product.setSales(0);
+        // 新商品还没有规格，价格与库存先落在它的默认 SKU 上
+        product.setHasSpecs(0);
         productMapper.insert(product);
+        // ⚠️ 每个商品都必须有 SKU —— 没有的话详情页会显示总库存 0、
+        //    下单永远报「库存不足」，看着像库存 bug，其实是数据没铺开
+        productSkuService.createDefaultSku(product);
         // 新商品立刻进过滤器，否则它自己的详情页会被判成「不存在」
         bloomFilter.add(product.getId());
         return product;
     }
 
     @Override
+    @Transactional
     public Product update(Long id, ProductRequest request) {
         Product product = requireExists(id);
         apply(product, request);
         productMapper.updateById(product);
+        // 单规格商品的价与库存也挂在它那条默认 SKU 上，得跟着改（里面会一并刷库存计数器）。
+        // 配了多规格的商品这里什么都不做 —— 那种要走管理端的分规格接口
+        productSkuService.syncDefaultSku(product);
         // Cache-Aside：先更新库，再删缓存。删失败也不要紧，TTL 会兜底
         cacheHelper.evict(cacheKey(id));
-        // 库存计数器是独立的一份状态：管理员改了 stock 必须同步过去，
-        // 否则顾客看到的仍是旧库存（下单不会超卖，但显示是错的）
-        stockService.reload(id);
         return product;
     }
 

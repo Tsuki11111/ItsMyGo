@@ -10,6 +10,7 @@ import com.tsuk1.itsmygo.mapper.CategoryMapper;
 import com.tsuk1.itsmygo.mapper.ProductMapper;
 import com.tsuk1.itsmygo.service.CategoryService;
 import com.tsuk1.itsmygo.service.ProductService;
+import com.tsuk1.itsmygo.service.ProductSkuService;
 import com.tsuk1.itsmygo.service.StockService;
 import com.tsuk1.itsmygo.service.impl.ProductServiceImpl;
 import org.junit.jupiter.api.AfterEach;
@@ -53,6 +54,8 @@ class CacheAsideTest {
     private RedisCacheHelper cacheHelper;
     @Autowired
     private ProductBloomFilter bloomFilter;
+    @Autowired
+    private ProductSkuService productSkuService;
 
     private Long createdCategoryId;
     private Long createdProductId;
@@ -73,7 +76,7 @@ class CacheAsideTest {
         });
         // 只把 Mapper 换成计数版，缓存用的还是真实那一个
         ProductServiceImpl countingService =
-                new ProductServiceImpl(countingMapper, bloomFilter, cacheHelper, stockService);
+                new ProductServiceImpl(countingMapper, bloomFilter, cacheHelper, stockService, productSkuService);
 
         countingService.detailForCustomer(createdProductId);
         countingService.detailForCustomer(createdProductId);
@@ -138,8 +141,10 @@ class CacheAsideTest {
         product.setStatus(1);
         productMapper.insert(product);
         createdProductId = product.getId();
-        // 走 create 接口时 ProductServiceImpl 会做这一步；测试直接插库，得自己补
+        // 走 create 接口时 ProductServiceImpl 会做这两步；测试直接插库，得自己补。
+        // 默认 SKU 尤其不能漏 —— 库存的真相挂在它身上
         bloomFilter.add(createdProductId);
+        productSkuService.createDefaultSku(product);
     }
 
     private void createCategory() {

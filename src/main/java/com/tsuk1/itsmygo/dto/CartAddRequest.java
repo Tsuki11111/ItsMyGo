@@ -7,6 +7,9 @@ public record CartAddRequest(
         @NotNull(message = "商品 ID 不能为空")
         Long productId,
 
+        @NotNull(message = "规格不能为空，无规格商品请传它的默认 SKU")
+        Long skuId,
+
         @NotNull(message = "数量不能为空")
         @Min(value = 1, message = "数量至少为 1")
         Integer quantity

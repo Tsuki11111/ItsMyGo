@@ -40,7 +40,8 @@ class CartControllerTest extends ApiTestBase {
         String body = mockMvc.perform(post("/api/cart/items")
                         .header("Authorization", bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new CartAddRequest(productId, quantity))))
+                        .content(objectMapper.writeValueAsString(
+                                new CartAddRequest(productId, defaultSkuId(productId), quantity))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200))
                 .andReturn().getResponse().getContentAsString();
@@ -93,7 +94,8 @@ class CartControllerTest extends ApiTestBase {
         mockMvc.perform(post("/api/cart/items")
                         .header("Authorization", bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new CartAddRequest(productId, 4))))
+                        .content(objectMapper.writeValueAsString(
+                                new CartAddRequest(productId, defaultSkuId(productId), 4))))
                 .andExpect(jsonPath("$.code").value(400))
                 .andExpect(jsonPath("$.message").value("库存不足"));
     }

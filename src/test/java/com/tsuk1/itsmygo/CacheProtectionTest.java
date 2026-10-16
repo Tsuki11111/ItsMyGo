@@ -7,6 +7,7 @@ import com.tsuk1.itsmygo.entity.Category;
 import com.tsuk1.itsmygo.entity.Product;
 import com.tsuk1.itsmygo.mapper.CategoryMapper;
 import com.tsuk1.itsmygo.mapper.ProductMapper;
+import com.tsuk1.itsmygo.service.ProductSkuService;
 import com.tsuk1.itsmygo.service.StockService;
 import com.tsuk1.itsmygo.service.impl.ProductServiceImpl;
 import org.junit.jupiter.api.AfterEach;
@@ -34,7 +35,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @SpringBootTest
 class CacheProtectionTest {
 
-    private static final String STOCK_KEY_PREFIX = "its-my-go:stock:";
+    private static final String STOCK_KEY_PREFIX = "its-my-go:stock:sku:";
 
     @Autowired
     private StringRedisTemplate redisTemplate;
@@ -48,8 +49,12 @@ class CacheProtectionTest {
     private StockService stockService;
     @Autowired
     private RedisCacheHelper cacheHelper;
+    @Autowired
+    private ProductSkuService productSkuService;
     private Long createdCategoryId;
     private Long createdProductId;
+    /** 库存键按 SKU 建，所以这些测试要拿商品的默认 SKU id */
+    private Long createdSkuId;
     private Long manuallyInsertedId;
 
     /** 布隆过滤器说「不存在」时，必须**一次数据库都不查** */
@@ -62,7 +67,7 @@ class CacheProtectionTest {
             return null;
         });
 
-        ProductServiceImpl service = new ProductServiceImpl(countingMapper, bloomFilter, cacheHelper, stockService);
+        ProductServiceImpl service = new ProductServiceImpl(countingMapper, bloomFilter, cacheHelper, stockService, productSkuService);
 
         long ghostId = 999_999_999L;
         assertThatThrownBy(() -> service.detailForCustomer(ghostId))
@@ -89,7 +94,7 @@ class CacheProtectionTest {
             return realMapper.selectById(invocation.getArgument(0));
         });
 
-        ProductServiceImpl service = new ProductServiceImpl(countingMapper, bloomFilter, cacheHelper, stockService);
+        ProductServiceImpl service = new ProductServiceImpl(countingMapper, bloomFilter, cacheHelper, stockService, productSkuService);
         assertThat(service.detailForCustomer(createdProductId).getId()).isEqualTo(createdProductId);
         assertThat(dbQueries.get()).isEqualTo(1);
     }
@@ -99,10 +104,10 @@ class CacheProtectionTest {
     void stockTtlIsJitteredInsteadOfFixed() throws Exception {
         createProduct();
 
-        String key = STOCK_KEY_PREFIX + createdProductId;
+        String key = STOCK_KEY_PREFIX + createdSkuId;
         Set<Long> observedTtls = new HashSet<>();
         for (int i = 0; i < 20; i++) {
-            stockService.reload(createdProductId);
+            stockService.reload(createdSkuId);
             observedTtls.add(redisTemplate.getExpire(key));
         }
 
@@ -165,19 +170,28 @@ class CacheProtectionTest {
         productMapper.insert(product);
         createdProductId = product.getId();
 
+        // ⚠️ 直插库的商品**不会**自动有 SKU（只有走管理端 create 接口才会），
+        //    而库存的真相挂在 SKU 上 —— 少了这一步，库存键根本建不起来。
+        //    这正是「商品必有默认 SKU」这条规矩在测试侧要守住的地方。
+        productSkuService.createDefaultSku(product);
+        createdSkuId = productSkuService.get(product.getId()).skus().get(0).getId();
+
         // 模拟 ProductServiceImpl.create 里的增量加入
         bloomFilter.add(createdProductId);
     }
 
     @AfterEach
     void cleanup() {
+        if (createdSkuId != null) {
+            redisTemplate.delete(STOCK_KEY_PREFIX + createdSkuId);
+            createdSkuId = null;
+        }
         if (createdProductId != null) {
-            redisTemplate.delete(STOCK_KEY_PREFIX + createdProductId);
             redisTemplate.delete("its-my-go:product:" + createdProductId);
             productMapper.deleteById(createdProductId);
         }
         if (manuallyInsertedId != null) {
-            redisTemplate.delete(STOCK_KEY_PREFIX + manuallyInsertedId);
+            // 手工插库的那个商品没有 SKU，也就没有库存键要清
             productMapper.deleteById(manuallyInsertedId);
             manuallyInsertedId = null;
         }

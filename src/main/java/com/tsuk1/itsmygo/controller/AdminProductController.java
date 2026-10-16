@@ -4,8 +4,11 @@ import com.tsuk1.itsmygo.common.ProductBloomFilter;
 import com.tsuk1.itsmygo.common.Result;
 import com.tsuk1.itsmygo.dto.PageResponse;
 import com.tsuk1.itsmygo.dto.ProductRequest;
+import com.tsuk1.itsmygo.dto.ProductSkuView;
+import com.tsuk1.itsmygo.dto.SkuSaveRequest;
 import com.tsuk1.itsmygo.entity.Product;
 import com.tsuk1.itsmygo.service.ProductService;
+import com.tsuk1.itsmygo.service.ProductSkuService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -23,10 +26,13 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminProductController {
 
     private final ProductService productService;
+    private final ProductSkuService productSkuService;
     private final ProductBloomFilter bloomFilter;
 
-    public AdminProductController(ProductService productService, ProductBloomFilter bloomFilter) {
+    public AdminProductController(ProductService productService, ProductSkuService productSkuService,
+                                  ProductBloomFilter bloomFilter) {
         this.productService = productService;
+        this.productSkuService = productSkuService;
         this.bloomFilter = bloomFilter;
     }
 
@@ -53,6 +59,25 @@ public class AdminProductController {
     public Result<Void> delete(@PathVariable Long id) {
         productService.delete(id);
         return Result.ok();
+    }
+
+    /** 回显某商品当前的规格与 SKU，供管理端编辑表单用 */
+    @GetMapping("/{id}/skus")
+    public Result<ProductSkuView> skus(@PathVariable Long id) {
+        return Result.ok(productSkuService.get(id));
+    }
+
+    /**
+     * 保存规格与 SKU —— **整组覆盖**（规格值一改，SKU 组合集合就变了，逐个 CRUD 表达不了）。
+     *
+     * 已存在的 SKU 会按规格值组合匹配到原来那行，**库存保持不动**；
+     * 新建的 SKU 用请求里带的 stock 作为初始值。
+     * 新建的规格值请传负数临时 id，服务端插入后会改写引用 —— 详见 {@link SkuSaveRequest}。
+     */
+    @PutMapping("/{id}/skus")
+    public Result<ProductSkuView> saveSkus(@PathVariable Long id,
+                                           @Valid @RequestBody SkuSaveRequest request) {
+        return Result.ok(productSkuService.save(id, request));
     }
 
     /**
