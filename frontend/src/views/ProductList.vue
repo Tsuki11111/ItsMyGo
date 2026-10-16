@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   Box, Briefcase, Coin, Connection, Cpu, Files, Monitor, Mouse, Printer, Share,
@@ -20,7 +20,13 @@ const size = ref(12)
 const categoryId = ref<number | undefined>(undefined)
 /** 当前搜索词。品牌专区点进来时会带上它 */
 const keyword = ref('')
+/** 首屏 / 换筛选条件时的加载（显示遮罩） */
 const loading = ref(false)
+/** 往下滑时追加下一页（不遮罩，只在底部提示） */
+const loadingMore = ref(false)
+
+/** 还有没有下一页 —— 用「已拿到多少 / 总共多少」判断，不靠页码算 */
+const hasMore = computed(() => products.value.length < total.value)
 
 /** 分类名 → 图标。匹配不上就用 Box 兜底，新增分类不会把页面搞崩 */
 const ICONS: Record<string, Component> = {
@@ -68,8 +74,17 @@ const currentCategoryName = computed(() => {
   return categories.value.find((c) => c.id === categoryId.value)?.name ?? '全部商品'
 })
 
-async function load() {
-  loading.value = true
+/**
+ * 拉数据。`reset` 为真表示换筛选条件了 —— 清空重来；
+ * 否则是往下滑，把新一页**追加**到现有列表后面。
+ */
+async function load(reset: boolean) {
+  if (reset) {
+    page.value = 1
+    loading.value = true
+  } else {
+    loadingMore.value = true
+  }
   try {
     const result = await fetchProducts({
       page: page.value,
@@ -77,11 +92,19 @@ async function load() {
       categoryId: categoryId.value,
       keyword: keyword.value || undefined,
     })
-    products.value = result.records
+    products.value = reset ? result.records : [...products.value, ...result.records]
     total.value = result.total
   } finally {
     loading.value = false
+    loadingMore.value = false
   }
+}
+
+/** 滚到底部时调它。加载中或没有下一页时直接忽略，避免重复请求 */
+function loadMore() {
+  if (loading.value || loadingMore.value || !hasMore.value) return
+  page.value += 1
+  load(false)
 }
 
 /**
@@ -92,31 +115,45 @@ function selectCategory(id?: number) {
   router.push({ path: '/', query: id === undefined ? {} : { categoryId: id } })
 }
 
-function onPageChange(next: number) {
-  page.value = next
-  load()
-}
-
 function goDetail(product: Product) {
   router.push(`/product/${product.id}`)
 }
 
-/** 把 URL 上的筛选条件翻译成状态，然后拉数据 */
+/** 把 URL 上的筛选条件翻译成状态，然后从头拉一页 */
 function applyQuery() {
   const query = route.query
   categoryId.value = query.categoryId ? Number(query.categoryId) : undefined
   keyword.value = typeof query.keyword === 'string' ? query.keyword : ''
-  page.value = 1
-  load()
+  return load(true)
 }
 
 // 同一个路由只改 query 时组件不会重建，所以得盯着 fullPath
 watch(() => route.fullPath, applyQuery)
 
+/**
+ * 滚到底部自动加载下一页。
+ *
+ * 用 IntersectionObserver 而不是 Element Plus 的 v-infinite-scroll：
+ * 后者要求滚动发生在绑定元素内部，而我们是整页滚动，用它得动布局。
+ * rootMargin 提前 200px 触发，滚到底时下一页往往已经到了。
+ */
+const sentinel = ref<HTMLElement | null>(null)
+let observer: IntersectionObserver | null = null
+
 onMounted(async () => {
   categories.value = await fetchCategoryTree()
   applyQuery()
+
+  observer = new IntersectionObserver(
+    (entries) => {
+      if (entries[0]?.isIntersecting) loadMore()
+    },
+    { rootMargin: '200px' },
+  )
+  if (sentinel.value) observer.observe(sentinel.value)
 })
+
+onBeforeUnmount(() => observer?.disconnect())
 </script>
 
 <template>
@@ -220,15 +257,12 @@ onMounted(async () => {
 
       <el-empty v-if="!loading && products.length === 0" description="这个分类下还没有商品" />
 
-      <div v-if="total > size" class="pager">
-        <el-pagination
-          layout="prev, pager, next"
-          :total="total"
-          :page-size="size"
-          :current-page="page"
-          background
-          @current-change="onPageChange"
-        />
+      <!-- 滚到底部的加载哨兵：IntersectionObserver 盯着它，进视口就去拉下一页 -->
+      <div ref="sentinel" class="load-more">
+        <span v-if="loadingMore">正在加载…</span>
+        <span v-else-if="products.length && !hasMore">
+          已经到底了，共 {{ total }} 件商品
+        </span>
       </div>
     </section>
   </div>
@@ -510,10 +544,13 @@ onMounted(async () => {
   color: var(--c-text-3);
 }
 
-.pager {
+/* 无限滚动的哨兵：它本身只是个占位，文字是给用户看的加载状态 */
+.load-more {
   display: flex;
   justify-content: center;
-  padding: 20px 0 8px;
+  padding: 22px 0 8px;
+  font-size: 12.5px;
+  color: var(--c-text-3);
 }
 
 /* 窄屏：品类栏收成横向滚动条，品牌专区直接藏起来（移动端首屏不该塞品牌墙） */
