@@ -607,12 +607,16 @@ Error [ERR_PACKAGE_PATH_NOT_EXPORTED]: Package subpath './lib/tsc' is not define
 看 `SHOW VARIABLES LIKE 'character_set_client'` 和响应里的错误字节，能很快定位。
 
 ### 5.18 `git push` 报错但实际成功（本机网络特征，遇见别慌）
-本项目已**两次**出现「push 返回错误，但远端其实已经更新成功」：
+本项目已**三次**出现「push 返回错误，但远端其实已经更新成功」：
 
 | 时间 | 报错 | 实际结果 |
 |---|---|---|
 | 2026-10-12 首次推送 | `remote: Your repository is disabled`（403） | 提交已上传，远端 ref 已建 |
 | 2026-10-12 M0 推送 | `cannot lock ref 'refs/heads/main': is at <新值> but expected <旧值>` | 已在远端，本地与远端一致 |
+| 2026-10-16 测试库那次 | 同上，`cannot lock ref ... is at <新值> but expected <旧值>` | 已在远端，本地与远端一致 |
+
+**第三种报错尤其有迷惑性**：它说「远端现在停在 `<新值>`，我却以为它在 `<旧值>`」——
+`<新值>` 正是**你这次要推的提交**，等于直接告诉你「远端已经是新的了」。
 
 疑似与**本机到 GitHub 的网络链路**有关（响应被截断或延迟）。
 
