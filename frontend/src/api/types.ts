@@ -221,3 +221,71 @@ export interface OrderView {
   items: OrderItem[]
   itemCount: number
 }
+
+// ── 管理端请求 / 回显 ──────────────────────────────────────────────
+
+/** 管理端：某个商品的规格与 SKU 回显 */
+export interface ProductSkuView {
+  specs: ProductSpec[]
+  skus: ProductSku[]
+}
+
+/** 管理端：分类新增/编辑。parentId 传 0 表示顶层 */
+export interface CategoryPayload {
+  parentId: number | null
+  name: string
+  sort: number
+  enabled: boolean
+}
+
+/** 管理端：商品新增/编辑 */
+export interface ProductPayload {
+  categoryId: number
+  name: string
+  subtitle: string
+  mainImage: string
+  price: number
+  stock: number
+  detail: string
+  onSale: boolean
+}
+
+/** 管理端：规格值。已有值传真实正数 id，新建值传负数临时 id */
+export interface SpecValuePayload {
+  id: number
+  value: string
+}
+
+/** 管理端：规格。已有规格传真实 id，新建传 null */
+export interface SpecPayload {
+  id: number | null
+  name: string
+  values: SpecValuePayload[]
+}
+
+/** 管理端：单个 SKU 组合 */
+export interface SkuPayload {
+  /** 每组规格各选一个值；无规格商品传空数组 */
+  specValueIds: number[]
+  price: number
+  /** 仅新建 SKU 生效；已有 SKU 的库存由后端保留 */
+  stock: number
+  image: string
+}
+
+/** 管理端：规格与 SKU 整组覆盖保存 */
+export interface SkuSavePayload {
+  specs: SpecPayload[]
+  skus: SkuPayload[]
+}
+
+/** 管理端：调整已有 SKU 的库存（expectedStock 用于条件更新） */
+export interface AdjustSkuStockPayload {
+  stock: number
+  expectedStock: number
+}
+
+/** 管理端：发货 */
+export interface ShipPayload {
+  trackingNo: string
+}

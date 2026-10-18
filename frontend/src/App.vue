@@ -1,14 +1,17 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Location, Lock, SwitchButton, Tickets, User } from '@element-plus/icons-vue'
+import { Location, Lock, Setting, SwitchButton, Tickets, User } from '@element-plus/icons-vue'
 import ProductImage from '@/components/ProductImage.vue'
 import { useUserStore } from '@/stores/user'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+
+/** 管理端有自己的外壳（AdminLayout），不共用顾客顶栏和内容宽度 */
+const isAdminRoute = computed(() => route.path === '/admin' || route.path.startsWith('/admin/'))
 
 /** 鼠标移到用户区时展开的抽屉面板 */
 const panelOpen = ref(false)
@@ -39,7 +42,7 @@ function onLogout() {
 </script>
 
 <template>
-  <header class="topbar">
+  <header v-if="!isAdminRoute" class="topbar">
     <div class="topbar-inner">
       <RouterLink to="/" class="logo">一次买够</RouterLink>
       <div class="search">
@@ -83,6 +86,12 @@ function onLogout() {
                   <el-icon><Lock /></el-icon>修改密码
                 </RouterLink>
 
+                <template v-if="userStore.isAdmin">
+                  <RouterLink to="/admin" class="panel-item" @click="panelOpen = false">
+                    <el-icon><Setting /></el-icon>管理后台
+                  </RouterLink>
+                </template>
+
                 <div class="panel-divider"></div>
 
                 <button type="button" class="panel-item" @click="onLogout">
@@ -98,7 +107,7 @@ function onLogout() {
     </div>
   </header>
 
-  <main class="page">
+  <main :class="isAdminRoute ? 'admin-main' : 'page'">
     <RouterView />
   </main>
 </template>
@@ -261,5 +270,10 @@ function onLogout() {
   max-width: 1440px;
   margin: 0 auto;
   padding: 24px;
+}
+
+/* 管理端自带侧边栏和页头，不再套顾客端的宽度与留白 */
+.admin-main {
+  min-height: 100vh;
 }
 </style>

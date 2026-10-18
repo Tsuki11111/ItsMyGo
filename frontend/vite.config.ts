@@ -17,7 +17,8 @@ export default defineConfig({
     // 后端一行 CORS 配置都不用加。生产环境用 Nginx 做同样的事。
     proxy: {
       '/api': {
-        target: 'http://localhost:8080',
+        // 允许指向另一个后端实例（例如 8080 被别的会话占着时，用 API_TARGET 指到 8081 验证）
+        target: process.env.API_TARGET || 'http://localhost:8080',
         changeOrigin: true,
       },
     },

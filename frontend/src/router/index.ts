@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { getToken } from '@/api/http'
+import { ElMessage } from 'element-plus'
+import { getStoredUser, getToken } from '@/api/http'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -22,6 +23,17 @@ const router = createRouter({
         { path: 'password', name: 'user-password', component: () => import('@/views/user/Password.vue') },
       ],
     },
+    {
+      path: '/admin',
+      component: () => import('@/views/admin/AdminLayout.vue'),
+      redirect: '/admin/categories',
+      meta: { requiresAdmin: true },
+      children: [
+        { path: 'categories', name: 'admin-categories', component: () => import('@/views/admin/Categories.vue') },
+        { path: 'products', name: 'admin-products', component: () => import('@/views/admin/Products.vue') },
+        { path: 'orders', name: 'admin-orders', component: () => import('@/views/admin/Orders.vue') },
+      ],
+    },
   ],
 })
 
@@ -31,9 +43,18 @@ const router = createRouter({
  * 那时 store 还没装好。
  */
 router.beforeEach((to) => {
-  if (to.matched.some((record) => record.meta.requiresAuth) && !getToken()) {
+  const requiresAdmin = to.matched.some((record) => record.meta.requiresAdmin)
+  const requiresAuth = to.matched.some((record) => record.meta.requiresAuth)
+
+  if ((requiresAuth || requiresAdmin) && !getToken()) {
     return { path: '/login', query: { redirect: to.fullPath } }
   }
+
+  if (requiresAdmin && getStoredUser()?.role !== 'ADMIN') {
+    ElMessage.error('需要管理员权限')
+    return { path: '/' }
+  }
+
   return true
 })
 

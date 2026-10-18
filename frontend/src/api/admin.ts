@@ -1,0 +1,124 @@
+import { del, get, post, postForm, put } from './http'
+import type {
+  AdjustSkuStockPayload,
+  CategoryNode,
+  CategoryPayload,
+  Order,
+  OrderView,
+  PageResponse,
+  Product,
+  ProductPayload,
+  ProductSku,
+  ProductSkuView,
+  ShipPayload,
+  SkuSavePayload,
+} from './types'
+
+// ── 分类 ──
+
+/** 管理端分类树：含停用分类，children 嵌套 */
+export function fetchAdminCategories(): Promise<CategoryNode[]> {
+  return get<CategoryNode[]>('/admin/categories')
+}
+
+export function createCategory(payload: CategoryPayload): Promise<CategoryNode> {
+  return post<CategoryNode>('/admin/categories', payload)
+}
+
+export function updateCategory(id: number, payload: CategoryPayload): Promise<CategoryNode> {
+  return put<CategoryNode>(`/admin/categories/${id}`, payload)
+}
+
+export function deleteCategory(id: number): Promise<void> {
+  return del<void>(`/admin/categories/${id}`)
+}
+
+// ── 商品 ──
+
+export interface AdminProductQuery {
+  page?: number
+  size?: number
+  categoryId?: number
+  keyword?: string
+}
+
+/** 管理端商品列表：含下架商品 */
+export function fetchAdminProducts(query: AdminProductQuery): Promise<PageResponse<Product>> {
+  return get<PageResponse<Product>>('/admin/products', { ...query })
+}
+
+export function createProduct(payload: ProductPayload): Promise<Product> {
+  return post<Product>('/admin/products', payload)
+}
+
+export function updateProduct(id: number, payload: ProductPayload): Promise<Product> {
+  return put<Product>(`/admin/products/${id}`, payload)
+}
+
+/** 手工重建布隆过滤器（手工插库/导入数据后补救用） */
+export function rebuildBloomFilter(): Promise<number> {
+  return post<number>('/admin/products/rebuild-bloom')
+}
+
+// ── 规格与 SKU ──
+
+export function fetchProductSkus(productId: number): Promise<ProductSkuView> {
+  return get<ProductSkuView>(`/admin/products/${productId}/skus`)
+}
+
+/** 整组覆盖保存；已有 SKU 的库存不会被改动 */
+export function saveProductSkus(productId: number, payload: SkuSavePayload): Promise<ProductSkuView> {
+  return put<ProductSkuView>(`/admin/products/${productId}/skus`, payload)
+}
+
+/** 调整已有 SKU 库存：expectedStock 是表单看到的值，被并发改过会被拒 */
+export function adjustSkuStock(
+  productId: number,
+  skuId: number,
+  payload: AdjustSkuStockPayload,
+): Promise<ProductSku> {
+  return put<ProductSku>(`/admin/products/${productId}/skus/${skuId}/stock`, payload)
+}
+
+// ── 文件上传 ──
+
+/** 上传单张图片，返回可公开访问的 URL */
+export function uploadImage(file: File): Promise<string> {
+  const form = new FormData()
+  form.append('file', file)
+  return postForm<string>('/admin/files/upload', form)
+}
+
+// ── 订单 ──
+
+export interface AdminOrderQuery {
+  page?: number
+  size?: number
+  /** 单个状态枚举名；管理端接口不支持逗号分隔 */
+  status?: string
+}
+
+export function fetchAdminOrders(query: AdminOrderQuery): Promise<PageResponse<Order>> {
+  return get<PageResponse<Order>>('/admin/orders', { ...query })
+}
+
+export function fetchAdminOrder(id: number): Promise<OrderView> {
+  return get<OrderView>(`/admin/orders/${id}`)
+}
+
+export function shipOrder(id: number, payload: ShipPayload): Promise<OrderView> {
+  return post<OrderView>(`/admin/orders/${id}/ship`, payload)
+}
+
+export function approveRefund(id: number): Promise<OrderView> {
+  return post<OrderView>(`/admin/orders/${id}/refund/approve`)
+}
+
+export function rejectRefund(id: number): Promise<OrderView> {
+  return post<OrderView>(`/admin/orders/${id}/refund/reject`)
+}
+
+/** 取消超时未支付订单，返回取消条数 */
+export function cancelExpiredOrders(minutes: number): Promise<number> {
+  return post<number>(`/admin/orders/cancel-expired?minutes=${minutes}`)
+}
