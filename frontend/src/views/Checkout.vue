@@ -1,20 +1,23 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import type { FormInstance, FormRules } from 'element-plus'
 import ProductImage from '@/components/ProductImage.vue'
+import AddressFormDialog from '@/components/AddressFormDialog.vue'
 import { fetchProduct } from '@/api/product'
-import { createAddress, fetchAddresses } from '@/api/address'
+import { fetchCart } from '@/api/cart'
+import { fetchAddresses } from '@/api/address'
 import { createOrder, fetchOrderToken } from '@/api/order'
 import { useUserStore } from '@/stores/user'
-import type { Address, Product, ProductSku } from '@/api/types'
+import type { Address, CartItemView, Product, ProductSku } from '@/api/types'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 
 const product = ref<Product | null>(null)
+/** 购物车结算时，要下单的那几行（只取**勾选且可买**的） */
+const cartItems = ref<CartItemView[]>([])
 const quantity = ref(1)
 const addresses = ref<Address[]>([])
 const addressId = ref<number | null>(null)
@@ -31,6 +34,10 @@ const submitting = ref(false)
 const buyNowId = computed(() => Number(route.query.productId) || 0)
 const buyNowSkuId = computed(() => Number(route.query.skuId) || 0)
 
+/** 没带 productId 就是从购物车进来的。两种来源共用这一个页面 */
+const fromCart = computed(() => !buyNowId.value)
+const hasGoods = computed(() => (fromCart.value ? cartItems.value.length > 0 : Boolean(product.value)))
+
 /**
  * 要买的那一款。正常是详情页带上来的那个 skuId；
  * 兜底取默认 SKU（无规格商品），免得老链接或者手敲 URL 时整页报错。
@@ -45,7 +52,12 @@ const sku = computed<ProductSku | null>(() => {
 
 /** 单价取**那一款**的，不是商品的最低价 */
 const unitPrice = computed(() => sku.value?.price ?? product.value?.price ?? 0)
-const total = computed(() => unitPrice.value * quantity.value)
+/** 购物车结算时，金额同样只算「勾选且可买」的行 */
+const total = computed(() =>
+  fromCart.value
+    ? cartItems.value.reduce((sum, item) => sum + item.subtotal, 0)
+    : unitPrice.value * quantity.value,
+)
 
 function fullAddress(addr: Address): string {
   return `${addr.province}${addr.city}${addr.district}${addr.detail}`
@@ -60,7 +72,7 @@ onMounted(async () => {
 
   loading.value = true
   try {
-    await Promise.all([loadProduct(), loadAddresses()])
+    await Promise.all([fromCart.value ? loadCart() : loadProduct(), loadAddresses()])
     token.value = await fetchOrderToken()
   } catch {
     // 商品不存在之类，拦截器已经提示过
@@ -79,6 +91,16 @@ async function loadProduct() {
   quantity.value = Math.min(Math.max(asked, 1), Math.max(available, 1))
 }
 
+/**
+ * 购物车结算：只把**勾选且可买**的行带进来。
+ * 下单时请求体里不传 `items`，后端就会按购物车的勾选项走（见 implementation §3.7）——
+ * 所以这里只负责展示，不用把商品再传一遍。
+ */
+async function loadCart() {
+  const view = await fetchCart()
+  cartItems.value = view.items.filter((item) => item.selected && item.available)
+}
+
 async function loadAddresses() {
   addresses.value = await fetchAddresses()
   const preferred = addresses.value.find((a) => a.isDefault === 1) ?? addresses.value[0]
@@ -86,19 +108,35 @@ async function loadAddresses() {
 }
 
 async function submitOrder() {
-  if (!addressId.value || !product.value || !sku.value) {
+  const addr = addressId.value
+  if (!addr) {
     ElMessage.warning('请先选择收货地址')
+    return
+  }
+  if (!hasGoods.value) {
+    ElMessage.warning(fromCart.value ? '请先在购物车里勾选商品' : '没有要结算的商品')
+    return
+  }
+  if (!fromCart.value && (!product.value || !sku.value)) {
+    ElMessage.warning('没有要结算的商品')
     return
   }
 
   submitting.value = true
   try {
-    const view = await createOrder({
-      addressId: addressId.value,
-      token: token.value,
-      // 有 items 就是「立即购买」——后端不会碰购物车
-      items: [{ productId: product.value.id, skuId: sku.value.id, quantity: quantity.value }],
-    })
+    // 从购物车结算**不传 items** —— 后端按购物车的勾选行下单并清空它们；
+    // 立即购买才传 items，那条路完全不碰购物车（见 implementation §3.7）
+    const view = fromCart.value
+      ? await createOrder({ addressId: addr, token: token.value })
+      : await createOrder({
+          addressId: addr,
+          token: token.value,
+          items: [{
+            productId: product.value!.id,
+            skuId: sku.value!.id,
+            quantity: quantity.value,
+          }],
+        })
     ElMessage.success('下单成功')
     router.replace(`/order/${view.order.id}`)
   } catch {
@@ -110,57 +148,12 @@ async function submitOrder() {
 }
 
 // ── 新增地址 ──
-
+// 表单本身是公共组件（用户中心的地址管理页也在用同一份）
 const dialogVisible = ref(false)
-const savingAddress = ref(false)
-const formRef = ref<FormInstance>()
-const form = reactive({
-  receiver: '',
-  phone: '',
-  province: '',
-  city: '',
-  district: '',
-  detail: '',
-  isDefault: false,
-})
 
-const addrRules: FormRules = {
-  receiver: [{ required: true, message: '请输入收货人', trigger: 'blur' }],
-  phone: [{ required: true, message: '请输入联系电话', trigger: 'blur' }],
-  province: [{ required: true, message: '请输入省份', trigger: 'blur' }],
-  city: [{ required: true, message: '请输入城市', trigger: 'blur' }],
-  district: [{ required: true, message: '请输入区/县', trigger: 'blur' }],
-  detail: [{ required: true, message: '请输入详细地址', trigger: 'blur' }],
-}
-
-function openAddressDialog() {
-  form.receiver = ''
-  form.phone = ''
-  form.province = ''
-  form.city = ''
-  form.district = ''
-  form.detail = ''
-  // 第一个地址默认设成默认地址，省得用户还要多点一下
-  form.isDefault = addresses.value.length === 0
-  dialogVisible.value = true
-}
-
-async function submitAddress() {
-  const valid = await formRef.value?.validate().catch(() => false)
-  if (!valid) return
-
-  savingAddress.value = true
-  try {
-    const created = await createAddress({ ...form })
-    dialogVisible.value = false
-    ElMessage.success('地址已保存')
-    await loadAddresses()
-    addressId.value = created.id
-  } catch {
-    // 参数不合法等，拦截器已提示
-  } finally {
-    savingAddress.value = false
-  }
+async function onAddressSaved(address: Address) {
+  await loadAddresses()
+  addressId.value = address.id
 }
 </script>
 
@@ -168,16 +161,21 @@ async function submitAddress() {
   <div v-loading="loading" class="checkout-page">
     <h1 class="page-title">确认订单</h1>
 
-    <el-empty v-if="!loading && !product" description="没有要结算的商品">
-      <el-button type="primary" @click="router.push('/')">去逛逛</el-button>
+    <el-empty
+      v-if="!loading && !hasGoods"
+      :description="fromCart ? '购物车里还没有勾选可结算的商品' : '没有要结算的商品'"
+    >
+      <el-button type="primary" @click="router.push(fromCart ? '/cart' : '/')">
+        {{ fromCart ? '回购物车' : '去逛逛' }}
+      </el-button>
     </el-empty>
 
-    <template v-else-if="product">
+    <template v-else-if="hasGoods">
       <!-- ── 收货地址 ── -->
       <section class="block">
         <div class="block-head">
           <h2 class="block-title">收货地址</h2>
-          <button type="button" class="text-btn" @click="openAddressDialog">+ 新增地址</button>
+          <button type="button" class="text-btn" @click="dialogVisible = true">+ 新增地址</button>
         </div>
 
         <p v-if="!addresses.length" class="empty-tip">
@@ -205,7 +203,27 @@ async function submitAddress() {
       <!-- ── 商品清单 ── -->
       <section class="block">
         <h2 class="block-title">商品清单</h2>
-        <div class="goods-row">
+
+        <!-- 购物车结算：勾选且可买的那几行 -->
+        <template v-if="fromCart">
+          <div v-for="item in cartItems" :key="item.id" class="goods-row">
+            <div class="goods-thumb">
+              <ProductImage :src="item.productImage" :name="item.productName" :id="item.productId" />
+            </div>
+            <div class="goods-info">
+              <p class="goods-name">{{ item.productName }}</p>
+              <p v-if="item.specText" class="goods-sub">{{ item.specText }}</p>
+            </div>
+            <div class="price goods-price">
+              <span class="price-symbol">¥</span>
+              <span class="price-num">{{ item.price.toFixed(2) }}</span>
+            </div>
+            <div class="goods-qty">× {{ item.quantity }}</div>
+          </div>
+        </template>
+
+        <!-- 立即购买：只有一件 -->
+        <div v-else-if="product" class="goods-row">
           <div class="goods-thumb">
             <ProductImage :src="sku?.image || product.mainImage" :name="product.name" :id="product.id" />
           </div>
@@ -244,35 +262,11 @@ async function submitAddress() {
     </template>
 
     <!-- ── 新增地址 ── -->
-    <el-dialog v-model="dialogVisible" title="新增收货地址" width="460px">
-      <el-form ref="formRef" :model="form" :rules="addrRules" label-width="84px">
-        <el-form-item label="收货人" prop="receiver">
-          <el-input v-model="form.receiver" placeholder="不超过 32 个字符" />
-        </el-form-item>
-        <el-form-item label="联系电话" prop="phone">
-          <el-input v-model="form.phone" placeholder="手机号或座机" />
-        </el-form-item>
-        <el-form-item label="省份" prop="province">
-          <el-input v-model="form.province" placeholder="如：广东省" />
-        </el-form-item>
-        <el-form-item label="城市" prop="city">
-          <el-input v-model="form.city" placeholder="如：深圳市" />
-        </el-form-item>
-        <el-form-item label="区/县" prop="district">
-          <el-input v-model="form.district" placeholder="如：南山区" />
-        </el-form-item>
-        <el-form-item label="详细地址" prop="detail">
-          <el-input v-model="form.detail" type="textarea" :rows="2" placeholder="街道、门牌号等" />
-        </el-form-item>
-        <el-form-item label="设为默认">
-          <el-switch v-model="form.isDefault" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="savingAddress" @click="submitAddress">保存</el-button>
-      </template>
-    </el-dialog>
+    <AddressFormDialog
+      v-model="dialogVisible"
+      :default-when-new="addresses.length === 0"
+      @saved="onAddressSaved"
+    />
   </div>
 </template>
 

@@ -1,4 +1,4 @@
-import { post } from './http'
+import { del, get, post, put } from './http'
 import type { CartView } from './types'
 
 /**
@@ -8,4 +8,17 @@ import type { CartView } from './types'
  */
 export function addToCart(productId: number, skuId: number, quantity: number): Promise<CartView> {
   return post<CartView>('/cart/items', { productId, skuId, quantity })
+}
+
+export function fetchCart(): Promise<CartView> {
+  return get<CartView>('/cart')
+}
+
+/** 改数量或勾选状态。**两个参数都要传**（后端是整体覆盖那一行） */
+export function updateCartItem(itemId: number, quantity: number, selected: boolean): Promise<CartView> {
+  return put<CartView>(`/cart/items/${itemId}`, { quantity, selected })
+}
+
+export function removeCartItem(itemId: number): Promise<CartView> {
+  return del<CartView>(`/cart/items/${itemId}`)
 }
