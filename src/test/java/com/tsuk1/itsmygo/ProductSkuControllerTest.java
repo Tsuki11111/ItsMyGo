@@ -11,6 +11,7 @@ import com.tsuk1.itsmygo.mapper.ProductMapper;
 import com.tsuk1.itsmygo.mapper.ProductSkuMapper;
 import com.tsuk1.itsmygo.mapper.ProductSpecMapper;
 import com.tsuk1.itsmygo.mapper.ProductSpecValueMapper;
+import com.tsuk1.itsmygo.service.StockService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
@@ -38,6 +39,9 @@ class ProductSkuControllerTest extends ApiTestBase {
 
     @Autowired
     private ProductSpecValueMapper valueMapper;
+
+    @Autowired
+    private StockService stockService;
 
     private long createProduct(String adminToken, String name, String price, int stock) throws Exception {
         String catBody = mockMvc.perform(post("/api/admin/categories")
@@ -280,6 +284,99 @@ class ProductSkuControllerTest extends ApiTestBase {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"specs": [], "skus": [{"specValueIds": [], "price": 1.00, "stock": 1, "image": ""}]}
+                                """))
+                .andExpect(status().isForbidden());
+    }
+
+    /** 调整库存要同时把 SKU 行、商品汇总、Redis 计数器刷成同一个数 */
+    @Test
+    void adjustStockSyncsDbAggregateAndRedis() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        long productId = createProduct(admin, "调库存", "10.00", 5);
+        long skuId = defaultSkuId(productId);
+
+        mockMvc.perform(put("/api/admin/products/" + productId + "/skus/" + skuId + "/stock")
+                        .header("Authorization", bearer(admin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"stock": 50, "expectedStock": 5}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.stock").value(50));
+
+        assertThat(skuMapper.selectById(skuId).getStock()).isEqualTo(50);
+        assertThat(productMapper.selectById(productId).getStock()).isEqualTo(50);
+        assertThat(stockService.currentSkuStock(skuId)).isEqualTo(50);
+    }
+
+    /** 表单看到的库存已经被下单/取消改过时，不能硬覆盖（CAS 失效） */
+    @Test
+    void adjustStockRejectsStaleExpectedStock() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        long productId = createProduct(admin, "库存冲突", "10.00", 5);
+        long skuId = defaultSkuId(productId);
+
+        mockMvc.perform(put("/api/admin/products/" + productId + "/skus/" + skuId + "/stock")
+                        .header("Authorization", bearer(admin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"stock": 50, "expectedStock": 4}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.message").value("库存已变化，请刷新后重试"));
+
+        assertThat(skuMapper.selectById(skuId).getStock()).isEqualTo(5);
+    }
+
+    /** 别人商品下的 SKU 一律当不存在，不泄露存在性 */
+    @Test
+    void adjustStockRejectsSkuOfAnotherProduct() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        long productA = createProduct(admin, "商品A" + System.nanoTime(), "10.00", 5);
+        long productB = createProduct(admin, "商品B" + System.nanoTime(), "10.00", 5);
+        long skuOfB = defaultSkuId(productB);
+
+        mockMvc.perform(put("/api/admin/products/" + productA + "/skus/" + skuOfB + "/stock")
+                        .header("Authorization", bearer(admin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"stock": 50, "expectedStock": 5}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(404))
+                .andExpect(jsonPath("$.message").value("SKU 不存在"));
+    }
+
+    @Test
+    void adjustStockRejectsNegativeStock() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        long productId = createProduct(admin, "负库存", "10.00", 5);
+        long skuId = defaultSkuId(productId);
+
+        mockMvc.perform(put("/api/admin/products/" + productId + "/skus/" + skuId + "/stock")
+                        .header("Authorization", bearer(admin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"stock": -1, "expectedStock": 5}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(400));
+    }
+
+    @Test
+    void customerCannotAdjustStock() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        String customer = customerToken("c" + System.nanoTime());
+        long productId = createProduct(admin, "越权调库存", "10.00", 5);
+        long skuId = defaultSkuId(productId);
+
+        mockMvc.perform(put("/api/admin/products/" + productId + "/skus/" + skuId + "/stock")
+                        .header("Authorization", bearer(customer))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"stock": 50, "expectedStock": 5}
                                 """))
                 .andExpect(status().isForbidden());
     }

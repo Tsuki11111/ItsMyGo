@@ -28,4 +28,21 @@ public interface ProductSkuMapper extends BaseMapper<ProductSku> {
             WHERE id = #{skuId}
             """)
     int restoreStock(@Param("skuId") Long skuId, @Param("quantity") Integer quantity);
+
+    /**
+     * 管理端调整库存 —— **条件更新**，防止把并发的下单/取消冲掉。
+     *
+     * 只有库里还是 {@code expectedStock} 时才写成 {@code stock}；
+     * 返回 0 表示期间库存已经变了，调用方应该让商户刷新后重试，
+     * 而不是硬覆盖（那会丢更新）。
+     */
+    @Update("""
+            UPDATE product_skus
+            SET stock = #{stock}
+            WHERE id = #{skuId} AND product_id = #{productId} AND stock = #{expectedStock}
+            """)
+    int compareAndSetStock(@Param("productId") Long productId,
+                           @Param("skuId") Long skuId,
+                           @Param("stock") Integer stock,
+                           @Param("expectedStock") Integer expectedStock);
 }

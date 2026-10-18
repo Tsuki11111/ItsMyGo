@@ -2,11 +2,13 @@ package com.tsuk1.itsmygo.controller;
 
 import com.tsuk1.itsmygo.common.ProductBloomFilter;
 import com.tsuk1.itsmygo.common.Result;
+import com.tsuk1.itsmygo.dto.AdjustSkuStockRequest;
 import com.tsuk1.itsmygo.dto.PageResponse;
 import com.tsuk1.itsmygo.dto.ProductRequest;
 import com.tsuk1.itsmygo.dto.ProductSkuView;
 import com.tsuk1.itsmygo.dto.SkuSaveRequest;
 import com.tsuk1.itsmygo.entity.Product;
+import com.tsuk1.itsmygo.entity.ProductSku;
 import com.tsuk1.itsmygo.service.ProductService;
 import com.tsuk1.itsmygo.service.ProductSkuService;
 import jakarta.validation.Valid;
@@ -78,6 +80,21 @@ public class AdminProductController {
     public Result<ProductSkuView> saveSkus(@PathVariable Long id,
                                            @Valid @RequestBody SkuSaveRequest request) {
         return Result.ok(productSkuService.save(id, request));
+    }
+
+    /**
+     * 调整某个 SKU 的库存。
+     *
+     * 整组保存 SKU 时**故意不动已有行的库存**（库存该由下单/取消来改），
+     * 所以补货、盘库单独走这个接口。请求带 {@code expectedStock}，
+     * 期间被并发改过就拒绝，避免硬覆盖丢更新。
+     */
+    @PutMapping("/{productId}/skus/{skuId}/stock")
+    public Result<ProductSku> adjustStock(@PathVariable Long productId,
+                                          @PathVariable Long skuId,
+                                          @Valid @RequestBody AdjustSkuStockRequest request) {
+        return Result.ok(productSkuService.adjustStock(
+                productId, skuId, request.stock(), request.expectedStock()));
     }
 
     /**

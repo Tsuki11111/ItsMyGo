@@ -118,6 +118,28 @@ public class ProductSkuServiceImpl implements ProductSkuService {
     }
 
     @Override
+    @Transactional
+    public ProductSku adjustStock(Long productId, Long skuId, Integer stock, Integer expectedStock) {
+        requireProduct(productId);
+        ProductSku sku = skuMapper.selectById(skuId);
+        if (sku == null || !productId.equals(sku.getProductId())) {
+            // 别人商品下的 SKU 一律当「不存在」，不泄露存在性
+            throw new BizException(ResultCode.NOT_FOUND, "SKU 不存在");
+        }
+
+        int updated = skuMapper.compareAndSetStock(productId, skuId, stock, expectedStock);
+        if (updated == 0) {
+            throw new BizException(ResultCode.BAD_REQUEST, "库存已变化，请刷新后重试");
+        }
+
+        // 库存变了，商品汇总、详情缓存、Redis 计数器三处都要跟着动
+        productMapper.recalcFromSkus(productId);
+        cacheHelper.evict(RedisCacheHelper.key("product:" + productId));
+        stockService.reload(skuId);
+        return skuMapper.selectById(skuId);
+    }
+
+    @Override
     public void syncDefaultSku(Product product) {
         ProductSku sku = findDefaultSku(product.getId());
         if (sku == null) {
