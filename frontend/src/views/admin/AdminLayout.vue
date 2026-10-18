@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Goods, Menu as MenuIcon, Tickets } from '@element-plus/icons-vue'
+import { ChatDotRound, Discount, Goods, Menu as MenuIcon, Tickets } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 
 const route = useRoute()
@@ -13,6 +13,8 @@ const MENU = [
   { path: '/admin/categories', label: '分类管理', icon: MenuIcon },
   { path: '/admin/products', label: '商品管理', icon: Goods },
   { path: '/admin/orders', label: '订单管理', icon: Tickets },
+  { path: '/admin/coupons', label: '优惠券管理', icon: Discount },
+  { path: '/admin/reviews', label: '评价管理', icon: ChatDotRound },
 ]
 
 /** 子路由激活时高亮对应菜单；/admin 本身由路由 redirect 兜住 */

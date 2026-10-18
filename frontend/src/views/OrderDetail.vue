@@ -3,8 +3,9 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import ProductImage from '@/components/ProductImage.vue'
+import ReviewDialog from '@/views/user/components/ReviewDialog.vue'
 import { fetchOrder, payOrder } from '@/api/order'
-import type { OrderView } from '@/api/types'
+import type { OrderItem, OrderView } from '@/api/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -16,6 +17,14 @@ const notFound = ref(false)
 
 const order = computed(() => view.value?.order ?? null)
 const payable = computed(() => order.value?.status === 'PENDING_PAYMENT')
+
+const reviewVisible = ref(false)
+const reviewItem = ref<OrderItem | null>(null)
+
+function openReview(item: OrderItem) {
+  reviewItem.value = item
+  reviewVisible.value = true
+}
 
 /** 后端给的是 LocalDateTime（`2026-10-16T18:34:30`），显示时把 T 换掉就行 */
 function formatTime(value: string | null): string {
@@ -111,6 +120,25 @@ onMounted(load)
             <span class="price-symbol">¥</span>
             <span class="price-num">{{ item.subtotal.toFixed(2) }}</span>
           </div>
+          <button
+            v-if="order.status === 'COMPLETED'"
+            type="button"
+            class="review-btn"
+            :class="{ done: item.reviewed }"
+            :disabled="item.reviewed"
+            @click="openReview(item)"
+          >
+            {{ item.reviewed ? '已评价' : '评价' }}
+          </button>
+        </div>
+
+        <div v-if="order.discountAmount > 0" class="total-row sub-row">
+          <span class="total-label">商品总额</span>
+          <span class="original-amount">¥{{ order.originalAmount.toFixed(2) }}</span>
+        </div>
+        <div v-if="order.discountAmount > 0" class="total-row sub-row">
+          <span class="total-label">优惠（{{ order.couponName }}）</span>
+          <span class="discount-amount">-¥{{ order.discountAmount.toFixed(2) }}</span>
         </div>
 
         <div class="total-row">
@@ -147,6 +175,8 @@ onMounted(load)
         </dl>
       </section>
     </template>
+
+    <ReviewDialog v-model="reviewVisible" :order-item="reviewItem" @submitted="load" />
   </div>
 </template>
 
@@ -286,6 +316,41 @@ onMounted(load)
 
 .goods-subtotal .price-num {
   font-size: 15px;
+}
+
+.review-btn {
+  flex: none;
+  padding: 3px 12px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--c-pink);
+  background: #fff;
+  border: 1px solid var(--c-pink);
+  border-radius: var(--radius-btn);
+  cursor: pointer;
+}
+
+.review-btn.done {
+  color: var(--c-text-3);
+  border-color: var(--c-border);
+  cursor: default;
+}
+
+.total-row.sub-row {
+  margin-top: 8px;
+  padding-top: 0;
+  border-top: none;
+}
+
+.original-amount {
+  font-size: 13px;
+  color: var(--c-text-3);
+  text-decoration: line-through;
+}
+
+.discount-amount {
+  font-size: 13px;
+  color: var(--c-pink);
 }
 
 .total-row {

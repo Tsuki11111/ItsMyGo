@@ -192,13 +192,24 @@ export interface OrderItem {
   unitPrice: number
   quantity: number
   subtotal: number
+  /** 当前订单项是否已评价；后端只在已完成订单里返回 */
+  reviewed?: boolean
+  createdAt?: string
 }
 
 export interface Order {
   id: number
   orderNo: string
   userId: number
+  /** 实付金额 = originalAmount - discountAmount */
   totalAmount: number
+  /** 优惠前商品总额 */
+  originalAmount: number
+  /** 优惠金额；未用券为 0 */
+  discountAmount: number
+  userCouponId: number | null
+  /** 券名称快照；未用券为空串 */
+  couponName: string
   /** 见后端 OrderStatus 枚举名：PENDING_PAYMENT / PAID / SHIPPED / ... */
   status: string
   /** 以下三项是下单时的收货信息快照 */
@@ -288,4 +299,136 @@ export interface AdjustSkuStockPayload {
 /** 管理端：发货 */
 export interface ShipPayload {
   trackingNo: string
+}
+
+// ── 用户中心后续功能 ──────────────────────────────────────────────
+
+/** 收藏列表项 */
+export interface FavoriteView {
+  id: number
+  productId: number
+  name: string
+  subtitle: string
+  mainImage: string
+  price: number
+  /** 1 上架 / 0 下架；商品已删除时也为 0 */
+  status: number
+  createdAt: string
+}
+
+/** 足迹列表项 */
+export interface FootprintView {
+  id: number
+  productId: number
+  name: string
+  subtitle: string
+  mainImage: string
+  price: number
+  status: number
+  viewedAt: string
+}
+
+/** 商品详情页公开评价 */
+export interface ReviewView {
+  id: number
+  rating: number
+  content: string
+  userNickname: string
+  userAvatar: string
+  createdAt: string
+}
+
+export interface ReviewSummary {
+  averageRating: number
+  count: number
+}
+
+/** 我的评价 */
+export interface MyReviewView {
+  id: number
+  orderItemId: number
+  productId: number
+  productName: string
+  productImage: string
+  rating: number
+  content: string
+  /** 1 展示 / 0 已被管理端隐藏 */
+  status: number
+  createdAt: string
+}
+
+/** 提交评价 */
+export interface ReviewPayload {
+  orderItemId: number
+  rating: number
+  content: string
+}
+
+/** 管理端评价列表项 */
+export interface AdminReviewView {
+  id: number
+  userId: number
+  userNickname: string
+  productId: number
+  productName: string
+  rating: number
+  content: string
+  status: number
+  createdAt: string
+}
+
+/** 优惠券模板（管理端） */
+export interface Coupon {
+  id: number
+  name: string
+  thresholdAmount: number
+  discountAmount: number
+  totalCount: number
+  claimedCount: number
+  validFrom: string
+  validTo: string
+  /** 1 可领 / 0 停用 */
+  status: number
+  createdAt: string
+  updatedAt: string
+}
+
+/** 领券中心列表项 */
+export interface CouponView {
+  id: number
+  name: string
+  thresholdAmount: number
+  discountAmount: number
+  totalCount: number
+  claimedCount: number
+  remainingCount: number
+  validFrom: string
+  validTo: string
+  claimed: boolean
+}
+
+/** 我的券 */
+export interface UserCouponView {
+  id: number
+  couponId: number
+  couponName: string
+  thresholdAmount: number
+  discountAmount: number
+  validFrom: string
+  validTo: string
+  /** UNUSED / USED / EXPIRED（EXPIRED 可能由后端按数据库时间计算） */
+  status: string
+  usedOrderId: number | null
+  createdAt: string
+}
+
+/** 管理端新建/编辑优惠券模板 */
+export interface CouponPayload {
+  name: string
+  thresholdAmount: number
+  discountAmount: number
+  totalCount: number
+  validFrom: string
+  validTo: string
+  enabled: boolean
 }

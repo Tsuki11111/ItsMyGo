@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Location, Lock, Setting, SwitchButton, Tickets, User } from '@element-plus/icons-vue'
+import { Location, Lock, Setting, Star, SwitchButton, Ticket, Tickets, User } from '@element-plus/icons-vue'
 import ProductImage from '@/components/ProductImage.vue'
 import { useUserStore } from '@/stores/user'
 
@@ -75,6 +75,15 @@ function onLogout() {
               <div class="panel-card">
                 <RouterLink to="/user/orders" class="panel-item" @click="panelOpen = false">
                   <el-icon><Tickets /></el-icon>我的订单
+                </RouterLink>
+                <RouterLink to="/user/favorites" class="panel-item" @click="panelOpen = false">
+                  <el-icon><Star /></el-icon>我的收藏
+                </RouterLink>
+                <RouterLink to="/user/coupons" class="panel-item" @click="panelOpen = false">
+                  <el-icon><Ticket /></el-icon>我的优惠券
+                </RouterLink>
+                <RouterLink to="/coupons" class="panel-item" @click="panelOpen = false">
+                  <el-icon><Ticket /></el-icon>领券中心
                 </RouterLink>
                 <RouterLink to="/user/addresses" class="panel-item" @click="panelOpen = false">
                   <el-icon><Location /></el-icon>收货地址

@@ -13,6 +13,10 @@ const profile = ref<UserProfile | null>(null)
 
 const MENU = [
   { path: '/user/orders', label: '我的订单' },
+  { path: '/user/favorites', label: '我的收藏' },
+  { path: '/user/footprints', label: '浏览足迹' },
+  { path: '/user/coupons', label: '我的优惠券' },
+  { path: '/user/reviews', label: '我的评价' },
   { path: '/user/addresses', label: '收货地址' },
   { path: '/user/profile', label: '个人资料' },
   { path: '/user/password', label: '修改密码' },

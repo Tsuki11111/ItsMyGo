@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import ProductImage from '@/components/ProductImage.vue'
@@ -8,8 +8,9 @@ import { fetchProduct } from '@/api/product'
 import { fetchCart } from '@/api/cart'
 import { fetchAddresses } from '@/api/address'
 import { createOrder, fetchOrderToken } from '@/api/order'
+import { fetchAvailableCoupons } from '@/api/coupon'
 import { useUserStore } from '@/stores/user'
-import type { Address, CartItemView, Product, ProductSku } from '@/api/types'
+import type { Address, CartItemView, Product, ProductSku, UserCouponView } from '@/api/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -53,11 +54,25 @@ const sku = computed<ProductSku | null>(() => {
 /** 单价取**那一款**的，不是商品的最低价 */
 const unitPrice = computed(() => sku.value?.price ?? product.value?.price ?? 0)
 /** 购物车结算时，金额同样只算「勾选且可买」的行 */
-const total = computed(() =>
+const goodsTotal = computed(() =>
   fromCart.value
     ? cartItems.value.reduce((sum, item) => sum + item.subtotal, 0)
     : unitPrice.value * quantity.value,
 )
+
+/** 可用券与选中的券 */
+const availableCoupons = ref<UserCouponView[]>([])
+const couponId = ref<number | null>(null)
+const selectedCoupon = computed(() =>
+  availableCoupons.value.find((coupon) => coupon.id === couponId.value) ?? null,
+)
+const discount = computed(() =>
+  selectedCoupon.value
+    ? Math.min(selectedCoupon.value.discountAmount, goodsTotal.value)
+    : 0,
+)
+/** 应付金额 = 商品总额 - 券减免 */
+const total = computed(() => Math.max(goodsTotal.value - discount.value, 0))
 
 function fullAddress(addr: Address): string {
   return `${addr.province}${addr.city}${addr.district}${addr.detail}`
@@ -74,11 +89,31 @@ onMounted(async () => {
   try {
     await Promise.all([fromCart.value ? loadCart() : loadProduct(), loadAddresses()])
     token.value = await fetchOrderToken()
+    await loadCoupons()
   } catch {
     // 商品不存在之类，拦截器已经提示过
   } finally {
     loading.value = false
   }
+})
+
+/** 按当前商品总额筛可用券；切换数量时重新拉，避免展示不可用的券 */
+async function loadCoupons() {
+  if (!userStore.isLoggedIn) return
+  try {
+    availableCoupons.value = await fetchAvailableCoupons(goodsTotal.value)
+    if (couponId.value !== null
+        && !availableCoupons.value.some((coupon) => coupon.id === couponId.value)) {
+      couponId.value = null
+    }
+  } catch {
+    availableCoupons.value = []
+  }
+}
+
+// 立即购买改数量会改变金额：可用券集合可能变化
+watch(quantity, () => {
+  if (!loading.value) loadCoupons()
 })
 
 async function loadProduct() {
@@ -127,10 +162,15 @@ async function submitOrder() {
     // 从购物车结算**不传 items** —— 后端按购物车的勾选行下单并清空它们；
     // 立即购买才传 items，那条路完全不碰购物车（见 implementation §3.7）
     const view = fromCart.value
-      ? await createOrder({ addressId: addr, token: token.value })
+      ? await createOrder({
+          addressId: addr,
+          token: token.value,
+          couponId: couponId.value ?? undefined,
+        })
       : await createOrder({
           addressId: addr,
           token: token.value,
+          couponId: couponId.value ?? undefined,
           items: [{
             productId: product.value!.id,
             skuId: sku.value!.id,
@@ -241,14 +281,45 @@ async function onAddressSaved(address: Address) {
         </div>
       </section>
 
+      <!-- ── 优惠券 ── -->
+      <section class="block">
+        <h2 class="block-title">优惠券</h2>
+        <div class="coupon-row">
+          <el-select
+            v-model="couponId"
+            clearable
+            placeholder="不使用优惠券"
+            style="width: 380px"
+          >
+            <el-option
+              v-for="coupon in availableCoupons"
+              :key="coupon.id"
+              :value="coupon.id"
+              :label="`${coupon.couponName}（满 ${coupon.thresholdAmount.toFixed(2)} 减 ${coupon.discountAmount.toFixed(2)}）`"
+            />
+          </el-select>
+          <span v-if="!availableCoupons.length" class="empty-tip">没有可用的优惠券</span>
+        </div>
+      </section>
+
       <!-- ── 提交 ── -->
       <section class="block submit-block">
-        <div class="total-row">
-          <span class="total-label">应付金额</span>
-          <span class="price">
-            <span class="price-symbol">¥</span>
-            <span class="price-num total-num">{{ total.toFixed(2) }}</span>
-          </span>
+        <div class="amounts">
+          <div v-if="discount > 0" class="total-row sub">
+            <span class="total-label">商品总额</span>
+            <span class="sub-amount">¥{{ goodsTotal.toFixed(2) }}</span>
+          </div>
+          <div v-if="discount > 0" class="total-row sub">
+            <span class="total-label">优惠券</span>
+            <span class="discount-amount">-¥{{ discount.toFixed(2) }}</span>
+          </div>
+          <div class="total-row">
+            <span class="total-label">应付金额</span>
+            <span class="price">
+              <span class="price-symbol">¥</span>
+              <span class="price-num total-num">{{ total.toFixed(2) }}</span>
+            </span>
+          </div>
         </div>
         <button
           type="button"
@@ -318,6 +389,12 @@ async function onAddressSaved(address: Address) {
   margin: 0;
   font-size: 13px;
   color: var(--c-text-3);
+}
+
+.coupon-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 /* ── 地址卡片 ── */
@@ -430,8 +507,15 @@ async function onAddressSaved(address: Address) {
   gap: 28px;
 }
 
-.total-row {
+.amounts {
   margin-left: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.total-row {
   display: flex;
   align-items: baseline;
   gap: 12px;
@@ -444,6 +528,16 @@ async function onAddressSaved(address: Address) {
 
 .total-num {
   font-size: 26px;
+}
+
+.sub-amount {
+  font-size: 13px;
+  color: var(--c-text-3);
+}
+
+.discount-amount {
+  font-size: 13px;
+  color: var(--c-pink);
 }
 
 .submit-btn {

@@ -2,11 +2,15 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { Star, StarFilled } from '@element-plus/icons-vue'
 import ProductImage from '@/components/ProductImage.vue'
 import { fetchProduct, fetchProducts, fetchStock } from '@/api/product'
 import { addToCart } from '@/api/cart'
+import { addFavorite, fetchFavoriteStatus, removeFavorite } from '@/api/favorite'
+import { recordFootprint } from '@/api/footprint'
+import { fetchProductReviews, fetchReviewSummary } from '@/api/review'
 import { useUserStore } from '@/stores/user'
-import type { Product, ProductSku } from '@/api/types'
+import type { Product, ProductSku, ReviewSummary, ReviewView } from '@/api/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -22,6 +26,18 @@ const related = ref<Product[]>([])
 const loading = ref(true)
 const adding = ref(false)
 const notFound = ref(false)
+
+/** 收藏状态；未登录时恒为 false */
+const favorited = ref(false)
+const favoriteBusy = ref(false)
+
+/** 商品评价 */
+const reviewSummary = ref<ReviewSummary | null>(null)
+const reviews = ref<ReviewView[]>([])
+const reviewTotal = ref(0)
+const reviewPage = ref(1)
+const reviewsLoading = ref(false)
+const REVIEW_SIZE = 5
 
 /**
  * 当前选中的 SKU。
@@ -69,6 +85,11 @@ async function load() {
   notFound.value = false
   quantity.value = 1
   selectedValues.value = {}
+  favorited.value = false
+  reviewSummary.value = null
+  reviews.value = []
+  reviewTotal.value = 0
+  reviewPage.value = 1
   try {
     // 详情接口已经带上每个 SKU 的**实时**库存了，不用再单独拉一次
     product.value = await fetchProduct(id)
@@ -82,6 +103,81 @@ async function load() {
   }
 
   loadRelated(id)
+  loadReviews(id)
+  if (userStore.isLoggedIn) {
+    loadFavorite(id)
+    // 足迹上报失败不影响页面；同一商品只更新时间
+    recordFootprint(id).catch(() => {})
+  }
+}
+
+async function loadFavorite(id: number) {
+  try {
+    favorited.value = await fetchFavoriteStatus(id)
+  } catch {
+    favorited.value = false
+  }
+}
+
+async function toggleFavorite() {
+  if (!product.value) return
+  if (!userStore.isLoggedIn) {
+    ElMessage.warning('请先登录')
+    router.push({ path: '/login', query: { redirect: route.fullPath } })
+    return
+  }
+
+  favoriteBusy.value = true
+  try {
+    if (favorited.value) {
+      await removeFavorite(product.value.id)
+      favorited.value = false
+      ElMessage.success('已取消收藏')
+    } else {
+      await addFavorite(product.value.id)
+      favorited.value = true
+      ElMessage.success('已收藏')
+    }
+  } finally {
+    favoriteBusy.value = false
+  }
+}
+
+async function loadReviews(id: number) {
+  reviewsLoading.value = true
+  try {
+    const [summary, page] = await Promise.all([
+      fetchReviewSummary(id),
+      fetchProductReviews(id, 1, REVIEW_SIZE),
+    ])
+    reviewSummary.value = summary
+    reviews.value = page.records
+    reviewTotal.value = page.total
+    reviewPage.value = 1
+  } catch {
+    reviewSummary.value = null
+    reviews.value = []
+    reviewTotal.value = 0
+  } finally {
+    reviewsLoading.value = false
+  }
+}
+
+async function loadMoreReviews() {
+  if (!product.value) return
+  reviewsLoading.value = true
+  try {
+    const page = await fetchProductReviews(product.value.id, reviewPage.value + 1, REVIEW_SIZE)
+    reviews.value = [...reviews.value, ...page.records]
+    reviewTotal.value = page.total
+    reviewPage.value += 1
+  } finally {
+    reviewsLoading.value = false
+  }
+}
+
+function formatReviewTime(value: string): string {
+  return value.replace('T', ' ').slice(0, 16)
 }
 
 /** 同类商品：同分类里取几个，排除自己。后端只有分页接口，就在内存里筛 */
@@ -184,7 +280,22 @@ onMounted(load)
         </div>
 
         <div class="info">
-          <h1 class="name">{{ product.name }}</h1>
+          <div class="name-row">
+            <h1 class="name">{{ product.name }}</h1>
+            <button
+              type="button"
+              class="fav-btn"
+              :class="{ active: favorited }"
+              :disabled="favoriteBusy"
+              @click="toggleFavorite"
+            >
+              <el-icon>
+                <StarFilled v-if="favorited" />
+                <Star v-else />
+              </el-icon>
+              {{ favorited ? '已收藏' : '收藏' }}
+            </button>
+          </div>
           <p v-if="product.subtitle" class="subtitle">{{ product.subtitle }}</p>
 
           <!-- 价格区：粉色允许出现的三个位置之一 -->
@@ -257,6 +368,49 @@ onMounted(load)
         <p v-else class="detail-blank">这件商品还没有填写详细介绍。</p>
       </section>
 
+      <!-- ── 商品评价 ── -->
+      <section class="block review-block">
+        <div class="review-head">
+          <h2 class="block-title">商品评价</h2>
+          <div v-if="reviewSummary && reviewSummary.count > 0" class="review-summary">
+            <el-rate :model-value="reviewSummary.averageRating" disabled allow-half size="small" />
+            <span>{{ reviewSummary.averageRating.toFixed(1) }} 分 · {{ reviewSummary.count }} 条</span>
+          </div>
+        </div>
+
+        <el-empty
+          v-if="!reviewsLoading && reviews.length === 0"
+          description="还没有评价"
+          :image-size="60"
+        />
+
+        <div v-else v-loading="reviewsLoading" class="review-list">
+          <article v-for="review in reviews" :key="review.id" class="review-item">
+            <div class="review-user">
+              <div class="review-avatar">
+                <img v-if="review.userAvatar" :src="review.userAvatar" alt="" />
+                <span v-else>{{ review.userNickname.slice(0, 1) }}</span>
+              </div>
+              <span class="review-nickname">{{ review.userNickname }}</span>
+              <el-rate :model-value="review.rating" disabled size="small" />
+            </div>
+            <p v-if="review.content" class="review-content">{{ review.content }}</p>
+            <p v-else class="review-content blank">（用户未填写文字评价）</p>
+            <p class="review-time">{{ formatReviewTime(review.createdAt) }}</p>
+          </article>
+
+          <el-button
+            v-if="reviews.length < reviewTotal"
+            link
+            type="primary"
+            :loading="reviewsLoading"
+            @click="loadMoreReviews"
+          >
+            查看更多评价
+          </el-button>
+        </div>
+      </section>
+
       <!-- ── 同类商品 ── -->
       <section v-if="related.length" class="block">
         <h2 class="block-title">同类商品</h2>
@@ -315,12 +469,43 @@ onMounted(load)
   min-width: 0;
 }
 
+.name-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
 .name {
+  flex: 1;
   margin: 0;
   font-size: 24px;
   font-weight: 600;
   line-height: 1.4;
   color: var(--c-text);
+}
+
+.fav-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  margin-top: 4px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--c-text-2);
+  background: #fff;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-btn);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.fav-btn:hover,
+.fav-btn.active {
+  color: var(--c-pink);
+  border-color: var(--c-pink);
+  background: var(--c-pink-tint);
 }
 
 .subtitle {
@@ -515,6 +700,80 @@ onMounted(load)
 .detail-blank {
   margin: 0;
   font-size: 13px;
+  color: var(--c-text-3);
+}
+
+/* ── 商品评价 ── */
+.review-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.review-head .block-title {
+  margin-bottom: 0;
+}
+
+.review-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--c-text-2);
+}
+
+.review-item {
+  padding: 14px 0;
+  border-top: 1px solid var(--c-border);
+}
+
+.review-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.review-avatar {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--c-pink-tint);
+  color: var(--c-pink);
+  font-size: 13px;
+}
+
+.review-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.review-nickname {
+  font-size: 13px;
+  color: var(--c-text);
+}
+
+.review-content {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--c-text-2);
+  white-space: pre-wrap;
+}
+
+.review-content.blank {
+  color: var(--c-text-3);
+}
+
+.review-time {
+  margin: 6px 0 0;
+  font-size: 11px;
   color: var(--c-text-3);
 }
 

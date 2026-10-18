@@ -11,6 +11,7 @@ const router = createRouter({
     { path: '/cart', name: 'cart', component: () => import('@/views/Cart.vue') },
     { path: '/checkout', name: 'checkout', component: () => import('@/views/Checkout.vue') },
     { path: '/order/:id', name: 'order-detail', component: () => import('@/views/OrderDetail.vue') },
+    { path: '/coupons', name: 'coupon-center', component: () => import('@/views/CouponCenter.vue') },
     {
       path: '/user',
       component: () => import('@/views/user/UserCenter.vue'),
@@ -18,6 +19,10 @@ const router = createRouter({
       meta: { requiresAuth: true },
       children: [
         { path: 'orders', name: 'user-orders', component: () => import('@/views/user/Orders.vue') },
+        { path: 'favorites', name: 'user-favorites', component: () => import('@/views/user/Favorites.vue') },
+        { path: 'footprints', name: 'user-footprints', component: () => import('@/views/user/Footprints.vue') },
+        { path: 'coupons', name: 'user-coupons', component: () => import('@/views/user/Coupons.vue') },
+        { path: 'reviews', name: 'user-reviews', component: () => import('@/views/user/Reviews.vue') },
         { path: 'addresses', name: 'user-addresses', component: () => import('@/views/user/Addresses.vue') },
         { path: 'profile', name: 'user-profile', component: () => import('@/views/user/Profile.vue') },
         { path: 'password', name: 'user-password', component: () => import('@/views/user/Password.vue') },
@@ -32,6 +37,8 @@ const router = createRouter({
         { path: 'categories', name: 'admin-categories', component: () => import('@/views/admin/Categories.vue') },
         { path: 'products', name: 'admin-products', component: () => import('@/views/admin/Products.vue') },
         { path: 'orders', name: 'admin-orders', component: () => import('@/views/admin/Orders.vue') },
+        { path: 'coupons', name: 'admin-coupons', component: () => import('@/views/admin/Coupons.vue') },
+        { path: 'reviews', name: 'admin-reviews', component: () => import('@/views/admin/Reviews.vue') },
       ],
     },
   ],

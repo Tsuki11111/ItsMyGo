@@ -2,8 +2,9 @@
 import { computed, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import ProductImage from '@/components/ProductImage.vue'
+import ReviewDialog from './components/ReviewDialog.vue'
 import { fetchOrders } from '@/api/order'
-import type { OrderView } from '@/api/types'
+import type { OrderItem, OrderView } from '@/api/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -26,6 +27,8 @@ const page = ref(1)
 const total = ref(0)
 const orders = ref<OrderView[]>([])
 const loading = ref(false)
+const reviewVisible = ref(false)
+const reviewItem = ref<OrderItem | null>(null)
 
 const activeTab = computed(() => {
   const tab = route.query.tab
@@ -64,6 +67,11 @@ function onPageChange(next: number) {
   load()
 }
 
+function openReview(item: OrderItem) {
+  reviewItem.value = item
+  reviewVisible.value = true
+}
+
 function formatTime(value: string): string {
   return value.replace('T', ' ').slice(0, 16)
 }
@@ -84,15 +92,6 @@ function formatTime(value: string): string {
           {{ tab.label }}
         </button>
       </div>
-
-      <el-alert
-        v-if="activeTab === 'review'"
-        type="info"
-        :closable="false"
-        show-icon
-        title="评价功能即将上线，这里暂时显示已完成的订单"
-        class="review-alert"
-      />
 
       <div v-loading="loading" class="list">
         <el-empty v-if="!loading && orders.length === 0" description="这里还没有订单" />
@@ -118,11 +117,24 @@ function formatTime(value: string): string {
                 <span class="price-symbol">¥</span>
                 <span class="price-num">{{ item.unitPrice.toFixed(2) }}</span>
               </span>
+              <button
+                v-if="order.order.status === 'COMPLETED'"
+                type="button"
+                class="review-btn"
+                :class="{ done: item.reviewed }"
+                :disabled="item.reviewed"
+                @click="openReview(item)"
+              >
+                {{ item.reviewed ? '已评价' : '评价' }}
+              </button>
             </div>
           </div>
 
           <div class="card-foot">
             <span class="count">共 {{ order.itemCount }} 件</span>
+            <span v-if="order.order.discountAmount > 0" class="discount">
+              优惠 -¥{{ order.order.discountAmount.toFixed(2) }}
+            </span>
             <span class="total">
               合计
               <span class="price">
@@ -149,6 +161,8 @@ function formatTime(value: string): string {
       </div>
     </div>
   </div>
+
+  <ReviewDialog v-model="reviewVisible" :order-item="reviewItem" @submitted="load" />
 </template>
 
 <style scoped>
@@ -184,10 +198,6 @@ function formatTime(value: string): string {
   color: var(--c-pink);
   border-bottom-color: var(--c-pink);
   font-weight: 600;
-}
-
-.review-alert {
-  margin-top: 14px;
 }
 
 /* ── 订单卡片 ── */
@@ -282,6 +292,29 @@ function formatTime(value: string): string {
 
 .item-price .price-num {
   font-size: 14px;
+}
+
+.review-btn {
+  flex: none;
+  padding: 2px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--c-pink);
+  background: #fff;
+  border: 1px solid var(--c-pink);
+  border-radius: var(--radius-btn);
+  cursor: pointer;
+}
+
+.review-btn.done {
+  color: var(--c-text-3);
+  border-color: var(--c-border);
+  cursor: default;
+}
+
+.discount {
+  font-size: 12px;
+  color: var(--c-pink);
 }
 
 .card-foot {

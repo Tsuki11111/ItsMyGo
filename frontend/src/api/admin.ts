@@ -1,8 +1,11 @@
 import { del, get, post, postForm, put } from './http'
 import type {
   AdjustSkuStockPayload,
+  AdminReviewView,
   CategoryNode,
   CategoryPayload,
+  Coupon,
+  CouponPayload,
   Order,
   OrderView,
   PageResponse,
@@ -121,4 +124,42 @@ export function rejectRefund(id: number): Promise<OrderView> {
 /** 取消超时未支付订单，返回取消条数 */
 export function cancelExpiredOrders(minutes: number): Promise<number> {
   return post<number>(`/admin/orders/cancel-expired?minutes=${minutes}`)
+}
+
+// ── 优惠券模板 ──
+
+export interface AdminCouponQuery {
+  page?: number
+  size?: number
+  enabled?: boolean
+  keyword?: string
+}
+
+export function fetchAdminCoupons(query: AdminCouponQuery): Promise<PageResponse<Coupon>> {
+  return get<PageResponse<Coupon>>('/admin/coupons', { ...query })
+}
+
+export function createAdminCoupon(payload: CouponPayload): Promise<Coupon> {
+  return post<Coupon>('/admin/coupons', payload)
+}
+
+export function updateAdminCoupon(id: number, payload: CouponPayload): Promise<Coupon> {
+  return put<Coupon>(`/admin/coupons/${id}`, payload)
+}
+
+// ── 评价管理 ──
+
+export interface AdminReviewQuery {
+  page?: number
+  size?: number
+  visible?: boolean
+  keyword?: string
+}
+
+export function fetchAdminReviews(query: AdminReviewQuery): Promise<PageResponse<AdminReviewView>> {
+  return get<PageResponse<AdminReviewView>>('/admin/reviews', { ...query })
+}
+
+export function setReviewVisible(id: number, visible: boolean): Promise<void> {
+  return put<void>(`/admin/reviews/${id}/visible`, { visible })
 }
