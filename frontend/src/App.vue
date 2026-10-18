@@ -2,11 +2,16 @@
 import { ref, watch } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { Location, Lock, SwitchButton, Tickets, User } from '@element-plus/icons-vue'
+import ProductImage from '@/components/ProductImage.vue'
 import { useUserStore } from '@/stores/user'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+
+/** 鼠标移到用户区时展开的抽屉面板 */
+const panelOpen = ref(false)
 
 const searchKeyword = ref('')
 
@@ -48,10 +53,46 @@ function onLogout() {
       </div>
       <nav class="actions">
         <RouterLink to="/cart" class="link">购物车</RouterLink>
+
         <template v-if="userStore.isLoggedIn">
-          <span class="who">{{ userStore.displayName }}</span>
-          <button type="button" class="link link-btn" @click="onLogout">退出</button>
+          <!-- 用户区：鼠标移上去向下滑出功能面板 -->
+          <div class="user-menu" @mouseenter="panelOpen = true" @mouseleave="panelOpen = false">
+            <RouterLink to="/user/orders" class="user-chip">
+              <span class="chip-avatar">
+                <ProductImage
+                  :src="userStore.user?.avatar"
+                  :name="userStore.displayName"
+                  :id="userStore.user?.userId ?? 0"
+                />
+              </span>
+              <span class="who">{{ userStore.displayName }}</span>
+            </RouterLink>
+
+            <div class="user-panel" :class="{ open: panelOpen }">
+              <div class="panel-card">
+                <RouterLink to="/user/orders" class="panel-item" @click="panelOpen = false">
+                  <el-icon><Tickets /></el-icon>我的订单
+                </RouterLink>
+                <RouterLink to="/user/addresses" class="panel-item" @click="panelOpen = false">
+                  <el-icon><Location /></el-icon>收货地址
+                </RouterLink>
+                <RouterLink to="/user/profile" class="panel-item" @click="panelOpen = false">
+                  <el-icon><User /></el-icon>个人资料
+                </RouterLink>
+                <RouterLink to="/user/password" class="panel-item" @click="panelOpen = false">
+                  <el-icon><Lock /></el-icon>修改密码
+                </RouterLink>
+
+                <div class="panel-divider"></div>
+
+                <button type="button" class="panel-item" @click="onLogout">
+                  <el-icon><SwitchButton /></el-icon>退出登录
+                </button>
+              </div>
+            </div>
+          </div>
         </template>
+
         <RouterLink v-else to="/login" class="link">登录 / 注册</RouterLink>
       </nav>
     </div>
@@ -97,7 +138,8 @@ function onLogout() {
 
 .actions {
   display: flex;
-  gap: 20px;
+  align-items: center;
+  gap: 14px;
   margin-left: auto;
 }
 
@@ -112,18 +154,107 @@ function onLogout() {
   color: var(--c-pink);
 }
 
-/* 「退出」是个按钮，但长相要和旁边的链接一致 */
-.link-btn {
-  padding: 0;
-  font-family: inherit;
-  background: none;
-  border: none;
-  cursor: pointer;
+/* ── 用户区：悬停展开的抽屉面板 ── */
+.user-menu {
+  position: relative;
+}
+
+.user-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+}
+
+.chip-avatar {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: block;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--c-pink-tint);
+  font-size: 12px;
 }
 
 .who {
   font-size: 14px;
   color: var(--c-text);
+  text-decoration: none;
+  transition: color 0.15s;
+}
+
+.user-chip:hover .who {
+  color: var(--c-pink);
+}
+
+/*
+ * padding-top 不是装饰：鼠标从头像移到面板要跨过这 8px，
+ * 把它算进面板自己的盒子，移过去时就不会触发 mouseleave 把面板收掉。
+ */
+.user-panel {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  padding-top: 8px;
+  z-index: 20;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-6px);
+  transition: opacity 0.16s ease, transform 0.16s ease, visibility 0.16s;
+}
+
+.user-panel.open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.panel-card {
+  width: 168px;
+  padding: 6px;
+  background: #fff;
+  border: 1px solid var(--c-border);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(232, 99, 143, 0.18);
+}
+
+.panel-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  text-align: left;
+  color: var(--c-text-2);
+  background: none;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.14s, color 0.14s;
+}
+
+.panel-item:hover {
+  background: var(--c-pink-tint);
+  color: var(--c-pink);
+}
+
+.panel-divider {
+  height: 1px;
+  margin: 6px 4px;
+  background: var(--c-border);
+}
+
+/* 窄屏只留头像，昵称收起 */
+@media (max-width: 720px) {
+  .who {
+    display: none;
+  }
 }
 
 .page {

@@ -25,7 +25,19 @@ export interface AuthResult {
   userId: number
   username: string
   nickname: string
+  /** 头像 URL，空串表示没设置 */
+  avatar: string
   /** CUSTOMER / ADMIN */
+  role: string
+}
+
+/** 用户中心里的个人资料（不含密码与账号状态） */
+export interface UserProfile {
+  id: number
+  username: string
+  nickname: string
+  phone: string
+  avatar: string
   role: string
 }
 

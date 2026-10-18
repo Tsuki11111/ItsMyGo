@@ -1,5 +1,5 @@
 import { get, post } from './http'
-import type { OrderView } from './types'
+import type { OrderView, PageResponse } from './types'
 
 /**
  * 一次性提交令牌。
@@ -24,6 +24,19 @@ export function createOrder(payload: CreateOrderPayload): Promise<OrderView> {
 
 export function fetchOrder(id: number): Promise<OrderView> {
   return get<OrderView>(`/orders/${id}`)
+}
+
+export interface OrderQuery {
+  page?: number
+  size?: number
+  /** 每个订单给几条明细；0 表示全给 */
+  previewLimit?: number
+  /** 逗号分隔的订单状态名，如 `PAID,SHIPPED`；不传表示全部 */
+  status?: string
+}
+
+export function fetchOrders(query: OrderQuery = {}): Promise<PageResponse<OrderView>> {
+  return get<PageResponse<OrderView>>('/orders', { ...query })
 }
 
 export function payOrder(id: number): Promise<OrderView> {

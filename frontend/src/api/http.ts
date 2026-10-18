@@ -13,6 +13,7 @@ export interface StoredUser {
   userId: number
   username: string
   nickname: string
+  avatar?: string
   role: string
 }
 
@@ -97,6 +98,15 @@ export function get<T>(url: string, params?: Record<string, unknown>): Promise<T
 }
 
 export function post<T>(url: string, data?: unknown): Promise<T> {
+  return request<T>({ url, method: 'POST', data })
+}
+
+/**
+ * multipart 上传。
+ * **不要手写 Content-Type** —— 浏览器要为 FormData 生成带 boundary 的那个，
+ * 手动设成 `multipart/form-data` 反而会把 boundary 丢掉，后端就解析不出文件。
+ */
+export function postForm<T>(url: string, data: FormData): Promise<T> {
   return request<T>({ url, method: 'POST', data })
 }
 

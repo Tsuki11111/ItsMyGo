@@ -32,12 +32,24 @@ export const useUserStore = defineStore('user', () => {
       userId: result.userId,
       username: result.username,
       nickname: result.nickname,
+      avatar: result.avatar,
       role: result.role,
     }
     token.value = result.token
     user.value = identity
     setToken(result.token)
     setStoredUser(identity)
+  }
+
+  /**
+   * 资料改动后同步内存与 localStorage。
+   * 只动传进来的字段 —— 改昵称不应该顺手把头像清了。
+   */
+  function patchProfile(patch: Partial<Pick<StoredUser, 'nickname' | 'avatar'>>) {
+    if (!user.value) return
+    const next: StoredUser = { ...user.value, ...patch }
+    user.value = next
+    setStoredUser(next)
   }
 
   function logout() {
@@ -49,5 +61,5 @@ export const useUserStore = defineStore('user', () => {
   // token 在后端失效时（http.ts 收到 401）跟着一起登出
   window.addEventListener(UNAUTHORIZED_EVENT, logout)
 
-  return { token, user, isLoggedIn, isAdmin, displayName, save, logout }
+  return { token, user, isLoggedIn, isAdmin, displayName, save, patchProfile, logout }
 })
