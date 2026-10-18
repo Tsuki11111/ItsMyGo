@@ -28,30 +28,35 @@
 
 ## 1. 当前状态一句话
 
-**M5（前端）进行中（2026-10-18）。** 已跑通：**商品列表（滚动加载 + 品牌专区）、
+**M5（前端）已完成（2026-10-18）。** 顾客端跑通：**商品列表（滚动加载 + 品牌专区）、
 商品详情（含多规格选择栏）、登录注册、购物车、结算下单（购物车 / 立即购买两种来源）、
 订单详情与支付、用户中心（订单 / 地址 / 个人资料 / 改密 / 头像）**；
-后端已做 **SKU 化改造**（价格与库存的真相下沉到 SKU），**自动化测试 109 条**。
+管理端跑通：**分类管理、商品管理（含传图 / 上下架）、规格与 SKU 编辑器、
+订单管理（发货 / 退款审核 / 取消超时订单）**。
+后端已做 **SKU 化改造**（价格与库存的真相下沉到 SKU），**自动化测试 114 条**。
 
-**交接时工作区是干净的** —— 手机号校验已提交（`0f3e013`），可以直接开始新一轮工作。
+**交接时工作区是干净的** —— 管理端已提交（见 §6 最新一条），可以直接开始新一轮工作。
 
 前端技术栈：Vite 8 + Vue 3.5 + TypeScript 5.9 + Element Plus 2.14 + Pinia + Vue Router。
-配色定稿为「浅粉做面 + 深粉做点」，见 [docs/color-preview.html](docs/color-preview.html)。
+配色定稿为「浅粉做面 + 深粉做点」，见 [docs/color-preview.html](docs/color-preview.html)；
+**管理端直接套 Element Plus 默认样式**，不参与这套配色。
 
 **做之前先看 [docs/implementation.md](docs/implementation.md) §4** —— 前端的工程结构、
-配色规矩、登录态怎么存、下单链路怎么串、和后端对接的四个约定都在那。
+配色规矩、登录态怎么存、下单链路怎么串、和后端对接的四个约定、管理端各页要点都在那。
 前端**还没有自动化测试**，也没进 CI。
 
-下一步：**购物车页 → 我的订单 → 管理端**。
+下一步：**用户中心后续功能（收藏 / 足迹 / 优惠券 / 评价）→ M6 客服接入**。
 
 ---
 
-## 2. 下一步做什么：管理端，以及用户中心的后续
+## 2. 下一步做什么：用户中心的后续，以及客服接入
 
-1. **管理端**（最大的一块）— 分类/商品 CRUD、传图、发货、退款审核、超时取消，
-   外加 **规格与 SKU 的编辑器**（后端接口已经齐了，缺页面 —— 见 implementation §7）
-2. **用户中心的后续功能** — 收藏、足迹、优惠券、评价体系，各是一条独立功能线；
-   「待评价」目前只是已完成订单的入口，没有评价表（同上）
+管理端已完成（分类 / 商品 / SKU / 订单），本轮不再拆新页面。
+
+1. **用户中心后续功能** — 收藏、足迹、优惠券、评价体系，各是一条独立功能线；
+   「待评价」目前只是已完成订单的入口，没有评价表（见 implementation §7）
+2. **M6 客服接入 → M7 查订单环回** — 先读外部仓库 `D:\PycharmProjects\rag_helper`
+   的 `evolution-plan.md` §5/§6 与 `proto/agent.proto`，对接契约以那边为准
 
 ⚠️ **四个对接约定**（细节见 implementation §4.3）：
 响应拦截器按 **body 的 `code`** 判断而不是 HTTP 状态码；库存走独立接口；
@@ -60,7 +65,11 @@
 ⚠️ **登录态统一走 `stores/user.ts`**（细节见 implementation §4.5）——
 判断登录用 `userStore.isLoggedIn`，别在组件里直接读 localStorage。
 
-⚠️ 管理端**直接套 Element Plus 默认样式，别折腾**——后台没人看颜值，时间投在顾客端。
+⚠️ **管理端不做商品的硬删除**，只提供上下架 —— 删商品会留下购物车/订单/统计的孤儿数据。
+后端 `DELETE /api/admin/products/{id}` 还在，但前端不调用。
+
+⚠️ **管理员账号靠 SQL 提权**：`UPDATE users SET role='ADMIN' WHERE username='testuser';`
+**提权后必须重新登录** —— JWT 里的 role 是登录时签进去的，改库不会刷新已签发的 token。
 
 ---
 
@@ -142,11 +151,15 @@ frontend/
 ├── src/
 │   ├── api/http.ts         # axios 封装：拦截器按 body 的 code 判断 + 登录凭据存取
 │   ├── api/types.ts        # 与后端 DTO 对应的类型（手写）
-│   ├── api/{product,cart,auth,address,order}.ts
+│   ├── api/{product,cart,auth,address,order,user}.ts
+│   ├── api/admin.ts        # 管理端：分类 / 商品 / SKU / 上传 / 订单
 │   ├── stores/user.ts      # 登录态
+│   ├── utils/orderStatus.ts # 订单状态中文名与标签色（管理端列表只有原始 status）
 │   ├── components/ProductImage.vue   # 商品图 + 无图占位
 │   ├── styles/theme.css    # 色板 + Element Plus 主题覆盖（必须在 element-plus 之后引入）
-│   ├── router/ · views/ · App.vue · main.ts
+│   ├── router/ · App.vue · main.ts
+│   ├── views/              # 顾客端页面 + user/ 用户中心
+│   └── views/admin/        # 管理端：AdminLayout + 分类 / 商品 / 订单 + components/
 ```
 
 **启动**（后端要同时跑着）：
@@ -155,7 +168,12 @@ frontend/
 npm run dev          # → http://localhost:5173
 ```
 
-**演示账号**：`testuser` / `123456`
+**演示账号**：`testuser` / `123456`（顾客）
+**管理员**：先注册，再提权成 ADMIN（提权后要重新登录）：
+```bash
+docker exec -i mysql sh -c 'mysql --default-character-set=utf8mb4 -utsuk1 -p"$MYSQL_PASSWORD" its_mygo' -e "UPDATE users SET role='ADMIN' WHERE username='testuser';"
+```
+管理端入口：登录后顶栏用户面板里的「管理后台」，或直接访问 `/admin`。
 **种子数据**：[sql/seed-data.sql](sql/seed-data.sql)（**10 个分类、23 个商品**，
 型号取自 rag_helper 的产品手册语料）。导入方式：
 
@@ -736,9 +754,59 @@ addressMapper.delete(null);
 只能靠「改完之后读回来对不对」的断言兜住。所以改粒度时，
 优先补端到端读回来的用例，而不只是改签名。
 
+### 5.22 ★ 管理端接 SKU / 订单时最容易漏的三点（2026-10-18 踩到 / 补齐）
+
+**① 多规格商品的已有 SKU 库存根本没有接口能改。** 整组保存（`PUT .../skus`）
+**故意不碰已有行的 stock**（否则商户改个价格就把库存冲掉），而商品更新里的
+`syncDefaultSku` 对多规格是 no-op。结果是管理端能改价、能加规格，**唯独不能补货**。
+本轮补了 `PUT /api/admin/products/{productId}/skus/{skuId}/stock`：
+请求带 `expectedStock`，服务端用 `UPDATE ... WHERE stock = ?` 做条件更新，
+被并发改过就拒绝（「库存已变化，请刷新后重试」），成功后刷 SKU 行 / 汇总 / Redis 三处。
+
+**② 回显的 `specValueIds` 是升序串，不是规格顺序。**
+后端存的是数值升序的 `"11,12"`，而展示要按「颜色、版本」的规格顺序排。
+不回排就会列错位（颜色列显示出版本的值）。做法：先建 `valueId → specIndex` 映射重排，
+匹配已有 SKU 时再按数值升序拼 key —— 两处都不能用字符串 `sort()`。
+
+**③ 管理端订单列表和顾客端不是同一套返回。**
+`/api/admin/orders` 返回原始 `Order`，**没有 `statusLabel`**（前端要自己映射），
+而且 `status` 只支持**单个枚举精确匹配，不支持逗号分隔**（顾客端支持）。
+详情要单独请求 `/api/admin/orders/{id}` 才有明细。
+
 ---
 
 ## 6. 历史记录
+
+### 2026-10-18 · 管理端前端完成（分类 / 商品 / SKU / 订单）
+
+**范围**：`/admin` 独立外壳 + 分类树 CRUD、商品列表/新增/编辑/传图/上下架、
+规格与 SKU 编辑器、订单列表/详情/发货/退款审核/取消超时订单。
+管理端**直接套 Element Plus 默认样式**；**不做商品硬删除**，只做上下架。
+
+**访问控制**：`meta.requiresAdmin` + 守卫读 localStorage 的 role；
+未登录跳登录并回跳，非管理员提示后回首页。顾客用户面板里仅在 ADMIN 时显示「管理后台」。
+管理员靠 SQL 提权，**提权后必须重新登录**（JWT 里的 role 不会变）。
+
+**后端新增**：`PUT /api/admin/products/{productId}/skus/{skuId}/stock`
+（`AdjustSkuStockRequest` + `ProductSkuMapper.compareAndSetStock` + `ProductSkuService.adjustStock`）。
+原因见 §5.22：多规格商品的已有 SKU 库存原本没有任何接口能改。
+条件更新防丢更新，成功后刷 SKU 行 / 商品汇总 / Redis 三处。
+
+**前端新增**：`api/admin.ts`、`utils/orderStatus.ts`、`views/admin/`（3 个页面 +
+商品表单、SKU 编辑器、库存调整、订单抽屉、图片上传 5 个组件）；`App.vue` 在
+`/admin` 下隐藏顾客顶栏。`vite.config.ts` 的代理目标支持 `API_TARGET` 环境变量
+（验证时 8080 被别的会话占着，用 8081 跑了一遍）。
+
+**测试 109 → 114**：`ProductSkuControllerTest` 新增 5 条（库存三处一致、CAS 过期被拒、
+跨商品 SKU 404、负库存 400、顾客 403）。全量 114 条全绿。
+
+**浏览器实测**：未登录 `/admin` 跳登录并回跳；分类新增/子分类/删除约束/父分类排除自身后代；
+商品新增（自动默认 SKU）、编辑、多规格时价格库存禁用、上下架后顾客端不可见；
+SKU 编辑器加规格生成组合、改价/改值后库存保住（25/30）、库存调整 CAS、删 SKU 二次确认；
+订单筛选、详情抽屉、发货填单号、退款驳回/同意、取消超时未支付订单。
+
+**清理**：验证用的测试商品已从库和 Redis 键里删掉；测试订单走完了
+支付 → 发货 → 退款/取消的完整链路（属测试数据）。
 
 ### 2026-10-18 · 手机号校验按主流口径补齐
 

@@ -737,6 +737,13 @@ redisTemplate.rename(tempKey, KEY);   // 原子切换
 新建的规格值在提交时还没有 id，而 SKU 又要引用它 —— 约定是**用负数当临时 id**，
 服务端插入后建立映射把引用一并改写（见 `SkuSaveRequest` 的类注释）。
 
+**已有 SKU 的库存单独走一个接口**（`PUT /api/admin/products/{productId}/skus/{skuId}/stock`）：
+整组保存**故意不碰已有行的库存**，否则商户改个价格就把库存冲掉；补货、盘库必须显式调它。
+请求带 `expectedStock`（表单打开时看到的库存），服务端用
+`UPDATE ... WHERE stock = ?` 做**条件更新** —— 期间被下单/取消改过就返回
+400「库存已变化，请刷新后重试」，而不是硬覆盖把并发扣减冲掉（丢更新）。
+成功后同样要刷三处：SKU 行、`recalcFromSkus`、`reload(skuId)`，并失效详情缓存。
+
 **每个商品都必须有 SKU**：管理端 `create` 会自动建一条默认 SKU，
 `V9__product_sku.sql` 也给存量商品回填过。少了它，详情页会显示总库存 0、
 下单永远报「库存不足」—— 看着像库存 bug，其实是数据没铺开。
@@ -754,7 +761,7 @@ SKU 行（写库）、商品汇总（`recalcFromSkus`）、Redis 计数器（`re
 
 ```
 frontend/
-├── vite.config.ts          # /api 代理到 8080；端口读 `PORT` 环境变量（预览工具靠它挑空闲端口）
+├── vite.config.ts          # /api 代理到 8080（`API_TARGET` 可覆盖）；端口读 `PORT` 环境变量（预览工具靠它挑空闲端口）
 ├── src/
 │   ├── api/
 │   │   ├── http.ts         # axios 封装 + 拦截器 + **登录凭据的存取**（token 的唯一归属地）
@@ -764,8 +771,10 @@ frontend/
 │   │   ├── auth.ts         # 登录 / 注册
 │   │   ├── address.ts      # 收货地址
 │   │   ├── order.ts        # 下单 / 支付 / 我的订单
-│   │   └── user.ts         # 个人资料 / 改密码 / 头像
+│   │   ├── user.ts         # 个人资料 / 改密码 / 头像
+│   │   └── admin.ts        # 管理端：分类 / 商品 / SKU / 上传 / 订单
 │   ├── stores/user.ts      # 登录态（localStorage 的响应式包装）
+│   ├── utils/orderStatus.ts # 订单状态中文名与标签色（管理端列表只有原始 status）
 │   ├── components/
 │   │   ├── ProductImage.vue      # 商品图 + 无图占位（列表 / 详情 / 订单共用）
 │   │   └── AddressFormDialog.vue # 收货地址表单弹窗（结算页与用户中心共用）
@@ -778,13 +787,19 @@ frontend/
 │   │   ├── Cart.vue            # 购物车：勾选 / 改数量 / 移除 / 去结算
 │   │   ├── Checkout.vue        # 确认订单：两种来源（购物车 / 立即购买）
 │   │   ├── OrderDetail.vue     # 订单详情 + 支付
-│   │   └── user/               # 用户中心（左侧菜单 + 子路由）
-│   │       ├── UserCenter.vue  # 外壳：资料卡 + 菜单 + <router-view>
-│   │       ├── Orders.vue      # 我的订单（按状态 Tab）
-│   │       ├── Addresses.vue   # 收货地址管理
-│   │       ├── Profile.vue     # 个人资料（昵称 / 手机 / 头像）
-│   │       └── Password.vue    # 修改密码
-│   ├── App.vue             # 顶栏 + 内容区
+│   │   ├── user/               # 用户中心（左侧菜单 + 子路由）
+│   │   │   ├── UserCenter.vue  # 外壳：资料卡 + 菜单 + <router-view>
+│   │   │   ├── Orders.vue      # 我的订单（按状态 Tab）
+│   │   │   ├── Addresses.vue   # 收货地址管理
+│   │   │   ├── Profile.vue     # 个人资料（昵称 / 手机 / 头像）
+│   │   │   └── Password.vue    # 修改密码
+│   │   └── admin/              # 管理端（独立外壳，不共用顾客顶栏）
+│   │       ├── AdminLayout.vue # 侧边菜单 + 页头 + <router-view>
+│   │       ├── Categories.vue  # 分类树 CRUD
+│   │       ├── Products.vue    # 商品列表 / 上下架 / 传图
+│   │       ├── Orders.vue      # 订单列表 / 发货 / 退款审核
+│   │       └── components/     # 商品表单、SKU 编辑器、库存调整、订单抽屉、上传
+│   ├── App.vue             # 顶栏 + 内容区（管理端路由下隐藏顾客顶栏）
 │   └── main.ts
 └── .gitignore
 ```
@@ -954,6 +969,52 @@ frontend/
 **面板顶部留了 8px 内边距**，让鼠标从头像滑到面板时不会跨出元素、把面板误收掉。
 窄屏（≤720px）把昵称收掉，只留头像。
 
+### 4.11 管理端（`views/admin/`）
+
+管理端是**同一套前端工程里的独立外壳**：`/admin` 嵌套路由 + `AdminLayout.vue`
+（左侧菜单 + 页头 + `<router-view>`）。管理端不共用顾客顶栏 —— `App.vue` 按路由判断，
+`/admin` 下隐藏顶栏、内容区也不套 `.page` 的最大宽度。
+
+**访问控制**：
+
+- 父路由标 `meta.requiresAdmin`；守卫里先看未登录（跳 `/login?redirect=`），
+  再看 `getStoredUser()?.role !== 'ADMIN'`（提示无权限并回首页）
+- 守卫继续**直接读 localStorage**，不用 Pinia（可能早于应用挂载触发）
+- 管理员只能直接改库提权：`UPDATE users SET role='ADMIN' WHERE username='testuser';`
+  **提权后必须重新登录** —— JWT 里的 role 是登录时签进去的
+- 顾客用户抽屉里仅在 `userStore.isAdmin` 时显示「管理后台」入口
+
+**三个页面**（直接套 Element Plus 默认样式，不折腾配色）：
+
+| 页面 | 要点 |
+|---|---|
+| `Categories.vue` | `el-table` 树形（`row-key="id"` + `tree-props`）；父分类下拉用 `el-tree-select`，**必须剔除自己及全部后代**（后端只拦了「自己设自己」）；启停用 `@change` 调更新接口，成功后重拉树 |
+| `Products.vue` | 分类 + 关键词筛选、分页；**不做硬删除**，只提供上下架（避免购物车/订单/统计的孤儿数据）；商品表单里的主图用 `ImageUpload` 上传 |
+| `Orders.vue` | 状态单选筛选（**管理端接口只支持单个枚举，不支持逗号**）、分页；详情用 `OrderDetailDrawer`；发货填单号、退款同意/驳回、取消超时未支付订单 |
+
+**商品表单的多规格约束**：`hasSpecs === 1` 时**禁用价格/库存输入框**并提示去 SKU 编辑器。
+原因在 §3.12 与 `ProductServiceImpl.update`：多规格商品调 `syncDefaultSku` 是 no-op，
+商品级价格/库存改了不生效。提交时仍带当前汇总值（`ProductRequest` 必填），不能传 0。
+
+**SKU 编辑器**（`components/SkuEditorDialog.vue`）是管理端最复杂的一块：
+
+- 本地状态：`specs: { id, name, values: { id, value }[] }[]`，
+  新建规格 `id = null`、新建值用**负数临时 id**（全局递减、删除后不复用）
+- 回显时把后端 `ProductSku.specValueIds`（升序逗号串）按 `valueId → specIndex`
+  **重排成规格顺序**，否则表格列会错位；匹配已有 SKU 时再按数值升序拼 key
+- 组合矩阵 = 各规格值的**笛卡尔积**；增删规格/值后重建矩阵，
+  按 key 复用旧行（保留用户已填的价格/图片），新组合默认用商品当前价、库存 0
+- 已有 SKU 的库存**只读**，旁边「调整」按钮走 `StockAdjustDialog` → CAS 接口；
+  新 SKU 的库存直接在表格里填
+- 保存前校验：≤3 规格、每规格 ≤20 值、≤100 SKU、名称/值非空且不重名；
+  若原 SKU 的 key 不在当前组合里，`ElMessageBox.confirm` 明确提示「会删 N 个 SKU，
+  库存和销量丢失（历史订单快照不受影响）」
+- 无规格商品：`specs = []`，矩阵只有一条「默认规格」
+
+**订单列表没有 `statusLabel`**：管理端接口返回原始 `Order`，所以状态中文映射放在
+`utils/orderStatus.ts`（顾客端用的是后端给的 `statusLabel`，不需要它）。
+详情抽屉打开时才单独请求 `GET /api/admin/orders/{id}` 拿明细。
+
 ---
 
 ## 5. 测试怎么写的
@@ -989,7 +1050,7 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 **测试跑在独立的库和 Redis database 上**（`its_mygo_test` / db 1），跟开发环境彻底分开 ——
 为什么非分不可、怎么配的，见 HANDOFF §5.20。
 
-覆盖重点（当前 **109** 条；CI 上跳过 3 条依赖 MinIO 的，跑 106）：
+覆盖重点（当前 **114** 条；CI 上跳过 3 条依赖 MinIO 的，跑 111）：
 
 | 测试类 | 覆盖 |
 |---|---|
@@ -1006,7 +1067,7 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 | **`CacheProtectionTest`** | **穿透**：查不存在的 ID 时数据库零查询；存在的不被误挡。**雪崩**：连续刷新 20 次，TTL 不是固定值。**重建**：手工插库的商品重建后能被过滤器认到 |
 | **`CacheAsideTest`** | **第二次读走缓存**（三次读只查一次库）；**改完立刻读到新值**（缓存被删而非等 TTL）；分类变更后树缓存失效 |
 | **`RateLimitTest`** | 注册按 IP 打到第 6 次被拒；**场景之间互不影响**（注册打满不影响登录）；下单按用户限流 |
-| **`ProductSkuControllerTest`** | 新建商品自带默认 SKU；负数临时 id 的规格值能落库并被 SKU 引用；**改价格再保存时库存不动**；汇总字段（最低价 / 总库存 / has_specs）跟着重算；重复组合与漏选规格被拒；非管理员 403 |
+| **`ProductSkuControllerTest`** | 新建商品自带默认 SKU；负数临时 id 的规格值能落库并被 SKU 引用；**改价格再保存时库存不动**；汇总字段（最低价 / 总库存 / has_specs）跟着重算；重复组合与漏选规格被拒；非管理员 403；**库存调整同时刷新 SKU 行 / 商品汇总 / Redis**；**`expectedStock` 过期（CAS 失效）被拒且库存不变**；跨商品的 SKU 返回 404；负库存 400 |
 | **`SkuCartTest`** | 同商品两个规格各占一行、重复加购只累加；小计按**那一款**的价（不是商品最低价）；跨商品的 skuId 被当「不存在」挡住；SKU 被删后那行标成不可购买；停售款加不进去 |
 | **`SkuOrderTest`** | 订单项带 `specText` 快照且单价取那一款；**规格改名后历史订单不变**；**取消只回补买过的那一款**、另一款纹丝不动；立即购买只扣选中的 SKU；买停售款被拒 |
 | **`SkuStockConcurrencyTest`** | 10 人抢 5 件的单一 SKU（恰好 5 成功、Redis 与库都对得上）；**同商品两款互不串扰**（黑 3 件售罄不影响白 10 件） |
@@ -1032,19 +1093,23 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 
 ## 7. 还没实现的部分
 
-M5 前端已完成**商品列表、商品详情（含规格选择栏）、登录注册、购物车、
-结算下单（购物车 / 立即购买两种来源）、订单详情、用户中心（订单 / 地址 / 资料 / 改密）**，
-其余页面待做：**整个管理端**。
-
-⚠️ **管理端的规格编辑器还没有 UI** —— 后端接口（`PUT /api/admin/products/{id}/skus`）
-和测试都齐了，缺的是一个把规格值和 SKU 表格渲染出来的页面，等做管理端那轮一并补。
+管理端前端已完成：**分类管理、商品管理（含传图 / 上下架）、规格与 SKU 编辑器、
+订单管理（发货 / 退款审核 / 取消超时订单）**，见 §4.11。
+顾客端在 M5 已完成商品列表、商品详情（含规格选择栏）、登录注册、购物车、
+结算下单（购物车 / 立即购买两种来源）、订单详情、用户中心（订单 / 地址 / 资料 / 改密）。
 
 ⚠️ 用户中心里**「收藏 / 足迹 / 优惠券 / 评价」还没做**：
 - 「待评价」目前只是已完成订单的入口，**没有评价表、没有提交入口**
 - 收藏、足迹各需要一张新表 + 一组接口
 - 优惠券要券模板 + 领券 + 下单抵扣，是独立的一条功能线
 
-**前端还没有自动化测试，也没进 CI** —— 目前靠浏览器手工走一遍。
+⚠️ 管理端**不做商品的硬删除**（只提供上下架）：商品删掉会留下购物车、订单快照、
+销量统计的孤儿数据，真实电商也通常用下架代替。后端 `DELETE /api/admin/products/{id}`
+仍然存在，但前端不调用它。
+
+**前端还没有自动化测试，也没进 CI** —— 管理端目前同样靠浏览器手工走一遍
+（本轮已实测：分类树与父子约束、商品新增/编辑/上传/上下架、SKU 组合与库存调整、
+订单筛选/详情/发货/退款同意与驳回/取消超时订单）。
 
 M6 / M7 是客服链路：gRPC 接入（`rag_helper` 那边已就绪）、查订单环回。
 
