@@ -92,7 +92,7 @@
 种子数据见 [sql/seed-data.sql](sql/seed-data.sql)，详见 [HANDOFF §3.4](HANDOFF.md)。
 
 **CI**：每次 push 自动在干净环境跑测试（[`.github/workflows/test.yml`](.github/workflows/test.yml)）。
-本地 107 条全绿，CI 跳过 3 条依赖 MinIO 的、跑 104 条（MinIO 已停止公开分发镜像，详见 [HANDOFF §5.12](HANDOFF.md)）。
+本地 109 条全绿，CI 跳过 3 条依赖 MinIO 的、跑 106 条（MinIO 已停止公开分发镜像，详见 [HANDOFF §5.12](HANDOFF.md)）。
 **测试跑在独立的库** `its_mygo_test`（Redis 用 db 1），和开发数据互不影响 —— 见 [HANDOFF §5.20](HANDOFF.md)。
 
 各里程碑的可验收产物见 [docs/decisions-ecommerce.md](docs/decisions-ecommerce.md) §4。

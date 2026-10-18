@@ -169,6 +169,11 @@ private Address requireOwned(Long userId, Long id) {
 **默认地址唯一**：设置某条为默认时，先 `clearDefault(userId)` 把该用户其他地址清零，
 两步包在 `@Transactional` 里。
 
+**手机号校验**：按大陆口径 `^1[3-9]\d{9}$`（1 开头、第二位 3-9、共 11 位），
+和淘宝/京东一致，**只收手机号、不接座机**。前端 `el-form` 用同一条正则即时提示，
+后端 `@Pattern` 作最终防线 —— 前端校验只是体验，真正拦住脏数据的是后端。
+个人资料里的手机号是**选填**，空串放行（正则里带 `^$` 分支）。
+
 ### 3.3 分类（`CategoryServiceImpl`）—— 树形结构怎么组装
 
 `tree()` **一次查全表，再在内存里递归组树**：
@@ -984,7 +989,7 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 **测试跑在独立的库和 Redis database 上**（`its_mygo_test` / db 1），跟开发环境彻底分开 ——
 为什么非分不可、怎么配的，见 HANDOFF §5.20。
 
-覆盖重点（当前 **107** 条；CI 上跳过 3 条依赖 MinIO 的，跑 104）：
+覆盖重点（当前 **109** 条；CI 上跳过 3 条依赖 MinIO 的，跑 106）：
 
 | 测试类 | 覆盖 |
 |---|---|
