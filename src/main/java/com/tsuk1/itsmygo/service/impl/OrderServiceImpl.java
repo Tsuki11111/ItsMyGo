@@ -38,6 +38,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
@@ -275,11 +276,15 @@ public class OrderServiceImpl implements OrderService {
      * 让列表连第二条查询都省掉。
      */
     @Override
-    public PageResponse<OrderView> pageForCustomer(Long userId, int page, int size, int previewLimit) {
+    public PageResponse<OrderView> pageForCustomer(Long userId, int page, int size,
+                                                   int previewLimit, String status) {
+        List<String> statuses = parseStatuses(status);
         Page<Order> orderPage = orderMapper.selectPage(
                 new Page<>(normalizePage(page), normalizeSize(size)),
                 Wrappers.<Order>lambdaQuery()
                         .eq(Order::getUserId, userId)
+                        // 空集合不能直接传给 in —— 会拼出非法的 IN ()
+                        .in(!statuses.isEmpty(), Order::getStatus, statuses)
                         .orderByDesc(Order::getId));
 
         List<Order> orders = orderPage.getRecords();
@@ -564,6 +569,27 @@ public class OrderServiceImpl implements OrderService {
             throw new BizException(ResultCode.NOT_FOUND, "订单不存在");
         }
         return order;
+    }
+
+    /** status 是逗号分隔的枚举名；空或 null 表示不过滤 */
+    private List<String> parseStatuses(String status) {
+        if (!StringUtils.hasText(status)) {
+            return List.of();
+        }
+        List<String> result = new ArrayList<>();
+        for (String raw : status.split(",")) {
+            String value = raw.trim();
+            if (value.isEmpty()) {
+                continue;
+            }
+            try {
+                // 用枚举校验：拼错的状态名要变成 400，而不是被当成「没有订单」
+                result.add(OrderStatus.valueOf(value.toUpperCase(Locale.ROOT)).name());
+            } catch (IllegalArgumentException e) {
+                throw new BizException(ResultCode.BAD_REQUEST, "无效的订单状态：" + value);
+            }
+        }
+        return result;
     }
 
     private int normalizePage(int page) {

@@ -22,7 +22,7 @@ public record AddressRequest(
         String city,
 
         @NotBlank(message = "区/县不能为空")
-        @Size(max = 32, message = "区/县长 32 个字符")
+        @Size(max = 32, message = "区/县最长 32 个字符")
         String district,
 
         @NotBlank(message = "详细地址不能为空")

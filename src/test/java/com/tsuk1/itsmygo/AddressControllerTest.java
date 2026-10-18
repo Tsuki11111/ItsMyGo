@@ -113,6 +113,58 @@ class AddressControllerTest extends ApiTestBase {
                 .andExpect(jsonPath("$.data[1].isDefault").value(0));
     }
 
+    /** 独立的「设默认」接口：只改这一行，不要求客户端回传全部字段 */
+    @Test
+    void setDefaultEndpointMovesTheFlag() throws Exception {
+        String token = tokenFor("e" + System.nanoTime());
+        long first = createAddress(token, req("First", true));
+        long second = createAddress(token, req("Second", false));
+
+        mockMvc.perform(put("/api/addresses/" + second + "/default")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(jsonPath("$.code").value(200));
+
+        mockMvc.perform(get("/api/addresses").header("Authorization", "Bearer " + token))
+                .andExpect(jsonPath("$.data[0].id").value(second))
+                .andExpect(jsonPath("$.data[0].isDefault").value(1))
+                .andExpect(jsonPath("$.data[1].id").value(first))
+                .andExpect(jsonPath("$.data[1].isDefault").value(0));
+
+        // 再设一次应当幂等
+        mockMvc.perform(put("/api/addresses/" + second + "/default")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(jsonPath("$.code").value(200));
+    }
+
+    @Test
+    void cannotSetSomeoneElsesAddressAsDefault() throws Exception {
+        String alice = tokenFor("a" + System.nanoTime());
+        String bob = tokenFor("b" + System.nanoTime());
+        long aliceAddressId = createAddress(alice, req("Alice", false));
+
+        mockMvc.perform(put("/api/addresses/" + aliceAddressId + "/default")
+                        .header("Authorization", "Bearer " + bob))
+                .andExpect(jsonPath("$.code").value(404));
+
+        mockMvc.perform(get("/api/addresses").header("Authorization", "Bearer " + alice))
+                .andExpect(jsonPath("$.data[0].isDefault").value(0));
+    }
+
+    /** 删掉默认地址后**不自动递补** —— 没有可靠的「下一条」，静默提升更让人意外 */
+    @Test
+    void deletingTheDefaultLeavesNoDefault() throws Exception {
+        String token = tokenFor("f" + System.nanoTime());
+        long first = createAddress(token, req("First", true));
+        createAddress(token, req("Second", false));
+
+        mockMvc.perform(delete("/api/addresses/" + first).header("Authorization", "Bearer " + token))
+                .andExpect(jsonPath("$.code").value(200));
+
+        mockMvc.perform(get("/api/addresses").header("Authorization", "Bearer " + token))
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].isDefault").value(0));
+    }
+
     @Test
     void addressEndpointsRequireAuthentication() throws Exception {
         mockMvc.perform(get("/api/addresses"))

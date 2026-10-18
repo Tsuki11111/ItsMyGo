@@ -51,4 +51,11 @@ public class AddressController {
         addressService.delete(user.id(), id);
         return Result.ok();
     }
+
+    /** 设为默认地址。幂等；同一个用户至多一个默认地址 */
+    @PutMapping("/{id}/default")
+    public Result<Void> setDefault(@AuthenticationPrincipal CurrentUser user, @PathVariable Long id) {
+        addressService.setDefault(user.id(), id);
+        return Result.ok();
+    }
 }

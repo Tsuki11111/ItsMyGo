@@ -51,13 +51,15 @@ public class OrderController {
      *
      * @param previewLimit 每个订单最多返回几条明细，默认 3（列表卡片只显示前几件 + 「共 N 件」）；
      *                     传 0 表示全给
+     * @param status       逗号分隔的订单状态名（如 `PAID,SHIPPED`）；不传表示全部
      */
     @GetMapping
     public Result<PageResponse<OrderView>> page(@AuthenticationPrincipal CurrentUser user,
                                                 @RequestParam(defaultValue = "1") int page,
                                                 @RequestParam(defaultValue = "10") int size,
-                                                @RequestParam(defaultValue = "3") int previewLimit) {
-        return Result.ok(orderService.pageForCustomer(user.id(), page, size, previewLimit));
+                                                @RequestParam(defaultValue = "3") int previewLimit,
+                                                @RequestParam(required = false) String status) {
+        return Result.ok(orderService.pageForCustomer(user.id(), page, size, previewLimit, status));
     }
 
     @GetMapping("/{id}")

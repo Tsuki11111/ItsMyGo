@@ -66,6 +66,7 @@ public class AuthServiceImpl implements AuthService {
 
     private LoginResponse toResponse(User user) {
         String token = jwtService.issue(user.getId(), user.getUsername(), user.getRole());
-        return new LoginResponse(token, user.getId(), user.getUsername(), user.getNickname(), user.getRole());
+        return new LoginResponse(token, user.getId(), user.getUsername(), user.getNickname(),
+                user.getAvatar() == null ? "" : user.getAvatar(), user.getRole());
     }
 }

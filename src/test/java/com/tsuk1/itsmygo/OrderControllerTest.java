@@ -601,6 +601,45 @@ class OrderControllerTest extends ApiTestBase {
         assertThat(itemQueries.get()).isEqualTo(1);
     }
 
+    /** 订单列表按状态筛：单状态、逗号分隔多状态、拼错的状态名要被挡住 */
+    @Test
+    void orderListCanBeFilteredByStatus() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        String token = customerToken("c" + System.nanoTime());
+        long productId = createProduct(admin, "Filter", "10.00", 10);
+        long addressId = createAddress(token);
+
+        addToCart(token, productId, 1);
+        long pendingOrder = placeOrder(token, addressId);
+
+        addToCart(token, productId, 1);
+        long paidOrder = placeOrder(token, addressId);
+        mockMvc.perform(post("/api/orders/" + paidOrder + "/pay")
+                        .header("Authorization", bearer(token)))
+                .andExpect(jsonPath("$.code").value(200));
+
+        // 不传 status → 全部
+        mockMvc.perform(get("/api/orders").header("Authorization", bearer(token)))
+                .andExpect(jsonPath("$.data.total").value(2));
+
+        mockMvc.perform(get("/api/orders?status=PENDING_PAYMENT").header("Authorization", bearer(token)))
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.records[0].order.id").value(pendingOrder));
+
+        mockMvc.perform(get("/api/orders?status=PAID").header("Authorization", bearer(token)))
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.records[0].order.id").value(paidOrder));
+
+        mockMvc.perform(get("/api/orders?status=PAID,PENDING_PAYMENT")
+                        .header("Authorization", bearer(token)))
+                .andExpect(jsonPath("$.data.total").value(2));
+
+        // 拼错的状态名要变成 400，而不是被当成「没有订单」
+        mockMvc.perform(get("/api/orders?status=NOT_A_STATUS")
+                        .header("Authorization", bearer(token)))
+                .andExpect(jsonPath("$.code").value(400));
+    }
+
     /** 从 /api/auth/me 拿当前用户 id */
     private Long currentUserId(String token) throws Exception {
         String body = mockMvc.perform(get("/api/auth/me").header("Authorization", bearer(token)))

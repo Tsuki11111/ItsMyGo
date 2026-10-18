@@ -24,7 +24,16 @@ public interface OrderService {
      *                     列表页传 3 就够（卡片上只显示前几件 + 「共 N 件」），
      *                     避免把几十条明细全传过去
      */
-    PageResponse<OrderView> pageForCustomer(Long userId, int page, int size, int previewLimit);
+    /** 不带状态过滤的旧签名，保留给测试与内部调用 */
+    default PageResponse<OrderView> pageForCustomer(Long userId, int page, int size, int previewLimit) {
+        return pageForCustomer(userId, page, size, previewLimit, null);
+    }
+
+    /**
+     * @param status 逗号分隔的订单状态名（如 {@code "PAID,SHIPPED"}）；空表示全部
+     */
+    PageResponse<OrderView> pageForCustomer(Long userId, int page, int size, int previewLimit,
+                                            String status);
 
     OrderView detailForCustomer(Long userId, Long orderId);
 

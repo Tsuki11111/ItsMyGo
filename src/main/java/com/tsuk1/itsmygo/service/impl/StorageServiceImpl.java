@@ -45,10 +45,30 @@ public class StorageServiceImpl implements StorageService {
         this.publicPrefix = endpoint.endsWith("/") ? endpoint + bucket : endpoint + "/" + bucket;
     }
 
+    /** 头像单独限 2MB —— 商品图有 5MB 的 multipart 上限兜着，头像不需要那么大 */
+    private static final long AVATAR_MAX_BYTES = 2L * 1024 * 1024;
+
     @Override
     public String uploadProductImage(MultipartFile file) {
+        return upload(file, "products/", 0);
+    }
+
+    @Override
+    public String uploadAvatar(MultipartFile file) {
+        return upload(file, "avatars/", AVATAR_MAX_BYTES);
+    }
+
+    /**
+     * @param prefix   对象名前缀 —— 商品图和头像分开存，别都堆在 products/ 里
+     * @param maxBytes 0 表示不限（仍受 multipart 的 5MB 上限约束）
+     */
+    private String upload(MultipartFile file, String prefix, long maxBytes) {
         if (file == null || file.isEmpty()) {
             throw new BizException(ResultCode.BAD_REQUEST, "文件为空");
+        }
+        if (maxBytes > 0 && file.getSize() > maxBytes) {
+            throw new BizException(ResultCode.BAD_REQUEST,
+                    "图片不能超过 " + (maxBytes / 1024 / 1024) + "MB");
         }
         String extension = StringUtils.getFilenameExtension(file.getOriginalFilename());
         extension = extension == null ? "" : extension.toLowerCase(Locale.ROOT);
@@ -58,7 +78,7 @@ public class StorageServiceImpl implements StorageService {
 
         ensureBucket();
 
-        String objectName = "products/" + UUID.randomUUID() + "." + extension;
+        String objectName = prefix + UUID.randomUUID() + "." + extension;
         try (var in = file.getInputStream()) {
             minioClient.putObject(PutObjectArgs.builder()
                     .bucket(bucket)

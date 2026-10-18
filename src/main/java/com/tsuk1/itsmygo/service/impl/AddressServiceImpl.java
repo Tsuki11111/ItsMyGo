@@ -60,6 +60,18 @@ public class AddressServiceImpl implements AddressService {
         addressMapper.deleteById(id);
     }
 
+    @Override
+    @Transactional
+    public void setDefault(Long userId, Long id) {
+        requireOwned(userId, id);
+        clearDefault(userId);
+
+        Address update = new Address();
+        update.setId(id);
+        update.setIsDefault(1);
+        addressMapper.updateById(update);
+    }
+
     private void apply(Address address, AddressRequest request) {
         address.setReceiver(request.receiver());
         address.setPhone(request.phone());

@@ -22,6 +22,9 @@ public class User {
 
     private String phone;
 
+    /** 头像 URL，空串表示没设置 */
+    private String avatar;
+
     /** 1 正常 / 0 禁用 */
     private Integer status;
 
