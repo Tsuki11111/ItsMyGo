@@ -21,6 +21,18 @@ public class Order {
 
     private BigDecimal totalAmount;
 
+    /** 优惠前的商品总额；存量订单等于 totalAmount */
+    private BigDecimal originalAmount;
+
+    /** 优惠金额；没使用优惠券为 0 */
+    private BigDecimal discountAmount;
+
+    /** 使用的用户券 ID；仅作追溯，展示优惠读 couponName / discountAmount 快照 */
+    private Long userCouponId;
+
+    /** 券名称快照：券退回后可能被新订单复用，历史订单不能去 join user_coupons */
+    private String couponName;
+
     /** 见 {@link OrderStatus}，库里存枚举名字符串 */
     private String status;
 

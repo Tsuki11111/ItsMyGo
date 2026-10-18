@@ -29,8 +29,19 @@ public record CreateOrderRequest(
 
         /** 「立即购买」的商品行；为空表示走购物车结算 */
         @Valid
-        List<BuyNowItem> items
+        List<BuyNowItem> items,
+
+        /**
+         * 使用的用户券 id（不是券模板 id）；不传表示不用券。
+         * 服务端会重新校验归属、状态、有效期与门槛，前端的选择只是预校验。
+         */
+        Long couponId
 ) {
+    /** 兼容旧调用方：不带优惠券 */
+    public CreateOrderRequest(Long addressId, String token, List<BuyNowItem> items) {
+        this(addressId, token, items, null);
+    }
+
     public record BuyNowItem(
             @NotNull(message = "商品 ID 不能为空")
             Long productId,

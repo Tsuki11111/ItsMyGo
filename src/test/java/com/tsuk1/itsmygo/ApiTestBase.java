@@ -2,7 +2,9 @@ package com.tsuk1.itsmygo;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.tsuk1.itsmygo.common.Roles;
+import com.tsuk1.itsmygo.dto.CategoryRequest;
 import com.tsuk1.itsmygo.dto.LoginRequest;
+import com.tsuk1.itsmygo.dto.ProductRequest;
 import com.tsuk1.itsmygo.dto.RegisterRequest;
 import com.tsuk1.itsmygo.entity.ProductSku;
 import com.tsuk1.itsmygo.entity.User;
@@ -17,6 +19,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
+
+import java.math.BigDecimal;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
@@ -107,6 +111,28 @@ abstract class ApiTestBase {
             throw new IllegalStateException("商品 " + productId + " 没有默认 SKU —— 数据没铺开？");
         }
         return sku.getId();
+    }
+
+    /**
+     * 走管理端接口造一个上架商品（自动带分类与默认 SKU）。
+     * 收藏/足迹/评价这些顾客侧功能都需要先有商品，统一放这里免得每处抄一遍。
+     */
+    protected long createProductForTest(String adminToken, String name, String price, int stock) throws Exception {
+        String catBody = mockMvc.perform(post("/api/admin/categories")
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new CategoryRequest(null, "C" + name + System.nanoTime(), 0, true))))
+                .andReturn().getResponse().getContentAsString();
+        long categoryId = objectMapper.readTree(catBody).path("data").path("id").asLong();
+
+        String body = mockMvc.perform(post("/api/admin/products")
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new ProductRequest(
+                                categoryId, name, "sub", "", new BigDecimal(price), stock, "", true))))
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(body).path("data").path("id").asLong();
     }
 
     private String tokenFrom(String responseBody) {

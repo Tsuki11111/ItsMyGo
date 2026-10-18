@@ -17,6 +17,8 @@ import com.tsuk1.itsmygo.mapper.OrderItemMapper;
 import com.tsuk1.itsmygo.mapper.OrderMapper;
 import com.tsuk1.itsmygo.mapper.PaymentMapper;
 import com.tsuk1.itsmygo.mapper.ProductMapper;
+import com.tsuk1.itsmygo.mapper.ReviewMapper;
+import com.tsuk1.itsmygo.mapper.UserCouponMapper;
 import com.tsuk1.itsmygo.service.StockService;
 import com.tsuk1.itsmygo.service.impl.OrderServiceImpl;
 import org.junit.jupiter.api.Test;
@@ -57,6 +59,12 @@ class OrderControllerTest extends ApiTestBase {
 
     @Autowired
     private StockService stockService;
+
+    @Autowired
+    private ReviewMapper reviewMapper;
+
+    @Autowired
+    private UserCouponMapper userCouponMapper;
 
     private long createProduct(String adminToken, String name, String price, int stock) throws Exception {
         String catBody = mockMvc.perform(post("/api/admin/categories")
@@ -590,7 +598,8 @@ class OrderControllerTest extends ApiTestBase {
 
         // 只把 orderItemMapper 换成计数版，其余依赖用容器里的真货
         OrderServiceImpl service = new OrderServiceImpl(orderMapper, countingMapper, cartItemMapper,
-                productMapper, productSkuMapper, addressMapper, paymentMapper, stockService, redisTemplate);
+                productMapper, productSkuMapper, addressMapper, paymentMapper, stockService,
+                redisTemplate, reviewMapper, userCouponMapper);
 
         PageResponse<OrderView> result = service.pageForCustomer(
                 currentUserId(token), 1, 10, 3);

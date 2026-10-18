@@ -16,6 +16,7 @@ import com.tsuk1.itsmygo.entity.OrderStatus;
 import com.tsuk1.itsmygo.entity.Payment;
 import com.tsuk1.itsmygo.entity.Product;
 import com.tsuk1.itsmygo.entity.ProductSku;
+import com.tsuk1.itsmygo.entity.UserCoupon;
 import com.tsuk1.itsmygo.mapper.AddressMapper;
 import com.tsuk1.itsmygo.mapper.CartItemMapper;
 import com.tsuk1.itsmygo.mapper.OrderItemMapper;
@@ -23,6 +24,8 @@ import com.tsuk1.itsmygo.mapper.OrderMapper;
 import com.tsuk1.itsmygo.mapper.PaymentMapper;
 import com.tsuk1.itsmygo.mapper.ProductMapper;
 import com.tsuk1.itsmygo.mapper.ProductSkuMapper;
+import com.tsuk1.itsmygo.mapper.ReviewMapper;
+import com.tsuk1.itsmygo.mapper.UserCouponMapper;
 import com.tsuk1.itsmygo.service.OrderService;
 import com.tsuk1.itsmygo.service.StockService;
 import lombok.extern.slf4j.Slf4j;
@@ -36,10 +39,12 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Consumer;
@@ -65,12 +70,15 @@ public class OrderServiceImpl implements OrderService {
     private final PaymentMapper paymentMapper;
     private final StockService stockService;
     private final StringRedisTemplate redisTemplate;
+    private final ReviewMapper reviewMapper;
+    private final UserCouponMapper userCouponMapper;
 
     public OrderServiceImpl(OrderMapper orderMapper, OrderItemMapper orderItemMapper,
                             CartItemMapper cartItemMapper, ProductMapper productMapper,
                             ProductSkuMapper skuMapper, AddressMapper addressMapper,
                             PaymentMapper paymentMapper, StockService stockService,
-                            StringRedisTemplate redisTemplate) {
+                            StringRedisTemplate redisTemplate, ReviewMapper reviewMapper,
+                            UserCouponMapper userCouponMapper) {
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
         this.cartItemMapper = cartItemMapper;
@@ -80,6 +88,8 @@ public class OrderServiceImpl implements OrderService {
         this.paymentMapper = paymentMapper;
         this.stockService = stockService;
         this.redisTemplate = redisTemplate;
+        this.reviewMapper = reviewMapper;
+        this.userCouponMapper = userCouponMapper;
     }
 
     /**
@@ -187,10 +197,32 @@ public class OrderServiceImpl implements OrderService {
                 total = total.add(item.getSubtotal());
             }
 
+            // 优惠券：先校验并算出实付，最终能否使用以插单后的条件更新为准
+            UserCoupon userCoupon = null;
+            BigDecimal discount = BigDecimal.ZERO;
+            if (request.couponId() != null) {
+                userCoupon = userCouponMapper.selectById(request.couponId());
+                if (userCoupon == null || !userId.equals(userCoupon.getUserId())) {
+                    // 别人的券一律当不存在
+                    throw new BizException(ResultCode.NOT_FOUND, "优惠券不存在");
+                }
+                if (!UserCoupon.UNUSED.equals(userCoupon.getStatus())) {
+                    throw new BizException(ResultCode.BAD_REQUEST, "优惠券已使用");
+                }
+                if (userCoupon.getThresholdAmount().compareTo(total) > 0) {
+                    throw new BizException(ResultCode.BAD_REQUEST, "订单金额未达到优惠券使用门槛");
+                }
+                discount = userCoupon.getDiscountAmount().min(total);
+            }
+
             Order order = new Order();
             order.setOrderNo(generateOrderNo());
             order.setUserId(userId);
-            order.setTotalAmount(total);
+            order.setOriginalAmount(total);
+            order.setDiscountAmount(discount);
+            order.setTotalAmount(total.subtract(discount));
+            order.setUserCouponId(userCoupon == null ? null : userCoupon.getId());
+            order.setCouponName(userCoupon == null ? "" : userCoupon.getCouponName());
             order.setStatus(OrderStatus.PENDING_PAYMENT.name());
             // 收货信息也快照：用户以后改地址或删地址，这张订单不受影响
             order.setReceiver(address.getReceiver());
@@ -198,6 +230,12 @@ public class OrderServiceImpl implements OrderService {
             order.setAddress(address.getProvince() + address.getCity() + address.getDistrict() + address.getDetail());
             order.setTrackingNo("");
             orderMapper.insert(order);
+
+            // 券的使用是条件更新：期间被别的订单用掉/过期就 0 行，整单回滚
+            if (userCoupon != null
+                    && userCouponMapper.markUsed(userCoupon.getId(), userId, order.getId()) == 0) {
+                throw new BizException(ResultCode.BAD_REQUEST, "优惠券已使用或已过期");
+            }
 
             for (OrderItem item : items) {
                 item.setOrderId(order.getId());
@@ -299,6 +337,13 @@ public class OrderServiceImpl implements OrderService {
                 .stream()
                 .collect(Collectors.groupingBy(OrderItem::getOrderId));
 
+        // 已评价标记：只对已完成订单回填，整页一次查询（不能按订单 N+1）
+        List<OrderItem> completedItems = orders.stream()
+                .filter(order -> OrderStatus.COMPLETED.name().equals(order.getStatus()))
+                .flatMap(order -> itemsByOrder.getOrDefault(order.getId(), List.of()).stream())
+                .toList();
+        fillReviewed(completedItems);
+
         List<OrderView> views = new ArrayList<>(orders.size());
         for (Order order : orders) {
             List<OrderItem> all = itemsByOrder.getOrDefault(order.getId(), List.of());
@@ -371,6 +416,7 @@ public class OrderServiceImpl implements OrderService {
 
         // 钱退回去了，货也要退回来
         restoreStock(order);
+        restoreCoupon(order);
 
         // 支付流水同步置为已退款（这是退款真正的凭据）
         Payment payment = paymentMapper.selectOne(
@@ -428,6 +474,7 @@ public class OrderServiceImpl implements OrderService {
             try {
                 transition(order, OrderStatus.CANCELLED, order::setCancelledAt);
                 restoreStock(order);
+                restoreCoupon(order);
                 cancelled++;
             } catch (RuntimeException e) {
                 // 单个失败不影响其他的（典型情况：刚好在这一刻被人支付了）。
@@ -453,6 +500,7 @@ public class OrderServiceImpl implements OrderService {
         }
         transition(order, OrderStatus.CANCELLED, order::setCancelledAt);
         restoreStock(order);
+        restoreCoupon(order);
         return view(order);
     }
 
@@ -502,6 +550,19 @@ public class OrderServiceImpl implements OrderService {
             skuMapper.restoreStock(item.getSkuId(), item.getQuantity());
             stockService.release(item.getSkuId(), item.getQuantity());
             productMapper.applyRestored(item.getProductId(), item.getQuantity());
+        }
+    }
+
+    /**
+     * 取消/退款时退券：未过期恢复 UNUSED，过期置 EXPIRED。
+     * 条件更新本身幂等；**退券失败只记日志，不阻断订单状态回滚** ——
+     * 券没退成是账务小问题，订单卡在退款中是大问题。
+     */
+    private void restoreCoupon(Order order) {
+        try {
+            userCouponMapper.restoreByOrderId(order.getId());
+        } catch (RuntimeException e) {
+            log.warn("退还优惠券失败: orderNo={} err={}", order.getOrderNo(), e.getMessage());
         }
     }
 
@@ -559,7 +620,20 @@ public class OrderServiceImpl implements OrderService {
     private OrderView view(Order order) {
         List<OrderItem> items = orderItemMapper.selectList(
                 Wrappers.<OrderItem>lambdaQuery().eq(OrderItem::getOrderId, order.getId()));
+        if (OrderStatus.COMPLETED.name().equals(order.getStatus())) {
+            fillReviewed(items);
+        }
         return OrderView.full(order, OrderStatus.valueOf(order.getStatus()).label(), items);
+    }
+
+    /** 已评价标记批量回填；空列表直接返回，避免拼出 IN () */
+    private void fillReviewed(List<OrderItem> items) {
+        if (items.isEmpty()) return;
+        Set<Long> reviewedIds = new HashSet<>(reviewMapper.findReviewedOrderItemIds(
+                items.stream().map(OrderItem::getId).toList()));
+        for (OrderItem item : items) {
+            item.setReviewed(reviewedIds.contains(item.getId()));
+        }
     }
 
     private Order requireOwned(Long userId, Long orderId) {

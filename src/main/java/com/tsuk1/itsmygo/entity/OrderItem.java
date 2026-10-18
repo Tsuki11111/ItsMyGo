@@ -1,8 +1,10 @@
 package com.tsuk1.itsmygo.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -46,4 +48,12 @@ public class OrderItem {
     private BigDecimal subtotal;
 
     private LocalDateTime createdAt;
+
+    /**
+     * 当前订单项是否已评价 —— **不是数据库列**，组装 OrderView 时批量回填。
+     * 只在已完成订单里有值；其他状态为 null，不改变原 JSON 结构。
+     */
+    @TableField(exist = false)
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private Boolean reviewed;
 }
