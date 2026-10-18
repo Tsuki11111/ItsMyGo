@@ -165,6 +165,21 @@ class AddressControllerTest extends ApiTestBase {
                 .andExpect(jsonPath("$.data[0].isDefault").value(0));
     }
 
+    /** 手机号按大陆口径校验：1 开头、第二位 3-9、共 11 位 */
+    @Test
+    void invalidPhoneIsRejected() throws Exception {
+        String token = tokenFor("g" + System.nanoTime());
+
+        mockMvc.perform(post("/api/addresses")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new AddressRequest("Alice", "12345", "P", "C", "D", "Detail", false))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.message").value("请输入正确的 11 位手机号"));
+    }
+
     @Test
     void addressEndpointsRequireAuthentication() throws Exception {
         mockMvc.perform(get("/api/addresses"))

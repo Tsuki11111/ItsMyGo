@@ -73,6 +73,28 @@ class UserProfileControllerTest extends ApiTestBase {
                 .andExpect(jsonPath("$.code").value(400));
     }
 
+    /** 手机号选填：空串放行，填了就必须是 11 位手机号 */
+    @Test
+    void phoneIsOptionalButMustBeValidWhenFilled() throws Exception {
+        String token = customerToken("p" + System.nanoTime());
+
+        mockMvc.perform(put("/api/user/profile")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new UpdateProfileRequest("张三", "12345"))))
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.message").value("请输入正确的 11 位手机号"));
+
+        mockMvc.perform(put("/api/user/profile")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new UpdateProfileRequest("张三", ""))))
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.phone").value(""));
+    }
+
     /** 旧密码错返回 400，**不能是 401** —— 401 会让前端当成登录失效直接登出 */
     @Test
     void changingPasswordRequiresCorrectOldPassword() throws Exception {

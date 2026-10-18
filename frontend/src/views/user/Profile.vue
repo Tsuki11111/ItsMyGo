@@ -22,7 +22,23 @@ const rules: FormRules = {
     { required: true, message: '请输入昵称', trigger: 'blur' },
     { max: 32, message: '昵称最长 32 个字符', trigger: 'blur' },
   ],
-  phone: [{ max: 20, message: '手机号最长 20 个字符', trigger: 'blur' }],
+  // 选填：不填放行，填了就必须是 11 位手机号
+  phone: [
+    {
+      validator: (_rule, value, callback) => {
+        if (!value) {
+          callback()
+          return
+        }
+        if (!/^1[3-9]\d{9}$/.test(value)) {
+          callback(new Error('请输入正确的 11 位手机号'))
+          return
+        }
+        callback()
+      },
+      trigger: 'blur',
+    },
+  ],
 }
 
 onMounted(async () => {
@@ -111,7 +127,7 @@ async function onUpload(options: UploadRequestOptions) {
           <el-input v-model="form.nickname" placeholder="别人看到的名字" />
         </el-form-item>
         <el-form-item label="手机号" prop="phone">
-          <el-input v-model="form.phone" placeholder="选填" />
+          <el-input v-model="form.phone" placeholder="选填，11 位手机号" maxlength="11" />
         </el-form-item>
       </el-form>
 

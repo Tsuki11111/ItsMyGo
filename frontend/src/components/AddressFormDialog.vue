@@ -51,7 +51,11 @@ const form = reactive({
 
 const rules: FormRules = {
   receiver: [{ required: true, message: '请输入收货人', trigger: 'blur' }],
-  phone: [{ required: true, message: '请输入联系电话', trigger: 'blur' }],
+  // 中国大陆手机号：1 开头、第二位 3-9、共 11 位（和淘宝/京东同口径，只收手机号）
+  phone: [
+    { required: true, message: '请输入手机号', trigger: 'blur' },
+    { pattern: /^1[3-9]\d{9}$/, message: '请输入正确的 11 位手机号', trigger: 'blur' },
+  ],
   province: [{ required: true, message: '请选择省份', trigger: 'change' }],
   city: [{ required: true, message: '请选择城市', trigger: 'change' }],
   district: [{ required: true, message: '请选择区/县', trigger: 'change' }],
@@ -134,7 +138,7 @@ async function submit() {
         <el-input v-model="form.receiver" placeholder="不超过 32 个字符" />
       </el-form-item>
       <el-form-item label="联系电话" prop="phone">
-        <el-input v-model="form.phone" placeholder="手机号或座机" />
+        <el-input v-model="form.phone" placeholder="11 位手机号" maxlength="11" />
       </el-form-item>
       <el-form-item label="省份" prop="province">
         <el-select
