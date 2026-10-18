@@ -29,13 +29,14 @@
 ## 1. 当前状态一句话
 
 **M5（前端）已完成（2026-10-18）。** 顾客端跑通：**商品列表（滚动加载 + 品牌专区）、
-商品详情（含多规格选择栏）、登录注册、购物车、结算下单（购物车 / 立即购买两种来源）、
-订单详情与支付、用户中心（订单 / 地址 / 个人资料 / 改密 / 头像）**；
+商品详情（含多规格选择栏 / 收藏 / 评价展示）、登录注册、购物车、结算下单
+（购物车 / 立即购买 / 优惠券抵扣）、订单详情与支付、用户中心
+（订单 / 收藏 / 足迹 / 优惠券 / 评价 / 地址 / 个人资料 / 改密 / 头像）**；
 管理端跑通：**分类管理、商品管理（含传图 / 上下架）、规格与 SKU 编辑器、
-订单管理（发货 / 退款审核 / 取消超时订单）**。
-后端已做 **SKU 化改造**（价格与库存的真相下沉到 SKU），**自动化测试 114 条**。
+订单管理（发货 / 退款审核 / 取消超时订单）、优惠券模板、评价管理**。
+后端已做 **SKU 化改造**（价格与库存的真相下沉到 SKU），**自动化测试 148 条**。
 
-**交接时工作区是干净的** —— 管理端已提交（见 §6 最新一条），可以直接开始新一轮工作。
+**交接时工作区是干净的** —— 用户中心后续功能已提交（见 §6 最新一条），可以直接开始新一轮工作。
 
 前端技术栈：Vite 8 + Vue 3.5 + TypeScript 5.9 + Element Plus 2.14 + Pinia + Vue Router。
 配色定稿为「浅粉做面 + 深粉做点」，见 [docs/color-preview.html](docs/color-preview.html)；
@@ -45,16 +46,16 @@
 配色规矩、登录态怎么存、下单链路怎么串、和后端对接的四个约定、管理端各页要点都在那。
 前端**还没有自动化测试**，也没进 CI。
 
-下一步：**用户中心后续功能（收藏 / 足迹 / 优惠券 / 评价）→ M6 客服接入**。
+下一步：**M6 客服接入 → M7 查订单环回**；顺手可补顾客端的三个订单操作按钮（见 §2）。
 
 ---
 
-## 2. 下一步做什么：用户中心的后续，以及客服接入
+## 2. 下一步做什么：客服接入，以及顾客端订单操作入口
 
-管理端已完成（分类 / 商品 / SKU / 订单），本轮不再拆新页面。
+用户中心后续（收藏 / 足迹 / 优惠券 / 评价）已完成，本轮不再拆新页面。
 
-1. **用户中心后续功能** — 收藏、足迹、优惠券、评价体系，各是一条独立功能线；
-   「待评价」目前只是已完成订单的入口，没有评价表（见 implementation §7）
+1. **补顾客端三个订单操作入口**（后端接口都有，前端没做按钮）：
+   取消订单、确认收货、申请退款。现在这些状态只能通过管理端或直接调接口推进
 2. **M6 客服接入 → M7 查订单环回** — 先读外部仓库 `D:\PycharmProjects\rag_helper`
    的 `evolution-plan.md` §5/§6 与 `proto/agent.proto`，对接契约以那边为准
 
@@ -130,11 +131,13 @@ src/main/java/com/tsuk1/itsmygo/
 ### 3.3 数据库
 
 - 开发库 `its_mygo`、测试库 `its_mygo_test`（都在共用的 `mysql` 容器里，为什么要分开见 §5.20）
-- 迁移脚本在 `src/main/resources/db/migration/`，**当前 schema 版本 v12**
+- 迁移脚本在 `src/main/resources/db/migration/`，**当前 schema 版本 v15**
 - 已建表：`users`（V1，V3 加 `role`，V12 加 `avatar`）、`addresses`（V2）、`categories`（V4）、
   `products`（V5，V9 加 `has_specs`）、`cart_items`（V6，V10 改成按 SKU 唯一）、
-  `orders` / `order_items`（V7，V8 加 `status_before_refund`，V11 加 `sku_id` / `spec_text`）、
-  `payments`（V8）、**`product_specs` / `product_spec_values` / `product_skus`（V9）**
+  `orders` / `order_items`（V7，V8 加 `status_before_refund`，V11 加 `sku_id` / `spec_text`，
+  **V15 加优惠快照字段**）、`payments`（V8）、`product_specs` / `product_spec_values` / `product_skus`（V9）、
+  **`user_favorites` / `user_footprints`（V13）、`reviews`（V14）、
+  `coupons` / `user_coupons`（V15）**
   （另有 Flyway 自建的 `flyway_schema_history`，是迁移记录表，**不要动**）
 - **V9 给存量商品回填了默认 SKU**（无规格的那条），老数据不用手工处理；
   但**新直插 `products` 的地方（手工 SQL、导入脚本）必须自己补 SKU** —— 见 §5.21
@@ -152,14 +155,15 @@ frontend/
 │   ├── api/http.ts         # axios 封装：拦截器按 body 的 code 判断 + 登录凭据存取
 │   ├── api/types.ts        # 与后端 DTO 对应的类型（手写）
 │   ├── api/{product,cart,auth,address,order,user}.ts
-│   ├── api/admin.ts        # 管理端：分类 / 商品 / SKU / 上传 / 订单
+│   ├── api/admin.ts        # 管理端：分类 / 商品 / SKU / 上传 / 订单 / 券 / 评价
+│   ├── api/{favorite,footprint,review,coupon}.ts
 │   ├── stores/user.ts      # 登录态
 │   ├── utils/orderStatus.ts # 订单状态中文名与标签色（管理端列表只有原始 status）
 │   ├── components/ProductImage.vue   # 商品图 + 无图占位
 │   ├── styles/theme.css    # 色板 + Element Plus 主题覆盖（必须在 element-plus 之后引入）
 │   ├── router/ · App.vue · main.ts
-│   ├── views/              # 顾客端页面 + user/ 用户中心
-│   └── views/admin/        # 管理端：AdminLayout + 分类 / 商品 / 订单 + components/
+│   ├── views/              # 顾客端页面 + user/ 用户中心 + CouponCenter.vue
+│   └── views/admin/        # 管理端：AdminLayout + 分类 / 商品 / 订单 / 券 / 评价 + components/
 ```
 
 **启动**（后端要同时跑着）：
@@ -773,9 +777,80 @@ addressMapper.delete(null);
 而且 `status` 只支持**单个枚举精确匹配，不支持逗号分隔**（顾客端支持）。
 详情要单独请求 `/api/admin/orders/{id}` 才有明细。
 
+### 5.23 ★ 用户中心后续功能的五个坑（2026-10-18 踩到 / 补齐）
+
+**① 重复领券默认会变成 500。** `user_coupons` 的唯一键会抛 `DuplicateKeyException`，
+而 `GlobalExceptionHandler` 只认 `BizException`。必须在 `CouponServiceImpl.claim` 里
+catch 并转 400「该优惠券已领取」；否则用户看到的是服务器错误。
+
+**② 退券必须覆盖 `cancelExpired`。** 超时取消不走 `cancel()`，而是 `cancelExpired` 自己的循环。
+退券逻辑抽成 `restoreCoupon(order)`，在 `cancel`、`approveRefund`、`cancelExpired`
+**三处**都调；`WHERE used_order_id=? AND status='USED'` 保证幂等。
+方法内部 catch + 日志，退券失败不阻断订单状态回滚。
+
+**③ 退券后「已过期」筛选会漏。** `restoreByOrderId` 把过期券置成 `status='EXPIRED'`，
+而最初「已过期」查询只认 `status='UNUSED' AND valid_to < NOW()`，两者对不上，
+退回过期券在「已过期」Tab 里查不到。改成
+`status='EXPIRED' OR (status='UNUSED' AND valid_to < NOW())`。
+展示状态统一在 SQL 里按数据库 `NOW()` 算，不用 JVM 时间（§5.14）。
+
+**④ 足迹清理 SQL 有两个 MySQL 8 坑。** `IN (SELECT ... LIMIT)` 报 1235，
+同表 DELETE 的直接子查询报 1093 —— 必须用**双层派生表**
+（见 `UserFootprintMapper.trimToLatest`）。另外只在 `count > 110` 时才清理，
+否则每次浏览都要扫一遍该用户的所有足迹。
+
+**⑤ 订单列表回填「已评价」不能 N+1，也不能循环依赖。**
+`OrderServiceImpl` 只注入 `ReviewMapper`（不要再注入 `ReviewService`，会形成 Service 环）；
+`pageForCustomer` 先把本页所有已完成订单的 itemIds 收集起来、一次 `IN` 查询，
+再回填 `reviewed`。`previewLimit` 截断必须在回填之后。
+
 ---
 
 ## 6. 历史记录
+
+### 2026-10-18 · 用户中心后续：收藏 / 足迹 / 评价 / 优惠券
+
+**范围**：收藏、浏览足迹、商品评价（含管理端隐藏）、满减优惠券
+（领券中心 / 下单抵扣 / 取消退款退券），以及用户中心四个新子页。
+
+**数据库（V13–V15）**：
+
+- V13 `user_favorites`、`user_footprints`（按商品去重，只保留最近 100 条，`viewed_at` 用 `DATETIME(3)`）
+- V14 `reviews`（`uk_order_item_id`，一个订单项只能评一次）
+- V15 `coupons` / `user_coupons`（领取时快照条款；`uk_user_coupon` 每人一张；
+  `uk_used_order` 一单一张），`orders` 加 `original_amount` / `discount_amount` /
+  `user_coupon_id` / `coupon_name`，存量订单回填 `original_amount = total_amount`
+
+**后端新增**：`FavoriteService` / `FootprintService` / `ReviewService` / `CouponService`
+及对应 Controller；商品公开评价 `GET /api/products/{id}/reviews` + `/summary`；
+管理端 `AdminCouponController` / `AdminReviewController`。
+`OrderServiceImpl` 接入优惠券：`CreateOrderRequest.couponId`、下单后条件更新券为 USED、
+取消/退款/超时取消统一 `restoreCoupon`；`OrderItem` 加 `reviewed` 并由 `ReviewMapper`
+批量回填。`SecurityConfig` 只精确放行 `GET /api/coupons`。
+
+**前端新增**：用户中心 `Favorites` / `Footprints` / `Coupons` / `Reviews`、
+`CouponCenter`（`/coupons`）、`ReviewDialog`；商品详情加收藏按钮与评价区块、
+加载成功上报足迹；订单页与订单详情加「评价」入口、显示优惠金额；
+结算页加优惠券选择与抵扣；管理端加「优惠券管理」「评价管理」两页。
+顶栏用户面板加收藏 / 我的优惠券 / 领券中心入口。
+
+**决策变更**：`decisions-ecommerce.md` §1.7 原把「优惠券」列为明确不做，
+本轮按用户要求解禁，已同步修改并注明变更记录；秒杀/拼团仍不做。
+
+**测试 114 → 148**：新增 `FavoriteControllerTest` 4、`FootprintControllerTest` 6、
+`ReviewControllerTest` 8、`CouponControllerTest` 9、`OrderCouponTest` 7。全量 148 条全绿。
+
+**浏览器实测**：详情页收藏 → 用户中心收藏列表出现；浏览商品 → 足迹页按时间倒序且去重；
+管理端建「满100减20」→ 领券中心领取 → 结算页选中后应付 329→309 →
+下单后券变已使用 → 管理端取消超时订单 → 券恢复未使用；
+完成订单后提交 5 星评价 → 商品详情显示 5.0 分/1 条 → 管理端隐藏后商品详情消失、
+我的评价显示「已隐藏」。
+
+**已知缺口**：顾客端仍没有取消订单 / 确认收货 / 申请退款的按钮（后端接口都有），
+本轮验证评价链路时是用管理端 + SQL 把测试订单推到 `COMPLETED` 的；下一轮补。
+
+**验证留下的演示数据**：开发库里有一条启用中的「满100减20」券（已领 1/5）、
+一笔已完成订单（760）及一条可见评价；不需要可在管理端停用券/隐藏评价。
 
 ### 2026-10-18 · 管理端前端完成（分类 / 商品 / SKU / 订单）
 

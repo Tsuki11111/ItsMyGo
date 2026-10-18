@@ -753,6 +753,123 @@ redisTemplate.rename(tempKey, KEY);   // 原子切换
 SKU 行（写库）、商品汇总（`recalcFromSkus`）、Redis 计数器（`reload` / `drop`）——
 漏掉任何一个，顾客看到的都是改动前的数字。
 
+### 3.13 收藏与浏览足迹
+
+两张表都是「用户-商品」关系，靠唯一键做幂等：
+
+| 表 | 唯一键 | 语义 |
+|---|---|---|
+| `user_favorites` | `(user_id, product_id)` | 收藏；重复收藏用 `INSERT IGNORE` 静默忽略 |
+| `user_footprints` | `(user_id, product_id)` | 足迹；重复浏览只把 `viewed_at` 更新到当前 |
+
+**列表都是两条 SQL**：先分页查关系表，再按 productId 批量查商品，内存里拼成视图。
+不 join、也不按行 N+1。商品下架后记录保留并显示「已下架」；商品被删则显示「商品已不存在」。
+
+**足迹只保留最近 100 条**：`INSERT ... ON DUPLICATE KEY UPDATE viewed_at = NOW(3)` 之后，
+只有 `count > 110` 才触发清理（避免每次浏览都全扫该用户的行）。清理 SQL 必须用
+**双层派生表**：
+
+```sql
+DELETE FROM user_footprints
+WHERE user_id = ? AND id NOT IN (
+  SELECT id FROM (
+    SELECT id FROM user_footprints WHERE user_id = ?
+    ORDER BY viewed_at DESC, id DESC LIMIT 100
+  ) keep_rows
+)
+```
+
+原因：MySQL 8 的 `IN (SELECT ... LIMIT)` 报 1235，同表 DELETE 的直接子查询报 1093。
+`viewed_at` 用 `DATETIME(3)`，排序再加 `id DESC` 兜底。
+
+**上报时机**：商品详情页 `fetchProduct` 成功后才 `POST /api/footprints/{id}`，
+失败静默；未登录不记录。收藏状态走独立的 `GET /api/favorites/{id}/status`，
+**不要塞进商品详情缓存** —— 那是用户私有数据，缓存是整个用户共享的。
+
+越权一律按「不存在」处理：收藏/足迹接口只操作 `@AuthenticationPrincipal` 的 userId。
+
+### 3.14 商品评价
+
+评价挂在**订单项**上而不是「用户+商品」：同一个人买两次可以评两次，且只有已完成订单能评。
+
+| 表 | 关键约束 |
+|---|---|
+| `reviews` | `UNIQUE KEY uk_order_item (order_item_id)`；`idx_product_status (product_id, status, created_at)` |
+
+**提交校验**（`ReviewServiceImpl.create`）：订单项存在 → 订单属于本人（否则 404）→
+订单状态 `COMPLETED` → 该订单项未评价。并发时唯一索引是最终防线，捕获
+`DuplicateKeyException` 转 400「该商品已评价」，不能让它冒成 500。
+
+**展示**：商品公开评价只查 `status=1`；`GET /api/products/{id}/reviews/summary`
+返回 `AVG` 与 `COUNT`（SQL 聚合，没有评价时 count=0、平均分 0）。
+昵称/头像按 userId 批量查用户，避免 N+1；**不返回 userId**。
+
+**管理端只做显示/隐藏**（`PUT /api/admin/reviews/{id}/visible`），不删除评价。
+隐藏后商品详情不显示，但「我的评价」里仍能看到并标记「已隐藏」。
+
+**订单页「已评价」标记**：`OrderItem` 有 `@TableField(exist=false) Boolean reviewed`，
+`OrderServiceImpl` **只注入 `ReviewMapper`**（不注入 `ReviewService`，避免 Service 循环依赖），
+在 `pageForCustomer` 里对已完成订单收集本页全部 itemIds、**一次** `IN` 查询后回填；
+`view(order)` 同理。非已完成订单不返回该字段（`@JsonInclude(NON_NULL)`）。
+
+### 3.15 优惠券与订单抵扣
+
+**两张表**：
+
+| 表 | 关键点 |
+|---|---|
+| `coupons` | 券模板：满减金额、发放总量 / 已领数、有效期、启停 |
+| `user_coupons` | 用户券：领取时**快照**名称/门槛/减免/有效期；`uk_user_coupon` 每人每券一张；`uk_used_order` 一张订单最多一张券 |
+
+**领取是幂等的，但计数必须条件更新**：
+
+1. 预检模板存在、启用、未领完（只用于提示）
+2. `INSERT user_coupons` 快照条款；`DuplicateKeyException` → 400「该优惠券已领取」
+3. `UPDATE coupons SET claimed_count = claimed_count + 1
+   WHERE id = ? AND claimed_count < total_count AND 有效期内`
+4. 第 3 步 0 行 → 抛 400，事务回滚第 2 步
+
+整个方法 `@Transactional`，中间不能吞异常。`total_count` 必须 `NOT NULL`。
+
+**我的券状态**：DB 存 `UNUSED/USED/EXPIRED`；未使用但已过期的券在
+**查询 SQL 里**用 `CASE WHEN valid_to < NOW() THEN 'EXPIRED' ELSE status END`
+计算展示状态，筛选也走 SQL。不用 JVM 的 `now()`（见 HANDOFF §5.14 时区教训）。
+
+**下单抵扣**（`OrderServiceImpl.doCreate`）：
+
+1. `CreateOrderRequest.couponId` 是**用户券 id**，不是模板 id
+2. 校验券属于本人、`UNUSED`、`threshold_amount <= 商品总额`；别人的券一律 404
+3. `discount = min(券减免, 商品总额)`；`payable = 商品总额 - discount`
+4. 订单写 `original_amount` / `discount_amount` / `user_coupon_id` / `coupon_name` 快照；
+   `total_amount` 继续表示**实付**
+5. 订单插入后条件更新券：
+   ```sql
+   UPDATE user_coupons SET status='USED', used_order_id=?, used_at=NOW()
+   WHERE id=? AND user_id=? AND status='UNUSED'
+     AND valid_from <= NOW() AND valid_to >= NOW()
+   ```
+   0 行 → 抛 400，事务回滚订单与库存；Redis 预扣由 `doCreate` 的 catch 回补
+
+**退券**：抽成 `restoreCoupon(order)`，在 `cancel`、`approveRefund`、
+**`cancelExpired`（逐单循环里）** 三处调用：
+
+```sql
+UPDATE user_coupons
+SET status = IF(valid_to >= NOW(), 'UNUSED', 'EXPIRED'),
+    used_order_id = NULL, used_at = NULL
+WHERE used_order_id = ? AND status = 'USED'
+```
+
+未过期恢复可用、已过期置 EXPIRED；`WHERE ... status='USED'` 保证幂等。
+方法内部 catch 并打日志，**退券失败不阻断取消/退款** —— 订单状态不能卡住。
+
+**历史订单只读订单快照**：展示优惠用 `orders.coupon_name` / `discount_amount`，
+**不要 join `user_coupons`** —— 券退回后会被新订单复用，旧订单指向的那条记录已经变了。
+
+**权限**：`SecurityConfig` 只精确放行 `GET /api/coupons`（领券中心匿名可看）；
+不能写 `/api/coupons/**`，否则 `/api/coupons/mine` 会变成匿名可访问。
+管理端模板**不提供删除**，停用即可；停用只阻止新领取，已领的券仍按快照可用。
+
 ---
 
 ## 4. 前端（`frontend/`）
@@ -772,7 +889,11 @@ frontend/
 │   │   ├── address.ts      # 收货地址
 │   │   ├── order.ts        # 下单 / 支付 / 我的订单
 │   │   ├── user.ts         # 个人资料 / 改密码 / 头像
-│   │   └── admin.ts        # 管理端：分类 / 商品 / SKU / 上传 / 订单
+│   │   ├── favorite.ts     # 收藏
+│   │   ├── footprint.ts    # 浏览足迹
+│   │   ├── review.ts       # 评价（提交 / 我的 / 商品公开评价）
+│   │   ├── coupon.ts       # 领券中心 / 我的券 / 可用券
+│   │   └── admin.ts        # 管理端：分类 / 商品 / SKU / 上传 / 订单 / 券 / 评价
 │   ├── stores/user.ts      # 登录态（localStorage 的响应式包装）
 │   ├── utils/orderStatus.ts # 订单状态中文名与标签色（管理端列表只有原始 status）
 │   ├── components/
@@ -786,18 +907,26 @@ frontend/
 │   │   ├── Login.vue           # 登录 / 注册（同一个页签切换）
 │   │   ├── Cart.vue            # 购物车：勾选 / 改数量 / 移除 / 去结算
 │   │   ├── Checkout.vue        # 确认订单：两种来源（购物车 / 立即购买）
-│   │   ├── OrderDetail.vue     # 订单详情 + 支付
+│   │   ├── OrderDetail.vue     # 订单详情 + 支付 + 评价
+│   │   ├── CouponCenter.vue    # 领券中心（匿名可浏览）
 │   │   ├── user/               # 用户中心（左侧菜单 + 子路由）
 │   │   │   ├── UserCenter.vue  # 外壳：资料卡 + 菜单 + <router-view>
-│   │   │   ├── Orders.vue      # 我的订单（按状态 Tab）
+│   │   │   ├── Orders.vue      # 我的订单（按状态 Tab + 评价入口）
+│   │   │   ├── Favorites.vue   # 我的收藏
+│   │   │   ├── Footprints.vue  # 浏览足迹
+│   │   │   ├── Coupons.vue     # 我的优惠券
+│   │   │   ├── Reviews.vue     # 我的评价
 │   │   │   ├── Addresses.vue   # 收货地址管理
 │   │   │   ├── Profile.vue     # 个人资料（昵称 / 手机 / 头像）
-│   │   │   └── Password.vue    # 修改密码
+│   │   │   ├── Password.vue    # 修改密码
+│   │   │   └── components/ReviewDialog.vue # 发表评价弹窗
 │   │   └── admin/              # 管理端（独立外壳，不共用顾客顶栏）
 │   │       ├── AdminLayout.vue # 侧边菜单 + 页头 + <router-view>
 │   │       ├── Categories.vue  # 分类树 CRUD
 │   │       ├── Products.vue    # 商品列表 / 上下架 / 传图
 │   │       ├── Orders.vue      # 订单列表 / 发货 / 退款审核
+│   │       ├── Coupons.vue     # 优惠券模板
+│   │       ├── Reviews.vue     # 评价显示 / 隐藏
 │   │       └── components/     # 商品表单、SKU 编辑器、库存调整、订单抽屉、上传
 │   ├── App.vue             # 顶栏 + 内容区（管理端路由下隐藏顾客顶栏）
 │   └── main.ts
@@ -940,7 +1069,11 @@ frontend/
 
 | 子页 | 要点 |
 |---|---|
-| `orders` | 六个 Tab 本质是**同一个订单列表按状态筛**；Tab 存在 `?tab=` 里（刷新保持） |
+| `orders` | 六个 Tab 本质是**同一个订单列表按状态筛**；Tab 存在 `?tab=` 里（刷新保持）；已完成订单的明细行有「评价 / 已评价」 |
+| `favorites` | 收藏卡片列表、取消收藏、分页；下架商品标「已下架」且不可点进详情 |
+| `footprints` | 按浏览时间倒序、分页、清空全部；同一商品只有一条 |
+| `coupons` | 未使用 / 已使用 / 已过期三个 Tab；「去领券中心」入口 |
+| `reviews` | 我的评价列表，显示商品、星级、内容与「展示中 / 已隐藏」 |
 | `addresses` | 列表 + 新增 / 编辑 / 删除 / 设默认；表单来自公共组件 `AddressFormDialog` |
 | `profile` | 昵称、手机号、头像上传 |
 | `password` | 旧 / 新 / 确认，成功后 `logout()` + 跳登录 |
@@ -963,7 +1096,7 @@ frontend/
 - **改密码失败时留在页面上**（后端返回 400），成功才登出 —— 输错旧密码不该被踢下线
 
 **顶栏用户区**（`App.vue`）：登录后是「圆形头像 + 昵称」，鼠标移上去**向下滑出一个抽屉面板**
-（我的订单 / 收货地址 / 个人资料 / 修改密码 / 退出登录），移开即收起。
+（我的订单 / 我的收藏 / 我的优惠券 / 领券中心 / 收货地址 / 个人资料 / 修改密码 / 退出登录），移开即收起。
 头像来自 `userStore.user.avatar`（登录响应里就带），空值回落到首字渐变占位。
 面板用 `opacity + translateY + visibility` 过渡，收起时 `pointer-events: none`；
 **面板顶部留了 8px 内边距**，让鼠标从头像滑到面板时不会跨出元素、把面板误收掉。
@@ -991,6 +1124,8 @@ frontend/
 | `Categories.vue` | `el-table` 树形（`row-key="id"` + `tree-props`）；父分类下拉用 `el-tree-select`，**必须剔除自己及全部后代**（后端只拦了「自己设自己」）；启停用 `@change` 调更新接口，成功后重拉树 |
 | `Products.vue` | 分类 + 关键词筛选、分页；**不做硬删除**，只提供上下架（避免购物车/订单/统计的孤儿数据）；商品表单里的主图用 `ImageUpload` 上传 |
 | `Orders.vue` | 状态单选筛选（**管理端接口只支持单个枚举，不支持逗号**）、分页；详情用 `OrderDetailDrawer`；发货填单号、退款同意/驳回、取消超时未支付订单 |
+| `Coupons.vue` | 券模板列表、新增/编辑、启停；**不提供删除**；编辑时总量不能小于已领数 |
+| `Reviews.vue` | 评价列表、按展示状态筛选、显示/隐藏开关；**不删除评价** |
 
 **商品表单的多规格约束**：`hasSpecs === 1` 时**禁用价格/库存输入框**并提示去 SKU 编辑器。
 原因在 §3.12 与 `ProductServiceImpl.update`：多规格商品调 `syncDefaultSku` 是 no-op，
@@ -1050,7 +1185,7 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 **测试跑在独立的库和 Redis database 上**（`its_mygo_test` / db 1），跟开发环境彻底分开 ——
 为什么非分不可、怎么配的，见 HANDOFF §5.20。
 
-覆盖重点（当前 **114** 条；CI 上跳过 3 条依赖 MinIO 的，跑 111）：
+覆盖重点（当前 **148** 条；CI 上跳过 3 条依赖 MinIO 的，跑 145）：
 
 | 测试类 | 覆盖 |
 |---|---|
@@ -1068,6 +1203,11 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 | **`CacheAsideTest`** | **第二次读走缓存**（三次读只查一次库）；**改完立刻读到新值**（缓存被删而非等 TTL）；分类变更后树缓存失效 |
 | **`RateLimitTest`** | 注册按 IP 打到第 6 次被拒；**场景之间互不影响**（注册打满不影响登录）；下单按用户限流 |
 | **`ProductSkuControllerTest`** | 新建商品自带默认 SKU；负数临时 id 的规格值能落库并被 SKU 引用；**改价格再保存时库存不动**；汇总字段（最低价 / 总库存 / has_specs）跟着重算；重复组合与漏选规格被拒；非管理员 403；**库存调整同时刷新 SKU 行 / 商品汇总 / Redis**；**`expectedStock` 过期（CAS 失效）被拒且库存不变**；跨商品的 SKU 返回 404；负库存 400 |
+| **`FavoriteControllerTest`** | 收藏/取消幂等；列表带当前商品信息；状态接口；别人的收藏不可见；商品不存在 404；未登录 401 |
+| **`FootprintControllerTest`** | 同一商品只留一行；按浏览时间倒序；**超过 110 条只保留最新 100 条**；清空；商品不存在 404；未登录 401 |
+| **`ReviewControllerTest`** | 仅已完成订单项可评；同一订单项不可重复评；评分越界 400；商品公开评价只展示未隐藏；汇总平均分/数量；管理端隐藏后商品详情消失、我的评价标记隐藏；顾客不能隐藏；别人的订单项 404 |
+| **`CouponControllerTest`** | 领取后领券中心 claimed/剩余数正确；重复领取 400 而非 500；最后一张领完拒绝；过期券不可领且不展示；可用券按金额过滤；**EXPIRED 由 SQL 按数据库时间计算**；管理端模板增改与停用；总量不能小于已领；非管理员 403 |
+| **`OrderCouponTest`** | 用券后实付 = 原价 - 减免；门槛不足拒绝；已用券不能再用于另一单；别人的券 404；取消订单退券；退款同意退券；**退回过期券置 EXPIRED** |
 | **`SkuCartTest`** | 同商品两个规格各占一行、重复加购只累加；小计按**那一款**的价（不是商品最低价）；跨商品的 skuId 被当「不存在」挡住；SKU 被删后那行标成不可购买；停售款加不进去 |
 | **`SkuOrderTest`** | 订单项带 `specText` 快照且单价取那一款；**规格改名后历史订单不变**；**取消只回补买过的那一款**、另一款纹丝不动；立即购买只扣选中的 SKU；买停售款被拒 |
 | **`SkuStockConcurrencyTest`** | 10 人抢 5 件的单一 SKU（恰好 5 成功、Redis 与库都对得上）；**同商品两款互不串扰**（黑 3 件售罄不影响白 10 件） |
@@ -1094,22 +1234,23 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 ## 7. 还没实现的部分
 
 管理端前端已完成：**分类管理、商品管理（含传图 / 上下架）、规格与 SKU 编辑器、
-订单管理（发货 / 退款审核 / 取消超时订单）**，见 §4.11。
-顾客端在 M5 已完成商品列表、商品详情（含规格选择栏）、登录注册、购物车、
-结算下单（购物车 / 立即购买两种来源）、订单详情、用户中心（订单 / 地址 / 资料 / 改密）。
+订单管理（发货 / 退款审核 / 取消超时订单）、优惠券模板、评价管理**，见 §4.11。
+顾客端在 M5 已完成商品列表、商品详情（含规格选择栏 / 收藏 / 评价展示）、登录注册、购物车、
+结算下单（购物车 / 立即购买 / 优惠券抵扣）、订单详情、用户中心
+（订单 / 收藏 / 足迹 / 优惠券 / 评价 / 地址 / 资料 / 改密）。
 
-⚠️ 用户中心里**「收藏 / 足迹 / 优惠券 / 评价」还没做**：
-- 「待评价」目前只是已完成订单的入口，**没有评价表、没有提交入口**
-- 收藏、足迹各需要一张新表 + 一组接口
-- 优惠券要券模板 + 领券 + 下单抵扣，是独立的一条功能线
+⚠️ **顾客端还缺三个订单操作入口**（后端接口都有，前端没做按钮）：
+取消订单、确认收货、申请退款。目前这些状态只能通过管理端或直接调接口推进；
+做「评价」链路时是用管理端/数据库把测试订单推到 `COMPLETED` 的。
+下一轮做用户中心打磨时优先补这三个按钮。
 
 ⚠️ 管理端**不做商品的硬删除**（只提供上下架）：商品删掉会留下购物车、订单快照、
 销量统计的孤儿数据，真实电商也通常用下架代替。后端 `DELETE /api/admin/products/{id}`
 仍然存在，但前端不调用它。
 
-**前端还没有自动化测试，也没进 CI** —— 管理端目前同样靠浏览器手工走一遍
-（本轮已实测：分类树与父子约束、商品新增/编辑/上传/上下架、SKU 组合与库存调整、
-订单筛选/详情/发货/退款同意与驳回/取消超时订单）。
+**前端还没有自动化测试，也没进 CI** —— 目前靠浏览器手工走一遍
+（本轮已实测：收藏/取消、足迹记录与清空、领券中心领取、结算选券抵扣、
+下单后券变已使用、取消后退券、完成订单评价、商品详情评价展示、管理端隐藏评价）。
 
 M6 / M7 是客服链路：gRPC 接入（`rag_helper` 那边已就绪）、查订单环回。
 
