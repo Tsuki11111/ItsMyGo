@@ -134,6 +134,19 @@ Flyway 自己建的 `flyway_schema_history` 表是迁移记录，**不要动**�
 已在 §2.3 讲完注册/登录。补充：注册出来的用户 role 固定为 `Roles.CUSTOMER`，
 **管理员不开放自助注册**（只能直接改数据库），否则任何人都能把自己提权成管理员。
 
+**用户中心的三件事**（`UserServiceImpl` + `UserController`，`/api/user/*`）：
+
+- `GET/PUT /api/user/profile`：昵称与手机号。只更新传进来的字段（`updateById`），
+  不要把查出来的整条 User 再写回去 —— 会覆盖并发改过的其它字段。
+  头像**不在这个 DTO 里**：它只能来自上传接口，否则用户能提交任意 URL
+- `PUT /api/user/password`：先 `passwordEncoder.matches` 校验旧密码，**失败返回 400 而不是 401** ——
+  401 会触发前端拦截器自动登出，用户只是输错一次旧密码不该被踢出去。新旧相同也拒绝
+- `POST /api/user/avatar`：`StorageService.uploadAvatar`（对象放 MinIO 的 `avatars/`，
+  和商品图的 `products/` 分开），按用户限流 10/分钟，单独限 2MB
+
+`LoginResponse` 里也带上了 `avatar`，这样重新登录后头像不会丢。
+改密码**不会吊销 token**（JWT 无状态），由前端改完后主动 `logout()`。
+
 ### 3.2 收货地址（`AddressServiceImpl`）—— 越权校验的样板
 
 **越权校验只有一出口**（`requireOwned`）：
@@ -745,18 +758,27 @@ frontend/
 │   │   ├── cart.ts         # 购物车
 │   │   ├── auth.ts         # 登录 / 注册
 │   │   ├── address.ts      # 收货地址
-│   │   └── order.ts        # 下单 / 支付 / 提交令牌
+│   │   ├── order.ts        # 下单 / 支付 / 我的订单
+│   │   └── user.ts         # 个人资料 / 改密码 / 头像
 │   ├── stores/user.ts      # 登录态（localStorage 的响应式包装）
 │   ├── components/
-│   │   └── ProductImage.vue  # 商品图 + 无图占位（列表页 / 详情页 / 订单共用）
+│   │   ├── ProductImage.vue      # 商品图 + 无图占位（列表 / 详情 / 订单共用）
+│   │   └── AddressFormDialog.vue # 收货地址表单弹窗（结算页与用户中心共用）
 │   ├── styles/theme.css    # 色板 + Element Plus 主题覆盖
 │   ├── router/index.ts
 │   ├── views/
-│   │   ├── ProductList.vue     # 首页：品类栏 + 轮播 + 商品网格
-│   │   ├── ProductDetail.vue   # 商品详情
+│   │   ├── ProductList.vue     # 首页：品类栏 + 轮播 + 品牌专区 + 商品网格（滚动加载）
+│   │   ├── ProductDetail.vue   # 商品详情（含规格选择栏）
 │   │   ├── Login.vue           # 登录 / 注册（同一个页签切换）
-│   │   ├── Checkout.vue        # 确认订单：选地址 + 商品清单 + 提交
-│   │   └── OrderDetail.vue     # 订单详情 + 支付
+│   │   ├── Cart.vue            # 购物车：勾选 / 改数量 / 移除 / 去结算
+│   │   ├── Checkout.vue        # 确认订单：两种来源（购物车 / 立即购买）
+│   │   ├── OrderDetail.vue     # 订单详情 + 支付
+│   │   └── user/               # 用户中心（左侧菜单 + 子路由）
+│   │       ├── UserCenter.vue  # 外壳：资料卡 + 菜单 + <router-view>
+│   │       ├── Orders.vue      # 我的订单（按状态 Tab）
+│   │       ├── Addresses.vue   # 收货地址管理
+│   │       ├── Profile.vue     # 个人资料（昵称 / 手机 / 头像）
+│   │       └── Password.vue    # 修改密码
 │   ├── App.vue             # 顶栏 + 内容区
 │   └── main.ts
 └── .gitignore
@@ -857,6 +879,76 @@ frontend/
 - 列表页对多规格商品的按钮是「**选规格**」（点进详情挑）—— 列表接口不带 SKU，
   否则分页查询要 join SKU 变重；单规格商品则直接加购（加购前拉一次详情拿默认 SKU）
 
+### 4.8 购物车与两种结算来源
+
+**购物车页**（`views/Cart.vue`）：勾选 / 改数量 / 移除 / 去结算。
+
+- 后端每个写操作（改数量、改勾选、删除）都返回**整份 `CartView`**，所以前端直接换掉本地状态，
+  不用再查一遍
+- 失效行（下架 / 库存不够 / 规格已删）**照常显示但选不了**，并在行里写明原因 ——
+  静默隐藏比看得见的异常更让人困惑
+- 金额只算「勾选 且 可买」的行，和返参里的 `selectedTotal` 保持一致
+- 改数量走的还是同一套后端校验（≤ 库存、≤ 999），前端 `el-input-number` 的 `max` 只是提前拦一下
+
+**结算页的两种来源**（`Checkout.vue`）用 URL 区分，不需要额外状态：
+
+| 入口 | URL | 提交时传什么 |
+|---|---|---|
+| 立即购买 | `/checkout?productId=X&skuId=Y&quantity=N` | `items: [{productId, skuId, quantity}]` |
+| 购物车结算 | `/checkout` | **不传 `items`** —— 后端按购物车勾选行下单并清空它们 |
+
+购物车结算时，页面上的清单是 `GET /api/cart` 里**勾选且可买**的那几行，
+只用于展示；真正决定买什么的是提交那一刻购物车里的勾选状态。
+
+### 4.9 首页的两个细节
+
+**品牌专区**（首屏右侧 240px 竖栏）：品牌数据**暂时硬编码**在 `ProductList.vue` 里，
+点进去就是 `/?keyword=品牌名`，复用列表页的关键词搜索。要让商户自己维护品牌，
+得建 `brands` 表 + 商品关联 + 管理端接口，那时把数组换成接口调用即可。
+
+**商品列表是滚动加载**，没有分页器：滚到底部自动拉下一页并追加。
+用 `IntersectionObserver` 盯一个页面底部的哨兵元素（`rootMargin: 200px` 提前触发），
+而不是 Element Plus 的 `v-infinite-scroll` —— 后者要求滚动发生在绑定元素内部，
+而我们是整页滚动。「还有没有下一页」用**已拿到数量 vs 总数**判断，不靠页码算。
+
+> 筛选条件（分类、关键词）**只存在 URL 的 query 里**，组件不另存一份 ——
+> 刷新能保持、链接能分享，也避免两处状态打架。
+
+### 4.10 用户中心
+
+`/user` 是嵌套路由，外壳 `UserCenter.vue` 负责左侧资料卡 + 菜单 + `<router-view>`：
+
+| 子页 | 要点 |
+|---|---|
+| `orders` | 六个 Tab 本质是**同一个订单列表按状态筛**；Tab 存在 `?tab=` 里（刷新保持） |
+| `addresses` | 列表 + 新增 / 编辑 / 删除 / 设默认；表单来自公共组件 `AddressFormDialog` |
+| `profile` | 昵称、手机号、头像上传 |
+| `password` | 旧 / 新 / 确认，成功后 `logout()` + 跳登录 |
+
+- **路由守卫**：`meta.requiresAuth` + `beforeEach` 直接读 `getToken()`，不依赖 Pinia 安装时机；
+  未登录跳 `/login?redirect=...`，登录后自动回来
+- 订单 Tab 的状态映射：待付款 `PENDING_PAYMENT`；已付款 `PAID,SHIPPED`；
+  买过 `PAID,SHIPPED,COMPLETED,REFUNDING,REFUNDED`；退款售后 `REFUNDING,REFUNDED`；
+  **待评价 `COMPLETED`**（评价系统还没有，页面上用 `el-alert` 明说）
+- **地址弹窗抽成了公共组件**（`components/AddressFormDialog.vue`），结算页和地址管理页共用 ——
+  各写一份校验规则必然漂移
+- **省 / 市 / 区是级联的可筛选下拉**（`el-select filterable`）：选中省后市的选项跟着换，选中市后再换区县；
+  可以直接输入过滤（如输「广东」只剩「广东省」）。数据在 `src/data/china-area.json`
+  （来源 `modood/Administrative-divisions-of-China`，31 个省级，已压成 `{省:{市:[区县]}}`，约 47KB）。
+  编辑老数据时若城市/区县不在数据集里（比如直辖市的「北京市」在数据里是「市辖区」），
+  会把原值保留成一个选项，不会被悄悄清空
+- **头像上传**用 `el-upload` 的 `:http-request` 自定义上传：默认的 `action` 会绕过 axios、
+  带不上 JWT；`api/http.ts` 的 `postForm` **不手写 Content-Type**（否则丢 boundary）
+- 资料改动后调 `stores/user.ts` 的 `patchProfile` 同步内存与 localStorage，顶栏昵称立刻更新
+- **改密码失败时留在页面上**（后端返回 400），成功才登出 —— 输错旧密码不该被踢下线
+
+**顶栏用户区**（`App.vue`）：登录后是「圆形头像 + 昵称」，鼠标移上去**向下滑出一个抽屉面板**
+（我的订单 / 收货地址 / 个人资料 / 修改密码 / 退出登录），移开即收起。
+头像来自 `userStore.user.avatar`（登录响应里就带），空值回落到首字渐变占位。
+面板用 `opacity + translateY + visibility` 过渡，收起时 `pointer-events: none`；
+**面板顶部留了 8px 内边距**，让鼠标从头像滑到面板时不会跨出元素、把面板误收掉。
+窄屏（≤720px）把昵称收掉，只留头像。
+
 ---
 
 ## 5. 测试怎么写的
@@ -892,12 +984,13 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 **测试跑在独立的库和 Redis database 上**（`its_mygo_test` / db 1），跟开发环境彻底分开 ——
 为什么非分不可、怎么配的，见 HANDOFF §5.20。
 
-覆盖重点（当前 **95** 条；CI 上跳过 3 条依赖 MinIO 的，跑 92）：
+覆盖重点（当前 **107** 条；CI 上跳过 3 条依赖 MinIO 的，跑 104）：
 
 | 测试类 | 覆盖 |
 |---|---|
 | `AuthControllerTest` | 注册→登录→访问受保护接口；无 token / 坏 token 401；重复用户名；密码错误；参数校验 |
-| `AddressControllerTest` | 本人 CRUD；**越权返回 404**；默认地址唯一；未登录 401 |
+| `AddressControllerTest` | 本人 CRUD；**越权返回 404**；默认地址唯一；**独立的设默认接口（含幂等与越权）**；**删除默认后不递补**；未登录 401 |
+| **`UserProfileControllerTest`** | 未登录 401；资料回显（昵称回退用户名）；改昵称手机；空昵称 400；**旧密码错 400 而不是 401**；新旧相同被拒；改密后旧密码登录失败、新密码成功；**头像上传（StorageService 用 @MockitoBean 替身，不依赖 MinIO）** |
 | `CategoryControllerTest` | 树形结构；停用分类对顾客隐藏；非管理员 403；有子分类/有商品时禁删 |
 | `ProductControllerTest` | 上架可见/下架隐藏；关键词搜名称与副标题；分类筛选；分页；非管理员 403 |
 | `CartControllerTest` | 重复加购累加数量；总价只算已勾选且可购买；超库存被拒；**越权 404**；需登录 |
@@ -934,15 +1027,17 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 
 ## 7. 还没实现的部分
 
-M5 前端已完成**商品列表、商品详情（含规格选择栏）、登录注册、结算下单、订单详情**，
-其余页面待做：购物车、我的订单、以及整个管理端。
+M5 前端已完成**商品列表、商品详情（含规格选择栏）、登录注册、购物车、
+结算下单（购物车 / 立即购买两种来源）、订单详情、用户中心（订单 / 地址 / 资料 / 改密）**，
+其余页面待做：**整个管理端**。
 
 ⚠️ **管理端的规格编辑器还没有 UI** —— 后端接口（`PUT /api/admin/products/{id}/skus`）
 和测试都齐了，缺的是一个把规格值和 SKU 表格渲染出来的页面，等做管理端那轮一并补。
 
-⚠️ 结算页现在**只支持「立即购买」那一套**（商品通过 URL 参数传）。
-购物车结算的入口等购物车页做好再接 —— 后端已经支持了（`items` 留空即可），
-前端也只要把商品清单的数据源换掉，`Checkout.vue` 的结构不用动。
+⚠️ 用户中心里**「收藏 / 足迹 / 优惠券 / 评价」还没做**：
+- 「待评价」目前只是已完成订单的入口，**没有评价表、没有提交入口**
+- 收藏、足迹各需要一张新表 + 一组接口
+- 优惠券要券模板 + 领券 + 下单抵扣，是独立的一条功能线
 
 **前端还没有自动化测试，也没进 CI** —— 目前靠浏览器手工走一遍。
 
