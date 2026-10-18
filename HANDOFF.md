@@ -33,13 +33,7 @@
 订单详情与支付、用户中心（订单 / 地址 / 个人资料 / 改密 / 头像）**；
 后端已做 **SKU 化改造**（价格与库存的真相下沉到 SKU），**自动化测试 109 条**。
 
-⚠️ **工作区有未提交改动**（2026-10-18 交接时）——**下一轮接手先处理它**：
-
-> 内容：手机号校验（前后端 DTO + 两条测试 + 三份文档）。
-> 文件：`AddressRequest.java`、`UpdateProfileRequest.java`、`AddressControllerTest.java`、
-> `UserProfileControllerTest.java`、`AddressFormDialog.vue`、`Profile.vue`、`HANDOFF/README/implementation`。
-> 已通过 `./mvnw test`（109 条全绿）和 `npm run type-check`，浏览器也验证过
-> （地址与资料里输非法号码会提示、空手机号允许保存），可以直接提交。
+**交接时工作区是干净的** —— 手机号校验已提交（`0f3e013`），可以直接开始新一轮工作。
 
 前端技术栈：Vite 8 + Vue 3.5 + TypeScript 5.9 + Element Plus 2.14 + Pinia + Vue Router。
 配色定稿为「浅粉做面 + 深粉做点」，见 [docs/color-preview.html](docs/color-preview.html)。
@@ -54,7 +48,6 @@
 
 ## 2. 下一步做什么：管理端，以及用户中心的后续
 
-0. **先提交工作区里的手机号校验**（若上一轮没提交）——细节见 §1 的提示
 1. **管理端**（最大的一块）— 分类/商品 CRUD、传图、发货、退款审核、超时取消，
    外加 **规格与 SKU 的编辑器**（后端接口已经齐了，缺页面 —— 见 implementation §7）
 2. **用户中心的后续功能** — 收藏、足迹、优惠券、评价体系，各是一条独立功能线；
