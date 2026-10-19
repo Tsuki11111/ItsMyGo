@@ -1,0 +1,92 @@
+# 一次买够 · 本地启动清单
+#
+# 说明：本文件是「按顺序复制执行」的命令清单，不是一键脚本。
+# 后端和前端需要各开一个终端（都会一直占着终端）。
+# 前置：Docker Desktop 已启动。
+
+# ─────────────────────────────────────────────
+# 0. 中间件（mysql / redis / minio）
+# ─────────────────────────────────────────────
+# 这三个容器是多个项目共用的，不归本项目的 Compose 管理。
+# Docker Desktop 重启后 redis / minio 不会自动拉起，mysql 被手动 stop 过也不会。
+
+docker start mysql redis minio
+
+# 确认三个都在跑
+docker ps --filter "name=^(mysql|redis|minio)$" --format "table {{.Names}}\t{{.Status}}"
+
+# 可选：等 MySQL 真正可连（容器起来 ≠ 数据库就绪）
+until docker exec mysql sh -c 'mysqladmin ping -uroot -p"$MYSQL_ROOT_PASSWORD" --silent' 2>/dev/null; do
+  echo "等待 MySQL 就绪..."
+  sleep 2
+done
+echo "MySQL 已就绪"
+
+
+# ─────────────────────────────────────────────
+# 1. 后端（终端 1，占用 8080）
+# ─────────────────────────────────────────────
+cd /c/Users/28470/IdeaProjects/ItsMyGo
+
+# 如果当前终端继承的是 JDK 8，显式指定 17
+JAVA_HOME="C:/Users/28470/.jdks/jbr-17.0.14" ./mvnw spring-boot:run
+
+# 另开一个终端确认：
+# curl http://localhost:8080/api/health
+# 期望：{"code":200,"data":{"status":"UP",...}}
+
+
+# ─────────────────────────────────────────────
+# 2. 前端（终端 2，占用 5173）
+# ─────────────────────────────────────────────
+cd /c/Users/28470/IdeaProjects/ItsMyGo/frontend
+npm run dev
+
+# 如果 5173 被别的会话占着：
+# PORT=5174 npm run dev
+# 然后开 http://localhost:5174
+
+
+# ─────────────────────────────────────────────
+# 3. 打开页面
+# ─────────────────────────────────────────────
+# 商城：      http://localhost:5173
+# 管理后台：  http://localhost:5173/admin
+# 后端健康：  http://localhost:8080/api/health
+# MinIO 控制台：http://localhost:9001
+#
+# 演示账号：testuser / 123456
+# 管理员：testuser 需要是 ADMIN 角色（见下方 SQL），提权后要重新登录
+#
+# 提权 SQL（只需执行一次）：
+# docker exec -i mysql sh -c 'mysql --default-character-set=utf8mb4 -utsuk1 -p"$MYSQL_PASSWORD" its_mygo' -e "UPDATE users SET role='ADMIN' WHERE username='testuser';"
+
+
+# ─────────────────────────────────────────────
+# 4. 停止
+# ─────────────────────────────────────────────
+# 后端 / 前端：在各自终端按 Ctrl+C
+#
+# 中间件是共用的，不要随手 docker stop —— 其他项目可能也在用。
+# 如果确实要停：
+# docker stop mysql redis minio
+
+
+# ─────────────────────────────────────────────
+# 5. 常见问题
+# ─────────────────────────────────────────────
+# ① 后端报 RedisConnectionException / Connection refused
+#    → 中间件没起，执行第 0 步。这就是本次后端退出的原因。
+#
+# ② Port 8080 was already in use
+#    netstat -ano | grep ":8080" | grep LISTENING
+#    taskkill //PID <PID> //F
+#
+# ③ 导了种子数据后商品详情 404
+#    布隆过滤器只在启动时预热，重启后端即可。
+#
+# ④ 前端类型检查
+#    cd frontend && npm run type-check
+#
+# ⑤ 后端测试（用独立库 its_mygo_test 和 Redis db 1，不影响开发数据）
+#    ./mvnw test
