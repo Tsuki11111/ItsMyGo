@@ -98,6 +98,7 @@ function formatTime(value: string): string {
 
         <article v-for="order in orders" :key="order.order.id" class="order-card">
           <div class="card-head">
+            <span class="shop">{{ order.order.merchantName }}</span>
             <span class="order-no">{{ order.order.orderNo }}</span>
             <span class="order-time">{{ formatTime(order.order.createdAt) }}</span>
             <span class="status">{{ order.statusLabel }}</span>
@@ -224,6 +225,12 @@ function formatTime(value: string): string {
 
 .order-no {
   font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+  color: var(--c-text);
+}
+
+.shop {
+  font-size: 12.5px;
+  font-weight: 600;
   color: var(--c-text);
 }
 

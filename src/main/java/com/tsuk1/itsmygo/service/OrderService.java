@@ -1,5 +1,6 @@
 package com.tsuk1.itsmygo.service;
 
+import com.tsuk1.itsmygo.dto.CheckoutView;
 import com.tsuk1.itsmygo.dto.CreateOrderRequest;
 import com.tsuk1.itsmygo.dto.OrderView;
 import com.tsuk1.itsmygo.dto.PageResponse;
@@ -14,8 +15,8 @@ public interface OrderService {
      */
     String issueToken(Long userId);
 
-    /** 结算下单：从购物车勾选项生成订单并扣库存 */
-    OrderView create(Long userId, CreateOrderRequest request);
+    /** 结算下单：按商户拆成多个子订单，各自支付/发货/退款 */
+    CheckoutView create(Long userId, CreateOrderRequest request);
 
     /**
      * 顾客端订单列表（**带明细**）。
@@ -50,7 +51,13 @@ public interface OrderService {
 
     // ── 管理端 ──
 
-    PageResponse<Order> pageForAdmin(int page, int size, String status);
+    /** 旧签名兼容 */
+    default PageResponse<Order> pageForAdmin(int page, int size, String status) {
+        return pageForAdmin(page, size, status, null);
+    }
+
+    /** 平台可按商户筛选 */
+    PageResponse<Order> pageForAdmin(int page, int size, String status, Long merchantId);
 
     OrderView detailForAdmin(Long orderId);
 
@@ -61,6 +68,18 @@ public interface OrderService {
 
     /** 驳回退款：回到申请前的状态，库存不动 */
     OrderView rejectRefund(Long orderId);
+
+    // ── 商家端 ──
+
+    PageResponse<Order> pageForMerchant(Long merchantId, int page, int size, String status);
+
+    OrderView detailForMerchant(Long merchantId, Long orderId);
+
+    OrderView shipForMerchant(Long merchantId, Long orderId, ShipRequest request);
+
+    OrderView approveRefundForMerchant(Long merchantId, Long orderId);
+
+    OrderView rejectRefundForMerchant(Long merchantId, Long orderId);
 
     /**
      * 取消超时未支付的订单并回滚库存。

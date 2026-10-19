@@ -63,12 +63,13 @@ class OrderCouponTest extends ApiTestBase {
     }
 
     private String orderBody(long addressId, String token, long productId, long skuId, Long couponId) {
+        String coupons = couponId == null ? "[]"
+                : "[{\"merchantId\": 1, \"userCouponId\": " + couponId + "}]";
         return """
                 {"addressId": %d, "token": "%s",
                  "items": [{"productId": %d, "skuId": %d, "quantity": 1}],
-                 "couponId": %s}
-                """.formatted(addressId, token, productId, skuId,
-                couponId == null ? "null" : couponId.toString());
+                 "coupons": %s}
+                """.formatted(addressId, token, productId, skuId, coupons);
     }
 
     private String token(String customer) throws Exception {

@@ -29,8 +29,9 @@ public class AdminOrderController {
     @GetMapping
     public Result<PageResponse<Order>> page(@RequestParam(defaultValue = "1") int page,
                                             @RequestParam(defaultValue = "10") int size,
-                                            @RequestParam(required = false) String status) {
-        return Result.ok(orderService.pageForAdmin(page, size, status));
+                                            @RequestParam(required = false) String status,
+                                            @RequestParam(required = false) Long merchantId) {
+        return Result.ok(orderService.pageForAdmin(page, size, status, merchantId));
     }
 
     @GetMapping("/{id}")

@@ -8,9 +8,11 @@ import com.tsuk1.itsmygo.dto.CartItemView;
 import com.tsuk1.itsmygo.dto.CartUpdateRequest;
 import com.tsuk1.itsmygo.dto.CartView;
 import com.tsuk1.itsmygo.entity.CartItem;
+import com.tsuk1.itsmygo.entity.Merchant;
 import com.tsuk1.itsmygo.entity.Product;
 import com.tsuk1.itsmygo.entity.ProductSku;
 import com.tsuk1.itsmygo.mapper.CartItemMapper;
+import com.tsuk1.itsmygo.mapper.MerchantMapper;
 import com.tsuk1.itsmygo.mapper.ProductMapper;
 import com.tsuk1.itsmygo.mapper.ProductSkuMapper;
 import com.tsuk1.itsmygo.service.CartService;
@@ -33,12 +35,14 @@ public class CartServiceImpl implements CartService {
     private final CartItemMapper cartItemMapper;
     private final ProductMapper productMapper;
     private final ProductSkuMapper skuMapper;
+    private final MerchantMapper merchantMapper;
 
     public CartServiceImpl(CartItemMapper cartItemMapper, ProductMapper productMapper,
-                           ProductSkuMapper skuMapper) {
+                           ProductSkuMapper skuMapper, MerchantMapper merchantMapper) {
         this.cartItemMapper = cartItemMapper;
         this.productMapper = productMapper;
         this.skuMapper = skuMapper;
+        this.merchantMapper = merchantMapper;
     }
 
     @Override
@@ -55,6 +59,7 @@ public class CartServiceImpl implements CartService {
         if (product == null || !Integer.valueOf(ON_SALE).equals(product.getStatus())) {
             throw new BizException(ResultCode.NOT_FOUND, "商品不存在或已下架");
         }
+        requireActiveMerchant(product.getMerchantId());
         ProductSku sku = requireSkuOf(request.skuId(), product.getId());
         if (request.quantity() > sku.getStock()) {
             throw new BizException(ResultCode.BAD_REQUEST, "库存不足");
@@ -72,6 +77,7 @@ public class CartServiceImpl implements CartService {
         if (product == null || !Integer.valueOf(ON_SALE).equals(product.getStatus())) {
             throw new BizException(ResultCode.BAD_REQUEST, "商品已下架，无法修改数量");
         }
+        requireActiveMerchant(product.getMerchantId());
         ProductSku sku = requireSkuOf(item.getSkuId(), item.getProductId());
         if (request.quantity() > sku.getStock()) {
             throw new BizException(ResultCode.BAD_REQUEST, "库存不足");
@@ -107,6 +113,12 @@ public class CartServiceImpl implements CartService {
                         items.stream().map(CartItem::getSkuId).distinct().toList())
                 .stream().collect(Collectors.toMap(ProductSku::getId, Function.identity()));
 
+        List<Long> merchantIds = products.values().stream()
+                .map(Product::getMerchantId).filter(java.util.Objects::nonNull).distinct().toList();
+        Map<Long, Merchant> merchants = merchantIds.isEmpty() ? Map.of()
+                : merchantMapper.selectByIds(merchantIds).stream()
+                .collect(Collectors.toMap(Merchant::getId, Function.identity()));
+
         BigDecimal selectedTotal = BigDecimal.ZERO;
         List<CartItemView> views = new ArrayList<>(items.size());
 
@@ -122,13 +134,17 @@ public class CartServiceImpl implements CartService {
                         product == null ? "" : product.getMainImage(),
                         sku == null ? "" : sku.getSpecText(),
                         BigDecimal.ZERO, 0, item.getQuantity(), BigDecimal.ZERO,
-                        selected, false, false));
+                        selected, false, false, null, "", false));
                 continue;
             }
 
-            // 商品和它这一款都得在售
+            Merchant merchant = merchants.get(product.getMerchantId());
+            boolean merchantActive = merchant != null && Merchant.ACTIVE.equals(merchant.getStatus());
+
+            // 商品、规格、店铺三者都正常才算在售
             boolean onSale = Integer.valueOf(ON_SALE).equals(product.getStatus())
-                    && Integer.valueOf(ON_SALE).equals(sku.getStatus());
+                    && Integer.valueOf(ON_SALE).equals(sku.getStatus())
+                    && merchantActive;
             boolean available = onSale && sku.getStock() >= item.getQuantity();
             BigDecimal subtotal = sku.getPrice().multiply(BigDecimal.valueOf(item.getQuantity()));
 
@@ -141,10 +157,19 @@ public class CartServiceImpl implements CartService {
             views.add(new CartItemView(item.getId(), item.getProductId(), item.getSkuId(),
                     product.getName(), image, sku.getSpecText(),
                     sku.getPrice(), sku.getStock(), item.getQuantity(), subtotal,
-                    selected, onSale, available));
+                    selected, onSale, available,
+                    product.getMerchantId(),
+                    merchant == null ? "" : merchant.getName(), merchantActive));
         }
 
         return new CartView(views, selectedTotal);
+    }
+
+    private void requireActiveMerchant(Long merchantId) {
+        Merchant merchant = merchantId == null ? null : merchantMapper.selectById(merchantId);
+        if (merchant == null || !Merchant.ACTIVE.equals(merchant.getStatus())) {
+            throw new BizException(ResultCode.NOT_FOUND, "店铺不存在或已停用");
+        }
     }
 
     /** SKU 必须存在、属于这个商品、且在售 —— 三者缺一都不该进购物车 */

@@ -18,7 +18,10 @@ export function fetchMyCoupons(
   return get<PageResponse<UserCouponView>>('/coupons/mine', { page, size, status })
 }
 
-/** 结算页预校验：按商品总额筛可用券 */
-export function fetchAvailableCoupons(amount: number): Promise<UserCouponView[]> {
-  return get<UserCouponView[]>('/coupons/mine/available', { amount })
+/** 结算页预校验：按商品总额筛可用券；传 merchantId 时额外包含该店店铺券 */
+export function fetchAvailableCoupons(
+  amount: number,
+  merchantId?: number,
+): Promise<UserCouponView[]> {
+  return get<UserCouponView[]>('/coupons/mine/available', { amount, merchantId })
 }

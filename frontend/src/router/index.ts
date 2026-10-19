@@ -11,6 +11,12 @@ const router = createRouter({
     { path: '/login', name: 'login', component: () => import('@/views/Login.vue') },
     { path: '/cart', name: 'cart', component: () => import('@/views/Cart.vue') },
     { path: '/checkout', name: 'checkout', component: () => import('@/views/Checkout.vue') },
+    {
+      path: '/checkout/result',
+      name: 'checkout-result',
+      component: () => import('@/views/CheckoutResult.vue'),
+      meta: { requiresAuth: true },
+    },
     { path: '/order/:id', name: 'order-detail', component: () => import('@/views/OrderDetail.vue') },
     { path: '/coupons', name: 'coupon-center', component: () => import('@/views/CouponCenter.vue') },
     {
@@ -26,6 +32,9 @@ const router = createRouter({
       meta: { requiresMerchant: true },
       children: [
         { path: 'products', name: 'merchant-products', component: () => import('@/views/merchant/Products.vue') },
+        { path: 'orders', name: 'merchant-orders', component: () => import('@/views/merchant/Orders.vue') },
+        { path: 'coupons', name: 'merchant-coupons', component: () => import('@/views/merchant/Coupons.vue') },
+        { path: 'reviews', name: 'merchant-reviews', component: () => import('@/views/merchant/Reviews.vue') },
         { path: 'profile', name: 'merchant-profile', component: () => import('@/views/merchant/Profile.vue') },
       ],
     },

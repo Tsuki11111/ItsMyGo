@@ -1,8 +1,13 @@
 import { get, post, postForm, put } from './http'
 import type {
   AdjustSkuStockPayload,
+  AdminReviewView,
+  Coupon,
+  CouponPayload,
   MerchantPayload,
   MerchantView,
+  Order,
+  OrderView,
   PageResponse,
   Product,
   ProductPayload,
@@ -80,4 +85,76 @@ export function uploadMerchantImage(file: File): Promise<string> {
   const form = new FormData()
   form.append('file', file)
   return postForm<string>('/merchant/files/upload', form)
+}
+
+// ── 商家订单 ──
+
+export interface MerchantOrderQuery {
+  page?: number
+  size?: number
+  status?: string
+}
+
+export function fetchMerchantOrders(
+  query: MerchantOrderQuery,
+): Promise<PageResponse<Order>> {
+  return get<PageResponse<Order>>('/merchant/orders', { ...query })
+}
+
+export function fetchMerchantOrder(id: number): Promise<OrderView> {
+  return get<OrderView>(`/merchant/orders/${id}`)
+}
+
+export function shipMerchantOrder(id: number, trackingNo: string): Promise<OrderView> {
+  return post<OrderView>(`/merchant/orders/${id}/ship`, { trackingNo })
+}
+
+export function approveMerchantRefund(id: number): Promise<OrderView> {
+  return post<OrderView>(`/merchant/orders/${id}/refund/approve`)
+}
+
+export function rejectMerchantRefund(id: number): Promise<OrderView> {
+  return post<OrderView>(`/merchant/orders/${id}/refund/reject`)
+}
+
+// ── 商家店铺券 ──
+
+export interface MerchantCouponQuery {
+  page?: number
+  size?: number
+  status?: string
+  keyword?: string
+}
+
+export function fetchMerchantCoupons(
+  query: MerchantCouponQuery,
+): Promise<PageResponse<Coupon>> {
+  return get<PageResponse<Coupon>>('/merchant/coupons', { ...query })
+}
+
+export function createMerchantCoupon(payload: CouponPayload): Promise<Coupon> {
+  return post<Coupon>('/merchant/coupons', payload)
+}
+
+export function updateMerchantCoupon(id: number, payload: CouponPayload): Promise<Coupon> {
+  return put<Coupon>(`/merchant/coupons/${id}`, payload)
+}
+
+// ── 商家评价 ──
+
+export interface MerchantReviewQuery {
+  page?: number
+  size?: number
+  visible?: boolean
+  keyword?: string
+}
+
+export function fetchMerchantReviews(
+  query: MerchantReviewQuery,
+): Promise<PageResponse<AdminReviewView>> {
+  return get<PageResponse<AdminReviewView>>('/merchant/reviews', { ...query })
+}
+
+export function setMerchantReviewVisible(id: number, visible: boolean): Promise<void> {
+  return put<void>(`/merchant/reviews/${id}/visible`, { visible })
 }

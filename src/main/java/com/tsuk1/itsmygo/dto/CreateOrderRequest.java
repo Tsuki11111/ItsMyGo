@@ -32,14 +32,24 @@ public record CreateOrderRequest(
         List<BuyNowItem> items,
 
         /**
-         * 使用的用户券 id（不是券模板 id）；不传表示不用券。
-         * 服务端会重新校验归属、状态、有效期与门槛，前端的选择只是预校验。
+         * 每个商户选用的用户券；一个商户最多一张，同一张券不能出现在多个商户里。
+         * 平台券（merchant_id 为 NULL）可以指定给任意一个商户。
          */
-        Long couponId
+        @Valid
+        List<CouponSelection> coupons
 ) {
     /** 兼容旧调用方：不带优惠券 */
     public CreateOrderRequest(Long addressId, String token, List<BuyNowItem> items) {
-        this(addressId, token, items, null);
+        this(addressId, token, items, List.of());
+    }
+
+    public record CouponSelection(
+            @NotNull(message = "优惠券所属商户不能为空")
+            Long merchantId,
+
+            @NotNull(message = "优惠券不能为空")
+            Long userCouponId
+    ) {
     }
 
     public record BuyNowItem(

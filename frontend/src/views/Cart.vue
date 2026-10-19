@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ProductImage from '@/components/ProductImage.vue'
 import { fetchCart, removeCartItem, updateCartItem } from '@/api/cart'
@@ -17,6 +17,45 @@ const loading = ref(true)
 const pendingId = ref<number | null>(null)
 
 const items = computed(() => cart.value?.items ?? [])
+
+interface CartGroup {
+  key: string
+  merchantId: number | null
+  merchantName: string
+  items: CartItemView[]
+  selectable: CartItemView[]
+  selectedCount: number
+  allSelected: boolean
+  partiallySelected: boolean
+  subtotal: number
+}
+
+/** 按店铺分组：跨店购物车在结算时由后端按店拆单 */
+const groups = computed<CartGroup[]>(() => {
+  const map = new Map<string, CartItemView[]>()
+  for (const item of items.value) {
+    const key = item.merchantId == null ? 'none' : String(item.merchantId)
+    const list = map.get(key) ?? []
+    list.push(item)
+    map.set(key, list)
+  }
+  return [...map.entries()].map(([key, list]) => {
+    const selectable = list.filter((item) => item.available)
+    const selected = selectable.filter((item) => item.selected)
+    return {
+      key,
+      merchantId: list[0].merchantId,
+      merchantName: list[0].merchantName || '店铺不存在',
+      items: list,
+      selectable,
+      selectedCount: selected.length,
+      allSelected: selectable.length > 0 && selected.length === selectable.length,
+      partiallySelected: selected.length > 0 && selected.length < selectable.length,
+      subtotal: selected.reduce((sum, item) => sum + item.subtotal, 0),
+    }
+  })
+})
+
 /** 可勾选的只有「在售且库存够」的行 —— 失效行让用户看到但选不了 */
 const selectable = computed(() => items.value.filter((item) => item.available))
 const selectedCount = computed(() => selectable.value.filter((item) => item.selected).length)
@@ -68,7 +107,16 @@ function changeQuantity(item: CartItemView, quantity: number) {
 
 /** 全选 / 取消全选：只动「能买」的那些行，失效行本来就选不了 */
 async function toggleAll(selected: boolean) {
-  const targets = selectable.value.filter((item) => item.selected !== selected)
+  await toggleRows(selectable.value, selected)
+}
+
+/** 组内全选 / 取消全选 */
+async function toggleGroup(group: CartGroup, selected: boolean) {
+  await toggleRows(group.selectable, selected)
+}
+
+async function toggleRows(candidates: CartItemView[], selected: boolean) {
+  const targets = candidates.filter((item) => item.selected !== selected)
   if (!targets.length) return
 
   pendingId.value = -1
@@ -83,6 +131,10 @@ async function toggleAll(selected: boolean) {
   } finally {
     pendingId.value = null
   }
+}
+
+function invalidReason(item: CartItemView): string {
+  return item.onSale ? '库存不足' : '已下架或店铺已停用'
 }
 
 async function remove(item: CartItemView) {
@@ -116,7 +168,7 @@ function goCheckout() {
     </el-empty>
 
     <template v-else-if="items.length">
-      <section class="block">
+      <section class="block cart-toolbar">
         <div class="cart-head">
           <el-checkbox
             :model-value="allSelected"
@@ -127,8 +179,31 @@ function goCheckout() {
           </el-checkbox>
           <span class="head-note">价格以当前为准，下单时才会锁定</span>
         </div>
+      </section>
 
-        <div v-for="item in items" :key="item.id" class="cart-row" :class="{ invalid: !item.available }">
+      <section v-for="group in groups" :key="group.key" class="block shop-block">
+        <div class="shop-head">
+          <el-checkbox
+            :model-value="group.allSelected"
+            :indeterminate="group.partiallySelected"
+            :disabled="group.selectable.length === 0 || pendingId !== null"
+            @change="(checked: boolean) => toggleGroup(group, checked)"
+          >
+            <span class="shop-name">{{ group.merchantName }}</span>
+          </el-checkbox>
+          <div class="shop-right">
+            <span class="shop-subtotal">小计 ¥{{ group.subtotal.toFixed(2) }}</span>
+            <RouterLink
+              v-if="group.merchantId && group.items.some((item) => item.merchantActive)"
+              :to="`/shop/${group.merchantId}`"
+              class="shop-link"
+            >
+              进店
+            </RouterLink>
+          </div>
+        </div>
+
+        <div v-for="item in group.items" :key="item.id" class="cart-row" :class="{ invalid: !item.available }">
           <el-checkbox
             class="row-check"
             :model-value="item.selected"
@@ -144,7 +219,7 @@ function goCheckout() {
             <p class="row-name">{{ item.productName }}</p>
             <p v-if="item.specText" class="row-spec">{{ item.specText }}</p>
             <p v-if="!item.available" class="row-invalid">
-              {{ item.onSale ? '库存不足' : '已下架' }}，无法结算
+              {{ invalidReason(item) }}，无法结算
             </p>
           </div>
 
@@ -227,6 +302,38 @@ function goCheckout() {
   justify-content: space-between;
   padding: 14px 0;
   border-bottom: 1px solid var(--c-border);
+}
+
+/* ── 店铺分组 ── */
+.shop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.shop-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--c-text);
+}
+
+.shop-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.shop-subtotal {
+  font-size: 12px;
+  color: var(--c-text-3);
+}
+
+.shop-link {
+  font-size: 12px;
+  color: var(--c-pink);
+  text-decoration: none;
 }
 
 .head-note {

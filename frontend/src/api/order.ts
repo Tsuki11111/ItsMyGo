@@ -1,5 +1,5 @@
 import { get, post } from './http'
-import type { OrderView, PageResponse } from './types'
+import type { CheckoutView, OrderView, PageResponse } from './types'
 
 /**
  * 一次性提交令牌。
@@ -16,12 +16,12 @@ export interface CreateOrderPayload {
   token: string
   /** 「立即购买」：直接指定商品与规格；不传则从购物车勾选项下单 */
   items?: { productId: number; skuId: number; quantity: number }[]
-  /** 使用的用户券 id；不传表示不用券 */
-  couponId?: number
+  /** 每个店铺选用的用户券；平台券只能分配给一个店铺 */
+  coupons?: { merchantId: number; userCouponId: number }[]
 }
 
-export function createOrder(payload: CreateOrderPayload): Promise<OrderView> {
-  return post<OrderView>('/orders', payload)
+export function createOrder(payload: CreateOrderPayload): Promise<CheckoutView> {
+  return post<CheckoutView>('/orders', payload)
 }
 
 export function fetchOrder(id: number): Promise<OrderView> {

@@ -153,8 +153,12 @@ export interface CartItemView {
   subtotal: number
   selected: boolean
   onSale: boolean
-  /** 商品和规格都在售，且库存够本次数量 */
+  /** 商品和规格都在售、店铺营业中，且库存够本次数量 */
   available: boolean
+  /** 所属商户；商品已删除时为 null */
+  merchantId: number | null
+  merchantName: string
+  merchantActive: boolean
 }
 
 export interface CartView {
@@ -211,6 +215,9 @@ export interface Order {
   id: number
   orderNo: string
   userId: number
+  /** 所属商户：按店拆单后一个订单只属于一家店 */
+  merchantId: number
+  merchantName: string
   /** 实付金额 = originalAmount - discountAmount */
   totalAmount: number
   /** 优惠前商品总额 */
@@ -238,6 +245,16 @@ export interface Order {
 export interface OrderView {
   order: Order
   /** 状态中文名，由后端给 */
+  statusLabel: string
+  items: OrderItem[]
+  itemCount: number
+}
+
+/** 一次结算生成多个子订单（按商户拆单） */
+export interface CheckoutView {
+  orders: OrderView[]
+  /** 第一个子订单，向后兼容旧响应结构 */
+  order: Order
   statusLabel: string
   items: OrderItem[]
   itemCount: number
@@ -324,6 +341,8 @@ export interface FavoriteView {
   /** 1 上架 / 0 下架；商品已删除时也为 0 */
   status: number
   createdAt: string
+  merchantId: number | null
+  merchantName: string
 }
 
 /** 足迹列表项 */
@@ -336,6 +355,8 @@ export interface FootprintView {
   price: number
   status: number
   viewedAt: string
+  merchantId: number | null
+  merchantName: string
 }
 
 /** 商品详情页公开评价 */
@@ -360,6 +381,8 @@ export interface MyReviewView {
   productId: number
   productName: string
   productImage: string
+  merchantId: number
+  merchantName: string
   rating: number
   content: string
   /** 1 展示 / 0 已被管理端隐藏 */
@@ -379,6 +402,8 @@ export interface AdminReviewView {
   id: number
   userId: number
   userNickname: string
+  merchantId: number
+  merchantName: string
   productId: number
   productName: string
   rating: number
@@ -390,6 +415,8 @@ export interface AdminReviewView {
 /** 优惠券模板（管理端） */
 export interface Coupon {
   id: number
+  /** NULL=平台券；非空=店铺券 */
+  merchantId: number | null
   name: string
   thresholdAmount: number
   discountAmount: number
@@ -406,6 +433,8 @@ export interface Coupon {
 /** 领券中心列表项 */
 export interface CouponView {
   id: number
+  merchantId: number | null
+  merchantName: string
   name: string
   thresholdAmount: number
   discountAmount: number
@@ -421,6 +450,8 @@ export interface CouponView {
 export interface UserCouponView {
   id: number
   couponId: number
+  merchantId: number | null
+  merchantName: string
   couponName: string
   thresholdAmount: number
   discountAmount: number
@@ -441,6 +472,8 @@ export interface CouponPayload {
   validFrom: string
   validTo: string
   enabled: boolean
+  /** NULL/undefined=平台券；非空=指定店铺券 */
+  merchantId?: number | null
 }
 
 // ── 多商户 ──────────────────────────────────────────────────────

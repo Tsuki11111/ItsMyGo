@@ -5,18 +5,21 @@ import OrderDetailDrawer from './components/OrderDetailDrawer.vue'
 import {
   approveRefund,
   cancelExpiredOrders,
+  fetchAdminMerchants,
   fetchAdminOrders,
   rejectRefund,
   shipOrder,
 } from '@/api/admin'
-import type { Order } from '@/api/types'
+import type { AdminMerchantView, Order } from '@/api/types'
 import { ORDER_STATUS_OPTIONS, orderStatusLabel, orderStatusTag } from '@/utils/orderStatus'
 
 const orders = ref<Order[]>([])
+const merchants = ref<AdminMerchantView[]>([])
 const total = ref(0)
 const page = ref(1)
 const size = ref(10)
 const status = ref('')
+const merchantId = ref<number | null>(null)
 const loading = ref(false)
 
 const detailVisible = ref(false)
@@ -32,12 +35,18 @@ async function load() {
       page: page.value,
       size: size.value,
       status: status.value || undefined,
+      merchantId: merchantId.value ?? undefined,
     })
     orders.value = result.records
     total.value = result.total
   } finally {
     loading.value = false
   }
+}
+
+async function loadMerchants() {
+  const result = await fetchAdminMerchants({ page: 1, size: 100 })
+  merchants.value = result.records
 }
 
 function search() {
@@ -132,7 +141,10 @@ async function cancelExpired() {
   await load()
 }
 
-onMounted(load)
+onMounted(async () => {
+  await loadMerchants()
+  await load()
+})
 </script>
 
 <template>
@@ -147,6 +159,21 @@ onMounted(load)
     </div>
 
     <div class="filters">
+      <el-select
+        v-model="merchantId"
+        clearable
+        filterable
+        placeholder="全部店铺"
+        style="width: 180px"
+        @change="search"
+      >
+        <el-option
+          v-for="merchant in merchants"
+          :key="merchant.id"
+          :label="merchant.name"
+          :value="merchant.id"
+        />
+      </el-select>
       <el-select
         v-model="status"
         clearable
@@ -169,6 +196,7 @@ onMounted(load)
           <span class="order-no">{{ row.orderNo }}</span>
         </template>
       </el-table-column>
+      <el-table-column prop="merchantName" label="店铺" width="130" />
       <el-table-column prop="userId" label="用户 ID" width="90" align="center" />
       <el-table-column label="金额" width="110" align="right">
         <template #default="{ row }">¥{{ row.totalAmount.toFixed(2) }}</template>

@@ -4,12 +4,14 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.tsuk1.itsmygo.common.ResultCode;
 import com.tsuk1.itsmygo.common.exception.BizException;
+import com.tsuk1.itsmygo.dto.CheckoutView;
 import com.tsuk1.itsmygo.dto.CreateOrderRequest;
 import com.tsuk1.itsmygo.dto.OrderView;
 import com.tsuk1.itsmygo.dto.PageResponse;
 import com.tsuk1.itsmygo.dto.ShipRequest;
 import com.tsuk1.itsmygo.entity.Address;
 import com.tsuk1.itsmygo.entity.CartItem;
+import com.tsuk1.itsmygo.entity.Merchant;
 import com.tsuk1.itsmygo.entity.Order;
 import com.tsuk1.itsmygo.entity.OrderItem;
 import com.tsuk1.itsmygo.entity.OrderStatus;
@@ -19,6 +21,7 @@ import com.tsuk1.itsmygo.entity.ProductSku;
 import com.tsuk1.itsmygo.entity.UserCoupon;
 import com.tsuk1.itsmygo.mapper.AddressMapper;
 import com.tsuk1.itsmygo.mapper.CartItemMapper;
+import com.tsuk1.itsmygo.mapper.MerchantMapper;
 import com.tsuk1.itsmygo.mapper.OrderItemMapper;
 import com.tsuk1.itsmygo.mapper.OrderMapper;
 import com.tsuk1.itsmygo.mapper.PaymentMapper;
@@ -32,6 +35,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
@@ -39,6 +44,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -47,6 +53,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -72,13 +79,14 @@ public class OrderServiceImpl implements OrderService {
     private final StringRedisTemplate redisTemplate;
     private final ReviewMapper reviewMapper;
     private final UserCouponMapper userCouponMapper;
+    private final MerchantMapper merchantMapper;
 
     public OrderServiceImpl(OrderMapper orderMapper, OrderItemMapper orderItemMapper,
                             CartItemMapper cartItemMapper, ProductMapper productMapper,
                             ProductSkuMapper skuMapper, AddressMapper addressMapper,
                             PaymentMapper paymentMapper, StockService stockService,
                             StringRedisTemplate redisTemplate, ReviewMapper reviewMapper,
-                            UserCouponMapper userCouponMapper) {
+                            UserCouponMapper userCouponMapper, MerchantMapper merchantMapper) {
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
         this.cartItemMapper = cartItemMapper;
@@ -90,6 +98,7 @@ public class OrderServiceImpl implements OrderService {
         this.redisTemplate = redisTemplate;
         this.reviewMapper = reviewMapper;
         this.userCouponMapper = userCouponMapper;
+        this.merchantMapper = merchantMapper;
     }
 
     /**
@@ -128,9 +137,23 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     @Transactional
-    public OrderView create(Long userId, CreateOrderRequest request) {
+    public CheckoutView create(Long userId, CreateOrderRequest request) {
         // 令牌校验放在最前面：重复提交在这里就被挡住，一个字节的业务逻辑都不会执行
         consumeToken(userId, request.token());
+
+        // 提交阶段失败（业务方法已返回、代理提交时才报错）不会进下面的 catch，
+        // 所以令牌归还也挂到事务回滚回调上；restoreToken 是幂等的。
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCompletion(int status) {
+                    if (status != TransactionSynchronization.STATUS_COMMITTED) {
+                        restoreToken(userId, request.token());
+                    }
+                }
+            });
+        }
+
         try {
             return doCreate(userId, request);
         } catch (RuntimeException e) {
@@ -140,7 +163,7 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
-    private OrderView doCreate(Long userId, CreateOrderRequest request) {
+    private CheckoutView doCreate(Long userId, CreateOrderRequest request) {
         Address address = addressMapper.selectById(request.addressId());
         if (address == null || !userId.equals(address.getUserId())) {
             throw new BizException(ResultCode.NOT_FOUND, "收货地址不存在");
@@ -149,6 +172,9 @@ public class OrderServiceImpl implements OrderService {
         // 商品有两种来源，之后一视同仁：立即购买（直接给定）or 购物车勾选项
         boolean fromCart = request.items() == null || request.items().isEmpty();
         List<OrderLine> lines = fromCart ? selectedCartLines(userId) : buyNowLines(request.items());
+        if (lines.isEmpty()) {
+            throw new BizException(ResultCode.BAD_REQUEST, "没有可结算的商品");
+        }
 
         Map<Long, Product> products = productMapper.selectByIds(
                         lines.stream().map(OrderLine::productId).distinct().toList())
@@ -157,89 +183,129 @@ public class OrderServiceImpl implements OrderService {
                         lines.stream().map(OrderLine::skuId).distinct().toList())
                 .stream().collect(Collectors.toMap(ProductSku::getId, Function.identity()));
 
-        // 已成功扣减的 **SKU** → 数量；出错时按它回补 Redis
-        // （数据库那边由 @Transactional 自动回滚，Redis 不在事务里，必须手动补）
+        // 先按商户分组，并校验商品/规格/店铺
+        Map<Long, List<OrderLine>> groups = new LinkedHashMap<>();
+        Map<Long, BigDecimal> groupTotals = new LinkedHashMap<>();
+        Set<Long> merchantIds = new HashSet<>();
+        for (OrderLine line : lines) {
+            Product product = products.get(line.productId());
+            if (product == null || !Integer.valueOf(ON_SALE).equals(product.getStatus())) {
+                throw new BizException(ResultCode.BAD_REQUEST,
+                        fromCart ? "商品已下架，请先移出购物车" : "商品已下架");
+            }
+            ProductSku sku = skus.get(line.skuId());
+            if (sku == null || !line.productId().equals(sku.getProductId())) {
+                throw new BizException(ResultCode.BAD_REQUEST, "商品规格不存在，请重新选择");
+            }
+            if (!Integer.valueOf(ON_SALE).equals(sku.getStatus())) {
+                throw new BizException(ResultCode.BAD_REQUEST, "该规格已停售");
+            }
+            merchantIds.add(product.getMerchantId());
+            groups.computeIfAbsent(product.getMerchantId(), k -> new ArrayList<>()).add(line);
+            groupTotals.merge(product.getMerchantId(),
+                    sku.getPrice().multiply(BigDecimal.valueOf(line.quantity())), BigDecimal::add);
+        }
+
+        Map<Long, Merchant> merchants = merchantMapper.selectByIds(merchantIds.stream().toList())
+                .stream().collect(Collectors.toMap(Merchant::getId, Function.identity()));
+        for (Long merchantId : groups.keySet()) {
+            Merchant merchant = merchants.get(merchantId);
+            if (merchant == null || !Merchant.ACTIVE.equals(merchant.getStatus())) {
+                throw new BizException(ResultCode.BAD_REQUEST, "店铺已停用，请先移出购物车");
+            }
+        }
+
+        // 券全部预校验完再动库存：平台券只能分配给一个子订单，店铺券只能用于本店
+        Map<Long, UserCoupon> groupCoupons = validateCoupons(
+                userId, request.coupons(), groups.keySet(), groupTotals);
+        Map<Long, BigDecimal> groupDiscounts = new LinkedHashMap<>();
+        for (Map.Entry<Long, UserCoupon> entry : groupCoupons.entrySet()) {
+            groupDiscounts.put(entry.getKey(),
+                    entry.getValue().getDiscountAmount().min(groupTotals.get(entry.getKey())));
+        }
+
+        // 已成功扣减的 **SKU** → 数量；出错或事务回滚时按它回补 Redis
         Map<Long, Integer> reserved = new LinkedHashMap<>();
+        AtomicBoolean released = new AtomicBoolean(false);
+        Runnable releaseReserved = () -> {
+            if (released.compareAndSet(false, true)) {
+                reserved.forEach(stockService::release);
+            }
+        };
+        // 业务 catch 只能覆盖方法内抛出的异常；提交阶段失败要靠事务回调
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCompletion(int status) {
+                    if (status != TransactionSynchronization.STATUS_COMMITTED) {
+                        releaseReserved.run();
+                    }
+                }
+            });
+        }
 
         try {
-            List<OrderItem> items = new ArrayList<>(lines.size());
-            BigDecimal total = BigDecimal.ZERO;
-
-            for (OrderLine line : lines) {
-                Product product = products.get(line.productId());
-                if (product == null || !Integer.valueOf(ON_SALE).equals(product.getStatus())) {
-                    throw new BizException(ResultCode.BAD_REQUEST,
-                            fromCart ? "商品已下架，请先移出购物车" : "商品已下架");
-                }
-                ProductSku sku = skus.get(line.skuId());
-                if (sku == null || !line.productId().equals(sku.getProductId())) {
-                    throw new BizException(ResultCode.BAD_REQUEST, "商品规格不存在，请重新选择");
-                }
-                if (!Integer.valueOf(ON_SALE).equals(sku.getStatus())) {
-                    throw new BizException(ResultCode.BAD_REQUEST, "该规格已停售");
-                }
-
-                reserveStock(sku, line.quantity(), reserved);
-
-                OrderItem item = new OrderItem();
-                item.setProductId(product.getId());
-                item.setSkuId(sku.getId());
-                // 以下都是快照：商品改价改名、规格改名甚至被删，都不影响这张订单
-                item.setProductName(product.getName());
-                item.setProductImage(StringUtils.hasText(sku.getImage())
-                        ? sku.getImage() : product.getMainImage());
-                item.setSpecText(sku.getSpecText());
-                item.setUnitPrice(sku.getPrice());
-                item.setQuantity(line.quantity());
-                item.setSubtotal(sku.getPrice().multiply(BigDecimal.valueOf(line.quantity())));
-                items.add(item);
-
-                total = total.add(item.getSubtotal());
+            // 按 skuId 排序预扣，降低多 SKU 并发下的死锁概率
+            List<OrderLine> sorted = lines.stream()
+                    .sorted(Comparator.comparing(OrderLine::skuId))
+                    .toList();
+            for (OrderLine line : sorted) {
+                reserveStock(skus.get(line.skuId()), line.quantity(), reserved);
             }
 
-            // 优惠券：先校验并算出实付，最终能否使用以插单后的条件更新为准
-            UserCoupon userCoupon = null;
-            BigDecimal discount = BigDecimal.ZERO;
-            if (request.couponId() != null) {
-                userCoupon = userCouponMapper.selectById(request.couponId());
-                if (userCoupon == null || !userId.equals(userCoupon.getUserId())) {
-                    // 别人的券一律当不存在
-                    throw new BizException(ResultCode.NOT_FOUND, "优惠券不存在");
-                }
-                if (!UserCoupon.UNUSED.equals(userCoupon.getStatus())) {
-                    throw new BizException(ResultCode.BAD_REQUEST, "优惠券已使用");
-                }
-                if (userCoupon.getThresholdAmount().compareTo(total) > 0) {
-                    throw new BizException(ResultCode.BAD_REQUEST, "订单金额未达到优惠券使用门槛");
-                }
-                discount = userCoupon.getDiscountAmount().min(total);
-            }
+            List<OrderView> views = new ArrayList<>(groups.size());
+            for (Map.Entry<Long, List<OrderLine>> entry : groups.entrySet()) {
+                Long merchantId = entry.getKey();
+                BigDecimal goodsTotal = groupTotals.get(merchantId);
+                UserCoupon coupon = groupCoupons.get(merchantId);
+                BigDecimal discount = groupDiscounts.getOrDefault(merchantId, BigDecimal.ZERO);
 
-            Order order = new Order();
-            order.setOrderNo(generateOrderNo());
-            order.setUserId(userId);
-            order.setOriginalAmount(total);
-            order.setDiscountAmount(discount);
-            order.setTotalAmount(total.subtract(discount));
-            order.setUserCouponId(userCoupon == null ? null : userCoupon.getId());
-            order.setCouponName(userCoupon == null ? "" : userCoupon.getCouponName());
-            order.setStatus(OrderStatus.PENDING_PAYMENT.name());
-            // 收货信息也快照：用户以后改地址或删地址，这张订单不受影响
-            order.setReceiver(address.getReceiver());
-            order.setPhone(address.getPhone());
-            order.setAddress(address.getProvince() + address.getCity() + address.getDistrict() + address.getDetail());
-            order.setTrackingNo("");
-            orderMapper.insert(order);
+                Order order = new Order();
+                order.setOrderNo(generateOrderNo());
+                order.setUserId(userId);
+                order.setMerchantId(merchantId);
+                order.setMerchantName(merchants.get(merchantId).getName());
+                order.setOriginalAmount(goodsTotal);
+                order.setDiscountAmount(discount);
+                order.setTotalAmount(goodsTotal.subtract(discount));
+                order.setUserCouponId(coupon == null ? null : coupon.getId());
+                order.setCouponName(coupon == null ? "" : coupon.getCouponName());
+                order.setStatus(OrderStatus.PENDING_PAYMENT.name());
+                // 收货信息也快照：用户以后改地址或删地址，这张订单不受影响
+                order.setReceiver(address.getReceiver());
+                order.setPhone(address.getPhone());
+                order.setAddress(address.getProvince() + address.getCity()
+                        + address.getDistrict() + address.getDetail());
+                order.setTrackingNo("");
+                orderMapper.insert(order);
 
-            // 券的使用是条件更新：期间被别的订单用掉/过期就 0 行，整单回滚
-            if (userCoupon != null
-                    && userCouponMapper.markUsed(userCoupon.getId(), userId, order.getId()) == 0) {
-                throw new BizException(ResultCode.BAD_REQUEST, "优惠券已使用或已过期");
-            }
+                // 券的使用是条件更新：期间被别的订单用掉/过期就 0 行，整单回滚
+                if (coupon != null
+                        && userCouponMapper.markUsed(coupon.getId(), userId, order.getId()) == 0) {
+                    throw new BizException(ResultCode.BAD_REQUEST, "优惠券已使用或已过期");
+                }
 
-            for (OrderItem item : items) {
-                item.setOrderId(order.getId());
-                orderItemMapper.insert(item);
+                List<OrderItem> items = new ArrayList<>(entry.getValue().size());
+                for (OrderLine line : entry.getValue()) {
+                    Product product = products.get(line.productId());
+                    ProductSku sku = skus.get(line.skuId());
+                    OrderItem item = new OrderItem();
+                    item.setOrderId(order.getId());
+                    item.setProductId(product.getId());
+                    item.setSkuId(sku.getId());
+                    // 以下都是快照：商品改价改名、规格改名甚至被删，都不影响这张订单
+                    item.setProductName(product.getName());
+                    item.setProductImage(StringUtils.hasText(sku.getImage())
+                            ? sku.getImage() : product.getMainImage());
+                    item.setSpecText(sku.getSpecText());
+                    item.setUnitPrice(sku.getPrice());
+                    item.setQuantity(line.quantity());
+                    item.setSubtotal(sku.getPrice().multiply(BigDecimal.valueOf(line.quantity())));
+                    orderItemMapper.insert(item);
+                    items.add(item);
+                }
+                views.add(new OrderView(order, OrderStatus.PENDING_PAYMENT.label(),
+                        items, items.size()));
             }
 
             // 只有购物车结算才清空勾选行 —— 「立即购买」从头到尾没碰过购物车
@@ -249,12 +315,51 @@ public class OrderServiceImpl implements OrderService {
                         .eq(CartItem::getSelected, 1));
             }
 
-            return new OrderView(order, OrderStatus.PENDING_PAYMENT.label(), items, items.size());
-
+            return CheckoutView.of(views);
         } catch (RuntimeException e) {
-            reserved.forEach(stockService::release);
+            releaseReserved.run();
             throw e;
         }
+    }
+
+    private Map<Long, UserCoupon> validateCoupons(Long userId,
+                                                  List<CreateOrderRequest.CouponSelection> selections,
+                                                  Set<Long> merchantIds,
+                                                  Map<Long, BigDecimal> totals) {
+        Map<Long, UserCoupon> result = new LinkedHashMap<>();
+        if (selections == null || selections.isEmpty()) {
+            return result;
+        }
+        Set<Long> usedCouponIds = new HashSet<>();
+        for (CreateOrderRequest.CouponSelection selection : selections) {
+            Long merchantId = selection.merchantId();
+            if (!merchantIds.contains(merchantId)) {
+                throw new BizException(ResultCode.BAD_REQUEST, "优惠券与订单店铺不匹配");
+            }
+            if (result.containsKey(merchantId)) {
+                throw new BizException(ResultCode.BAD_REQUEST, "每个店铺最多使用一张优惠券");
+            }
+            if (!usedCouponIds.add(selection.userCouponId())) {
+                // 平台券没有店铺归属，只能分配给一个子订单
+                throw new BizException(ResultCode.BAD_REQUEST, "同一张优惠券不能用于多个店铺");
+            }
+            UserCoupon coupon = userCouponMapper.selectById(selection.userCouponId());
+            if (coupon == null || !userId.equals(coupon.getUserId())) {
+                // 别人的券一律当不存在
+                throw new BizException(ResultCode.NOT_FOUND, "优惠券不存在");
+            }
+            if (!UserCoupon.UNUSED.equals(coupon.getStatus())) {
+                throw new BizException(ResultCode.BAD_REQUEST, "优惠券已使用");
+            }
+            if (coupon.getMerchantId() != null && !coupon.getMerchantId().equals(merchantId)) {
+                throw new BizException(ResultCode.BAD_REQUEST, "该优惠券不能用于此店铺");
+            }
+            if (coupon.getThresholdAmount().compareTo(totals.get(merchantId)) > 0) {
+                throw new BizException(ResultCode.BAD_REQUEST, "订单金额未达到优惠券使用门槛");
+            }
+            result.put(merchantId, coupon);
+        }
+        return result;
     }
 
     /** 下单的商品行 —— 购物车来的和「立即购买」来的，后面走同一套流程 */
@@ -330,6 +435,7 @@ public class OrderServiceImpl implements OrderService {
             return new PageResponse<>(List.of(), orderPage.getTotal(),
                     orderPage.getCurrent(), orderPage.getSize());
         }
+        fillMerchantNames(orders);
 
         List<Long> orderIds = orders.stream().map(Order::getId).toList();
         Map<Long, List<OrderItem>> itemsByOrder = orderItemMapper.selectList(
@@ -407,7 +513,10 @@ public class OrderServiceImpl implements OrderService {
     @Override
     @Transactional
     public OrderView approveRefund(Long orderId) {
-        Order order = requireExists(orderId);
+        return doApproveRefund(requireExists(orderId));
+    }
+
+    private OrderView doApproveRefund(Order order) {
         if (OrderStatus.valueOf(order.getStatus()) != OrderStatus.REFUNDING) {
             throw new BizException(ResultCode.BAD_REQUEST, "该订单没有待处理的退款申请");
         }
@@ -420,7 +529,7 @@ public class OrderServiceImpl implements OrderService {
 
         // 支付流水同步置为已退款（这是退款真正的凭据）
         Payment payment = paymentMapper.selectOne(
-                Wrappers.<Payment>lambdaQuery().eq(Payment::getOrderId, orderId));
+                Wrappers.<Payment>lambdaQuery().eq(Payment::getOrderId, order.getId()));
         if (payment != null) {
             payment.setStatus(Payment.STATUS_REFUNDED);
             payment.setRefundedAt(LocalDateTime.now());
@@ -435,7 +544,10 @@ public class OrderServiceImpl implements OrderService {
     @Override
     @Transactional
     public OrderView rejectRefund(Long orderId) {
-        Order order = requireExists(orderId);
+        return doRejectRefund(requireExists(orderId));
+    }
+
+    private OrderView doRejectRefund(Order order) {
         if (OrderStatus.valueOf(order.getStatus()) != OrderStatus.REFUNDING) {
             throw new BizException(ResultCode.BAD_REQUEST, "该订单没有待处理的退款申请");
         }
@@ -514,28 +626,68 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     public PageResponse<Order> pageForAdmin(int page, int size, String status) {
+        return pageForAdmin(page, size, status, null);
+    }
+
+    @Override
+    public PageResponse<Order> pageForAdmin(int page, int size, String status, Long merchantId) {
         Page<Order> pageRequest = new Page<>(normalizePage(page), normalizeSize(size));
-        return PageResponse.of(orderMapper.selectPage(pageRequest, Wrappers.<Order>lambdaQuery()
+        Page<Order> result = orderMapper.selectPage(pageRequest, Wrappers.<Order>lambdaQuery()
                 .eq(StringUtils.hasText(status), Order::getStatus, status)
-                .orderByDesc(Order::getId)));
+                .eq(merchantId != null, Order::getMerchantId, merchantId)
+                .orderByDesc(Order::getId));
+        fillMerchantNames(result.getRecords());
+        return PageResponse.of(result);
     }
 
     @Override
     public OrderView detailForAdmin(Long orderId) {
-        Order order = orderMapper.selectById(orderId);
-        if (order == null) {
-            throw new BizException(ResultCode.NOT_FOUND, "订单不存在");
-        }
-        return view(order);
+        return view(requireExists(orderId));
     }
 
     @Override
     @Transactional
     public OrderView ship(Long orderId, ShipRequest request) {
-        Order order = orderMapper.selectById(orderId);
-        if (order == null) {
-            throw new BizException(ResultCode.NOT_FOUND, "订单不存在");
-        }
+        return doShip(requireExists(orderId), request);
+    }
+
+    // ── 商家端：所有查询与操作都先校验订单归属 ──
+
+    @Override
+    public PageResponse<Order> pageForMerchant(Long merchantId, int page, int size, String status) {
+        Page<Order> pageRequest = new Page<>(normalizePage(page), normalizeSize(size));
+        Page<Order> result = orderMapper.selectPage(pageRequest, Wrappers.<Order>lambdaQuery()
+                .eq(Order::getMerchantId, merchantId)
+                .eq(StringUtils.hasText(status), Order::getStatus, status)
+                .orderByDesc(Order::getId));
+        fillMerchantNames(result.getRecords());
+        return PageResponse.of(result);
+    }
+
+    @Override
+    public OrderView detailForMerchant(Long merchantId, Long orderId) {
+        return view(requireOwnedByMerchant(merchantId, orderId));
+    }
+
+    @Override
+    @Transactional
+    public OrderView shipForMerchant(Long merchantId, Long orderId, ShipRequest request) {
+        return doShip(requireOwnedByMerchant(merchantId, orderId), request);
+    }
+
+    @Override
+    @Transactional
+    public OrderView approveRefundForMerchant(Long merchantId, Long orderId) {
+        return doApproveRefund(requireOwnedByMerchant(merchantId, orderId));
+    }
+
+    @Override
+    @Transactional
+    public OrderView rejectRefundForMerchant(Long merchantId, Long orderId) {
+        return doRejectRefund(requireOwnedByMerchant(merchantId, orderId));
+    }
+
+    private OrderView doShip(Order order, ShipRequest request) {
         transition(order, OrderStatus.SHIPPED, order::setShippedAt);
         order.setTrackingNo(request.trackingNo());
         orderMapper.updateById(order);
@@ -618,12 +770,35 @@ public class OrderServiceImpl implements OrderService {
     }
 
     private OrderView view(Order order) {
+        fillMerchantNames(List.of(order));
         List<OrderItem> items = orderItemMapper.selectList(
                 Wrappers.<OrderItem>lambdaQuery().eq(OrderItem::getOrderId, order.getId()));
         if (OrderStatus.COMPLETED.name().equals(order.getStatus())) {
             fillReviewed(items);
         }
         return OrderView.full(order, OrderStatus.valueOf(order.getStatus()).label(), items);
+    }
+
+    private void fillMerchantNames(List<Order> orders) {
+        if (orders.isEmpty()) return;
+        List<Long> ids = orders.stream().map(Order::getMerchantId)
+                .filter(java.util.Objects::nonNull).distinct().toList();
+        if (ids.isEmpty()) return;
+        Map<Long, Merchant> merchants = merchantMapper.selectByIds(ids).stream()
+                .collect(Collectors.toMap(Merchant::getId, Function.identity()));
+        for (Order order : orders) {
+            Merchant merchant = merchants.get(order.getMerchantId());
+            order.setMerchantName(merchant == null ? "" : merchant.getName());
+        }
+    }
+
+    private Order requireOwnedByMerchant(Long merchantId, Long orderId) {
+        Order order = orderMapper.selectById(orderId);
+        if (order == null || merchantId == null || !merchantId.equals(order.getMerchantId())) {
+            // 别家店铺的订单一律当「不存在」
+            throw new BizException(ResultCode.NOT_FOUND, "订单不存在");
+        }
+        return order;
     }
 
     /** 已评价标记批量回填；空列表直接返回，避免拼出 IN () */

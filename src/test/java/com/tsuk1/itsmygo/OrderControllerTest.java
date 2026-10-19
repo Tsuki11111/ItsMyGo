@@ -13,6 +13,7 @@ import com.tsuk1.itsmygo.entity.Order;
 import com.tsuk1.itsmygo.entity.Payment;
 import com.tsuk1.itsmygo.mapper.AddressMapper;
 import com.tsuk1.itsmygo.mapper.CartItemMapper;
+import com.tsuk1.itsmygo.mapper.MerchantMapper;
 import com.tsuk1.itsmygo.mapper.OrderItemMapper;
 import com.tsuk1.itsmygo.mapper.OrderMapper;
 import com.tsuk1.itsmygo.mapper.PaymentMapper;
@@ -65,6 +66,8 @@ class OrderControllerTest extends ApiTestBase {
 
     @Autowired
     private UserCouponMapper userCouponMapper;
+    @Autowired
+    private MerchantMapper merchantMapper;
 
     private long createProduct(String adminToken, String name, String price, int stock) throws Exception {
         String catBody = mockMvc.perform(post("/api/admin/categories")
@@ -599,7 +602,7 @@ class OrderControllerTest extends ApiTestBase {
         // 只把 orderItemMapper 换成计数版，其余依赖用容器里的真货
         OrderServiceImpl service = new OrderServiceImpl(orderMapper, countingMapper, cartItemMapper,
                 productMapper, productSkuMapper, addressMapper, paymentMapper, stockService,
-                redisTemplate, reviewMapper, userCouponMapper);
+                redisTemplate, reviewMapper, userCouponMapper, merchantMapper);
 
         PageResponse<OrderView> result = service.pageForCustomer(
                 currentUserId(token), 1, 10, 3);

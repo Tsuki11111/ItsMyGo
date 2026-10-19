@@ -101,6 +101,7 @@ export interface AdminOrderQuery {
   size?: number
   /** 单个状态枚举名；管理端接口不支持逗号分隔 */
   status?: string
+  merchantId?: number
 }
 
 export function fetchAdminOrders(query: AdminOrderQuery): Promise<PageResponse<Order>> {
@@ -135,6 +136,7 @@ export interface AdminCouponQuery {
   size?: number
   enabled?: boolean
   keyword?: string
+  merchantId?: number
 }
 
 export function fetchAdminCoupons(query: AdminCouponQuery): Promise<PageResponse<Coupon>> {
@@ -156,6 +158,7 @@ export interface AdminReviewQuery {
   size?: number
   visible?: boolean
   keyword?: string
+  merchantId?: number
 }
 
 export function fetchAdminReviews(query: AdminReviewQuery): Promise<PageResponse<AdminReviewView>> {

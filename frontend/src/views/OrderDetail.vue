@@ -156,6 +156,7 @@ onMounted(load)
       <section class="block status-block">
         <div class="status-main">
           <span class="status-label">{{ view.statusLabel }}</span>
+          <span class="shop-name">{{ order.merchantName }}</span>
           <span class="order-no">订单号 {{ order.orderNo }}</span>
         </div>
         <div class="status-actions">
@@ -330,6 +331,12 @@ onMounted(load)
 .order-no {
   font-size: 12.5px;
   color: var(--c-text-3);
+}
+
+.shop-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c-text-2);
 }
 
 .status-actions {

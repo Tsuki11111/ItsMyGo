@@ -8,12 +8,20 @@ import {
   rejectRefund,
   shipOrder,
 } from '@/api/admin'
+import {
+  approveMerchantRefund,
+  fetchMerchantOrder,
+  rejectMerchantRefund,
+  shipMerchantOrder,
+} from '@/api/merchant'
 import type { OrderView } from '@/api/types'
 import { orderStatusTag } from '@/utils/orderStatus'
 
 const props = defineProps<{
   modelValue: boolean
   orderId: number | null
+  /** 商家后台复用：走 /api/merchant/orders/** */
+  merchant?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -29,7 +37,8 @@ async function load() {
   if (props.orderId === null) return
   loading.value = true
   try {
-    view.value = await fetchAdminOrder(props.orderId)
+    const fetchFn = props.merchant ? fetchMerchantOrder : fetchAdminOrder
+    view.value = await fetchFn(props.orderId)
   } finally {
     loading.value = false
   }
@@ -67,7 +76,9 @@ async function ship() {
 
   acting.value = true
   try {
-    view.value = await shipOrder(view.value.order.id, { trackingNo })
+    view.value = props.merchant
+      ? await shipMerchantOrder(view.value.order.id, trackingNo)
+      : await shipOrder(view.value.order.id, { trackingNo })
     ElMessage.success('已发货')
     emit('changed')
   } finally {
@@ -89,7 +100,8 @@ async function approve() {
 
   acting.value = true
   try {
-    view.value = await approveRefund(view.value.order.id)
+    const approveFn = props.merchant ? approveMerchantRefund : approveRefund
+    view.value = await approveFn(view.value.order.id)
     ElMessage.success('已同意退款')
     emit('changed')
   } finally {
@@ -111,7 +123,8 @@ async function reject() {
 
   acting.value = true
   try {
-    view.value = await rejectRefund(view.value.order.id)
+    const rejectFn = props.merchant ? rejectMerchantRefund : rejectRefund
+    view.value = await rejectFn(view.value.order.id)
     ElMessage.success('已驳回退款')
     emit('changed')
   } finally {

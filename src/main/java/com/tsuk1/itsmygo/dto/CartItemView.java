@@ -21,7 +21,12 @@ public record CartItemView(
         BigDecimal subtotal,
         boolean selected,
         boolean onSale,
-        /** 商品和规格都在售，且库存够本次数量 */
-        boolean available
+        /** 商品和规格都在售、店铺营业中，且库存够本次数量 */
+        boolean available,
+        /** 所属商户；商品已删除时为 null */
+        Long merchantId,
+        String merchantName,
+        /** 店铺是否 ACTIVE */
+        boolean merchantActive
 ) {
 }

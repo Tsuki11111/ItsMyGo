@@ -9,6 +9,7 @@ import { fetchCart } from '@/api/cart'
 import { fetchAddresses } from '@/api/address'
 import { createOrder, fetchOrderToken } from '@/api/order'
 import { fetchAvailableCoupons } from '@/api/coupon'
+import { fetchShop } from '@/api/shop'
 import { useUserStore } from '@/stores/user'
 import type { Address, CartItemView, Product, ProductSku, UserCouponView } from '@/api/types'
 
@@ -31,6 +32,31 @@ const token = ref('')
 const loading = ref(true)
 const submitting = ref(false)
 
+interface CheckoutLine {
+  key: string
+  productId: number
+  skuId: number
+  productName: string
+  productImage: string
+  specText: string
+  price: number
+  quantity: number
+  subtotal: number
+}
+
+/** 结算页按店铺分组：每个店一个券选择器，提交后后端按店拆单 */
+interface CheckoutGroup {
+  key: string
+  merchantId: number
+  merchantName: string
+  lines: CheckoutLine[]
+  goodsTotal: number
+  coupons: UserCouponView[]
+  couponId: number | null
+}
+
+const groups = ref<CheckoutGroup[]>([])
+
 /** 「立即购买」的商品来自 URL —— 刷新页面也不丢 */
 const buyNowId = computed(() => Number(route.query.productId) || 0)
 const buyNowSkuId = computed(() => Number(route.query.skuId) || 0)
@@ -51,31 +77,102 @@ const sku = computed<ProductSku | null>(() => {
       ?? null
 })
 
-/** 单价取**那一款**的，不是商品的最低价 */
-const unitPrice = computed(() => sku.value?.price ?? product.value?.price ?? 0)
-/** 购物车结算时，金额同样只算「勾选且可买」的行 */
 const goodsTotal = computed(() =>
-  fromCart.value
-    ? cartItems.value.reduce((sum, item) => sum + item.subtotal, 0)
-    : unitPrice.value * quantity.value,
+  groups.value.reduce((sum, group) => sum + group.goodsTotal, 0),
 )
 
-/** 可用券与选中的券 */
-const availableCoupons = ref<UserCouponView[]>([])
-const couponId = ref<number | null>(null)
-const selectedCoupon = computed(() =>
-  availableCoupons.value.find((coupon) => coupon.id === couponId.value) ?? null,
-)
+function groupDiscount(group: CheckoutGroup): number {
+  const coupon = group.coupons.find((item) => item.id === group.couponId)
+  return coupon ? Math.min(coupon.discountAmount, group.goodsTotal) : 0
+}
+
+/** 应付金额 = 商品总额 - 各店券减免 */
 const discount = computed(() =>
-  selectedCoupon.value
-    ? Math.min(selectedCoupon.value.discountAmount, goodsTotal.value)
-    : 0,
+  groups.value.reduce((sum, group) => sum + groupDiscount(group), 0),
 )
-/** 应付金额 = 商品总额 - 券减免 */
 const total = computed(() => Math.max(goodsTotal.value - discount.value, 0))
 
 function fullAddress(addr: Address): string {
   return `${addr.province}${addr.city}${addr.district}${addr.detail}`
+}
+
+function toBuyNowLine(): CheckoutLine | null {
+  if (!product.value || !sku.value) return null
+  return {
+    key: `p${product.value.id}`,
+    productId: product.value.id,
+    skuId: sku.value.id,
+    productName: product.value.name,
+    productImage: sku.value.image || product.value.mainImage,
+    specText: sku.value.specText,
+    price: sku.value.price,
+    quantity: quantity.value,
+    subtotal: sku.value.price * quantity.value,
+  }
+}
+
+async function buildGroups() {
+  const byMerchant = new Map<number, CheckoutLine[]>()
+  let merchantNames = new Map<number, string>()
+
+  if (fromCart.value) {
+    for (const item of cartItems.value) {
+      if (item.merchantId == null) continue
+      const line: CheckoutLine = {
+        key: `c${item.id}`,
+        productId: item.productId,
+        skuId: item.skuId,
+        productName: item.productName,
+        productImage: item.productImage,
+        specText: item.specText,
+        price: item.price,
+        quantity: item.quantity,
+        subtotal: item.subtotal,
+      }
+      const list = byMerchant.get(item.merchantId) ?? []
+      list.push(line)
+      byMerchant.set(item.merchantId, list)
+      merchantNames.set(item.merchantId, item.merchantName)
+    }
+  } else {
+    const line = toBuyNowLine()
+    if (line && product.value) {
+      byMerchant.set(product.value.merchantId, [line])
+      try {
+        const shop = await fetchShop(product.value.merchantId)
+        merchantNames.set(product.value.merchantId, shop.name)
+      } catch {
+        merchantNames.set(product.value.merchantId, `店铺 #${product.value.merchantId}`)
+      }
+    }
+  }
+
+  groups.value = [...byMerchant.entries()].map(([merchantId, lines]) => ({
+    key: String(merchantId),
+    merchantId,
+    merchantName: merchantNames.get(merchantId) ?? `店铺 #${merchantId}`,
+    lines,
+    goodsTotal: lines.reduce((sum, line) => sum + line.subtotal, 0),
+    coupons: [],
+    couponId: null,
+  }))
+  await loadCouponsForGroups()
+}
+
+/** 每个店分别取可用券：平台券 + 该店铺券 */
+async function loadCouponsForGroups() {
+  if (!userStore.isLoggedIn) return
+  await Promise.all(groups.value.map(async (group) => {
+    try {
+      group.coupons = await fetchAvailableCoupons(group.goodsTotal, group.merchantId)
+    } catch {
+      group.coupons = []
+    }
+    if (group.couponId !== null
+        && !group.coupons.some((coupon) => coupon.id === group.couponId)) {
+      group.couponId = null
+    }
+  }))
 }
 
 onMounted(async () => {
@@ -89,7 +186,7 @@ onMounted(async () => {
   try {
     await Promise.all([fromCart.value ? loadCart() : loadProduct(), loadAddresses()])
     token.value = await fetchOrderToken()
-    await loadCoupons()
+    await buildGroups()
   } catch {
     // 商品不存在之类，拦截器已经提示过
   } finally {
@@ -97,23 +194,9 @@ onMounted(async () => {
   }
 })
 
-/** 按当前商品总额筛可用券；切换数量时重新拉，避免展示不可用的券 */
-async function loadCoupons() {
-  if (!userStore.isLoggedIn) return
-  try {
-    availableCoupons.value = await fetchAvailableCoupons(goodsTotal.value)
-    if (couponId.value !== null
-        && !availableCoupons.value.some((coupon) => coupon.id === couponId.value)) {
-      couponId.value = null
-    }
-  } catch {
-    availableCoupons.value = []
-  }
-}
-
-// 立即购买改数量会改变金额：可用券集合可能变化
+// 立即购买改数量会改变金额：重新分组并刷新可用券
 watch(quantity, () => {
-  if (!loading.value) loadCoupons()
+  if (!loading.value && !fromCart.value) buildGroups()
 })
 
 async function loadProduct() {
@@ -128,8 +211,7 @@ async function loadProduct() {
 
 /**
  * 购物车结算：只把**勾选且可买**的行带进来。
- * 下单时请求体里不传 `items`，后端就会按购物车的勾选项走（见 implementation §3.7）——
- * 所以这里只负责展示，不用把商品再传一遍。
+ * 下单时请求体里不传 `items`，后端就会按购物车的勾选项走并清空它们。
  */
 async function loadCart() {
   const view = await fetchCart()
@@ -148,7 +230,7 @@ async function submitOrder() {
     ElMessage.warning('请先选择收货地址')
     return
   }
-  if (!hasGoods.value) {
+  if (!hasGoods.value || groups.value.length === 0) {
     ElMessage.warning(fromCart.value ? '请先在购物车里勾选商品' : '没有要结算的商品')
     return
   }
@@ -159,26 +241,30 @@ async function submitOrder() {
 
   submitting.value = true
   try {
-    // 从购物车结算**不传 items** —— 后端按购物车的勾选行下单并清空它们；
-    // 立即购买才传 items，那条路完全不碰购物车（见 implementation §3.7）
-    const view = fromCart.value
-      ? await createOrder({
-          addressId: addr,
-          token: token.value,
-          couponId: couponId.value ?? undefined,
-        })
-      : await createOrder({
-          addressId: addr,
-          token: token.value,
-          couponId: couponId.value ?? undefined,
-          items: [{
-            productId: product.value!.id,
-            skuId: sku.value!.id,
-            quantity: quantity.value,
-          }],
-        })
-    ElMessage.success('下单成功')
-    router.replace(`/order/${view.order.id}`)
+    const coupons = groups.value
+      .filter((group) => group.couponId !== null)
+      .map((group) => ({ merchantId: group.merchantId, userCouponId: group.couponId! }))
+
+    // 从购物车结算**不传 items**，后端按购物车勾选行分组拆单；
+    // 立即购买才传 items，且只属于一个店铺。
+    const view = await createOrder({
+      addressId: addr,
+      token: token.value,
+      coupons,
+      ...(fromCart.value ? {} : {
+        items: [{
+          productId: product.value!.id,
+          skuId: sku.value!.id,
+          quantity: quantity.value,
+        }],
+      }),
+    })
+
+    ElMessage.success(view.orders.length > 1
+      ? `已生成 ${view.orders.length} 个店铺订单，请分别支付`
+      : '下单成功')
+    const ids = view.orders.map((order) => order.order.id).join(',')
+    router.replace({ path: '/checkout/result', query: { ids } })
   } catch {
     // 库存不足 / 令牌失效等，拦截器已提示。
     // 业务失败时后端会把令牌还回来，所以用户改完还能直接重试。
@@ -188,7 +274,6 @@ async function submitOrder() {
 }
 
 // ── 新增地址 ──
-// 表单本身是公共组件（用户中心的地址管理页也在用同一份）
 const dialogVisible = ref(false)
 
 async function onAddressSaved(address: Address) {
@@ -240,65 +325,47 @@ async function onAddressSaved(address: Address) {
         </div>
       </section>
 
-      <!-- ── 商品清单 ── -->
-      <section class="block">
-        <h2 class="block-title">商品清单</h2>
+      <!-- ── 商品清单（按店铺分组，一店一个券选择器） ── -->
+      <section v-for="group in groups" :key="group.key" class="block">
+        <div class="block-head">
+          <h2 class="block-title">{{ group.merchantName }}</h2>
+          <span class="shop-total">小计 ¥{{ group.goodsTotal.toFixed(2) }}</span>
+        </div>
 
-        <!-- 购物车结算：勾选且可买的那几行 -->
-        <template v-if="fromCart">
-          <div v-for="item in cartItems" :key="item.id" class="goods-row">
-            <div class="goods-thumb">
-              <ProductImage :src="item.productImage" :name="item.productName" :id="item.productId" />
-            </div>
-            <div class="goods-info">
-              <p class="goods-name">{{ item.productName }}</p>
-              <p v-if="item.specText" class="goods-sub">{{ item.specText }}</p>
-            </div>
-            <div class="price goods-price">
-              <span class="price-symbol">¥</span>
-              <span class="price-num">{{ item.price.toFixed(2) }}</span>
-            </div>
-            <div class="goods-qty">× {{ item.quantity }}</div>
-          </div>
-        </template>
-
-        <!-- 立即购买：只有一件 -->
-        <div v-else-if="product" class="goods-row">
+        <div v-for="line in group.lines" :key="line.key" class="goods-row">
           <div class="goods-thumb">
-            <ProductImage :src="sku?.image || product.mainImage" :name="product.name" :id="product.id" />
+            <ProductImage :src="line.productImage" :name="line.productName" :id="line.productId" />
           </div>
           <div class="goods-info">
-            <p class="goods-name">{{ product.name }}</p>
-            <!-- 有规格就显示规格（这才是「买的是哪一款」），没有才退回副标题 -->
-            <p v-if="sku?.specText" class="goods-sub">{{ sku.specText }}</p>
-            <p v-else-if="product.subtitle" class="goods-sub">{{ product.subtitle }}</p>
+            <p class="goods-name">{{ line.productName }}</p>
+            <p v-if="line.specText" class="goods-sub">{{ line.specText }}</p>
           </div>
           <div class="price goods-price">
             <span class="price-symbol">¥</span>
-            <span class="price-num">{{ unitPrice.toFixed(2) }}</span>
+            <span class="price-num">{{ line.price.toFixed(2) }}</span>
           </div>
-          <div class="goods-qty">× {{ quantity }}</div>
+          <div class="goods-qty">× {{ line.quantity }}</div>
         </div>
-      </section>
 
-      <!-- ── 优惠券 ── -->
-      <section class="block">
-        <h2 class="block-title">优惠券</h2>
         <div class="coupon-row">
+          <span class="coupon-label">优惠券</span>
           <el-select
-            v-model="couponId"
+            v-model="group.couponId"
             clearable
             placeholder="不使用优惠券"
             style="width: 380px"
           >
             <el-option
-              v-for="coupon in availableCoupons"
+              v-for="coupon in group.coupons"
               :key="coupon.id"
               :value="coupon.id"
               :label="`${coupon.couponName}（满 ${coupon.thresholdAmount.toFixed(2)} 减 ${coupon.discountAmount.toFixed(2)}）`"
             />
           </el-select>
-          <span v-if="!availableCoupons.length" class="empty-tip">没有可用的优惠券</span>
+          <span v-if="!group.coupons.length" class="empty-tip">没有可用的优惠券</span>
+          <span v-if="groupDiscount(group) > 0" class="discount-amount">
+            -¥{{ groupDiscount(group).toFixed(2) }}
+          </span>
         </div>
       </section>
 
@@ -391,10 +458,23 @@ async function onAddressSaved(address: Address) {
   color: var(--c-text-3);
 }
 
+.shop-total {
+  font-size: 12px;
+  color: var(--c-text-3);
+}
+
 .coupon-row {
   display: flex;
   align-items: center;
   gap: 12px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--c-border);
+}
+
+.coupon-label {
+  font-size: 13px;
+  color: var(--c-text-2);
 }
 
 /* ── 地址卡片 ── */
