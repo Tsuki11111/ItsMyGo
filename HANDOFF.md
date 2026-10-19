@@ -30,12 +30,15 @@
 
 **多商户改造已完成（2026-10-19）。** 商家可自助申请入驻、平台审核；商品归属店铺；
 顾客跨店购物车结算时**按店拆单、分别支付**；商家后台管理本店商品 / 订单 / 店铺券 / 评价；
-平台后台监管全平台。顾客端包含商品列表、详情（收藏 / 评价 / 店铺卡片）、购物车（按店分组）、
-结算（按店选券）、多订单结果页、订单详情与售后、用户中心（收藏 / 足迹 / 券 / 评价等）；
-平台端包含商户审核、分类、商品、订单、平台券 + 店铺券、评价管理。
-后端 **自动化测试 167 条**。
+平台后台监管全平台。顾客端包含商品列表、详情（收藏 / 评价 / 店铺卡片 / 联系卖家）、
+购物车（按店分组）、结算（按店选券）、多订单结果页、订单详情与售后、
+用户中心（收藏 / 足迹 / 券 / 评价 / 消息等）；平台端包含商户审核、分类、商品、订单、
+平台券 + 店铺券、评价管理。**在线聊天与私信留言已完成（2026-10-19）**：
+顾客 ↔ 商家按店会话、SSE 实时推送、未读角标、已读回执、在线状态、文本 / 图片 /
+商品卡片 / 订单卡片，支持离线留言。后端 **自动化测试 178 条**。
 
-**交接时工作区是干净的** —— 多商户改造已提交（见 §6 最新一条），可以直接开始新一轮工作。
+**交接前先看 `git status`** —— 聊天系统与之前的 Logo 上传、领券中心入口调整
+可能还有未提交改动（见 §6 最新一条），提交后再开始新一轮工作。
 
 前端技术栈：Vite 8 + Vue 3.5 + TypeScript 5.9 + Element Plus 2.14 + Pinia + Vue Router。
 配色定稿为「浅粉做面 + 深粉做点」，见 [docs/color-preview.html](docs/color-preview.html)；
@@ -129,7 +132,7 @@ src/main/java/com/tsuk1/itsmygo/
 ### 3.3 数据库
 
 - 开发库 `its_mygo`、测试库 `its_mygo_test`（都在共用的 `mysql` 容器里，为什么要分开见 §5.20）
-- 迁移脚本在 `src/main/resources/db/migration/`，**当前 schema 版本 v18**
+- 迁移脚本在 `src/main/resources/db/migration/`，**当前 schema 版本 v19**
 - 已建表：`merchants`（V16，默认商户 id=1 平台自营）、`users`（V1，V3 加 `role`，
   V12 加 `avatar`，**V16 加 `merchant_id`**）、`addresses`（V2）、`categories`（V4）、
   `products`（V5，V9 加 `has_specs`，**V17 加 `merchant_id`**）、
@@ -138,7 +141,8 @@ src/main/java/com/tsuk1/itsmygo/
   **V17 给 orders 加 `merchant_id`**）、`payments`（V8）、
   `product_specs` / `product_spec_values` / `product_skus`（V9）、
   `user_favorites` / `user_footprints`（V13）、`reviews`（V14，**V17 加 `merchant_id`**）、
-  `coupons` / `user_coupons`（V15，**V18 加可空 `merchant_id`**）
+  `coupons` / `user_coupons`（V15，**V18 加可空 `merchant_id`**）、
+  `conversations` / `messages`（**V19，在线聊天**）
   （另有 Flyway 自建的 `flyway_schema_history`，是迁移记录表，**不要动**）
 - **V9 给存量商品回填了默认 SKU**（无规格的那条），老数据不用手工处理；
   但**新直插 `products` 的地方（手工 SQL、导入脚本）必须自己补 SKU** —— 见 §5.21
@@ -835,9 +839,80 @@ catch 并转 400「该优惠券已领取」；否则用户看到的是服务器�
 另外测试方法本身在 `@Transactional` 里时，服务层扣减会加入测试事务，
 **看不到生产环境的整单回滚**；这类断言只能测 Redis 回补。
 
+### 5.25 ★ 在线聊天的五个坑（2026-10-19 踩到 / 补齐）
+
+**① EventSource 带不了 Authorization。** 不能把 JWT 塞进 URL（会进访问日志）。
+做法：JWT 换 **60 秒一次性票据**（Redis，带 TTL），`GET /api/chat/stream?ticket=`
+用 `getAndDelete` 消费；SecurityConfig 只精确放行这一条 GET。票据被消费后
+EventSource 自动重连会 401，前端必须 `close()` 后重新取票（指数退避）。
+
+**② SseEmitter 不是线程安全的，且断线不会立刻被发现。** 每条连接单独加锁发送；
+发送失败即摘除。客户端 kill 后服务端往往要等下一次心跳（25 秒）才能发现，
+所以**在线状态最多滞后 25 秒**，验证时别在 kill 后立刻断言离线。
+
+**③ 未读不能用「直接置 0」。** 已读和并发新消息竞争时会丢未读。正确顺序：
+指针 `GREATEST` 只前进 → 用 `COUNT(messages.id > 指针 AND sender_type <> 我)` 重算。
+发消息时未读用原子 `+1`；`last_message_*` 只允许更大消息 id 覆盖。
+SSE 事件与已读接口返回的是**全局未读总数**，不是单会话未读数 —— 否则顶栏角标会算错。
+
+**④ 推送只能挂在事务提交后。** 用 `TransactionSynchronization.afterCommit`，
+回滚不推送；推送失败只记日志、不回滚消息。客户端重连后用 `afterId` 补齐，
+不能假设 SSE 一定送达。
+
+**⑤ 注册表是单实例内存态。** 在线状态和连接表都在本进程；多实例部署需要
+Redis Pub/Sub 或粘性会话。本期明确单机，不要顺手加 MQ。
+另外 Windows Git Bash 下 curl 直接传中文会变 GBK（§5.17），
+接口联调优先用 ASCII 或由前端发送。
+
 ---
 
 ## 6. 历史记录
+
+### 2026-10-19 · 在线聊天与私信留言
+
+**范围**：顾客 ↔ 商家按店会话；商家只能回复、不能主动私信；管理员不参与。
+文本 + 图片 + 商品卡 + 订单卡；SSE 实时推送；未读角标、已读回执、在线状态、离线留言。
+
+**数据库（V19）**：`conversations`（唯一键 customer+merchant、双方未读/已读指针、
+最后消息预览）+ `messages`（sender_type 预留 AGENT、content_type、卡片 JSON 快照）。
+
+**后端**：`ChatService` / `ChatServiceImpl`、`ChatController`（`/api/chat`）+
+`MerchantChatController`（`/api/merchant/chat`，无创建会话接口）；
+`ChatTicketService`（Redis 票据）、`ChatStreamRegistry`（SSE 连接 + 在线状态）、
+`ChatHeartbeatJob`（25 秒心跳）；发消息/已读原子 SQL，推送挂 afterCommit；
+卡片由服务端按 ID 生成快照，图片只收 `chat/` 前缀。
+
+**前端**：`stores/chat.ts`（EventSource 生命周期 + 角标 + 事件订阅）、
+`components/chat/*`（ChatCenter / 会话列表 / 聊天窗口 / 气泡 / 输入框）、
+`/user/messages` 与 `/merchant/messages`；商品详情 / 店铺页 / 订单详情加「联系卖家」，
+顶栏与商家菜单加未读角标，移动端单栏切换。
+
+**测试 167 → 178**：新增 `ChatControllerTest` 11 条（会话幂等、权限、消息校验、
+卡片归属与快照、未读/已读、分页补齐、票据一次性）。全量 178 条全绿。
+
+**浏览器实测**：商品页「联系卖家」自动发商品卡 → 顾客发文本 → 商家 curl 回复
+在顾客页通过 SSE 实时出现 → 商家未读角标与已读回执 → 订单卡片点击跳订单详情 →
+聊天图片上传与渲染 → 商家 SSE 在线/离线状态 → 移动端单栏切换。
+
+### 2026-10-19 · 领券中心移到顶栏主导航
+
+**范围**：领券中心是公共功能，不属于用户个人范畴。入口从登录后的用户抽屉面板
+移到顾客顶栏主导航（「领券中心 / 购物车」），匿名用户也能直接进入；用户面板只保留
+「我的优惠券」。
+
+### 2026-10-19 · 商家 Logo 改为上传
+
+**范围**：入驻申请页与商家店铺资料页的 Logo 从手填 URL 改为图片上传。
+
+**后端**：`StorageService.uploadMerchantLogo` 存 `merchants/` 前缀、限 2MB；
+新增 `POST /api/merchant-apply/logo`（任意登录用户可用，按用户限流 20/分钟），
+解决申请人尚无 `MERCHANT` 角色、不能走 `/api/merchant/files/upload` 的问题。
+
+**前端**：`ImageUpload` 从 `views/admin/components` 移到共享 `components/`，
+新增 `apply` 模式；`Apply.vue` 用 `apply`、`Profile.vue` 用 `merchant`。
+提交入驻申请成功后 `router.replace('/')` 回主页，刷新不会停在申请页。
+
+**验证**：后端 167 条测试全绿，前端 `vue-tsc` 通过。
 
 ### 2026-10-19 · 多商户平台改造
 

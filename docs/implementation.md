@@ -226,10 +226,15 @@ return buildNodes(TOP_LEVEL, byParent);                            // 从 0 递�
 MultipartFile
   → 扩展名白名单校验（jpg/jpeg/png/gif/webp）——防止传 .sh/.jsp 之类
   → ensureBucket()：懒初始化，bucket 不存在就建 + 配公开只读策略
-  → objectName = "products/" + UUID + "." + 扩展名    ← UUID 防重名/防路径穿越
+  → objectName = prefix + UUID + "." + 扩展名    ← UUID 防重名/防路径穿越
   → minioClient.putObject(...)
-  → 返回 http://localhost:9000/its-my-go-product-images/products/xxx.png
+  → 返回 http://localhost:9000/its-my-go-product-images/{prefix}xxx.png
 ```
+
+按用途分三个前缀：商品图 `products/`（5MB multipart 上限）、头像 `avatars/`（2MB）、
+店铺 Logo `merchants/`（2MB）。店铺 Logo 有两个入口：商家后台走
+`POST /api/merchant/files/upload`；**入驻申请人还没有 MERCHANT 角色**，走
+`POST /api/merchant-apply/logo`（仅要求登录，按用户限流）。
 
 **桶策略设为公开只读**（`s3:GetObject` 允许 `*`），这样商品图 URL 能直接放进 `<img src>`
 被浏览器加载，不用每次生成预签名 URL。
@@ -879,6 +884,10 @@ WHERE used_order_id = ? AND status = 'USED'
 **入驻流程**：顾客 `POST /api/merchant-apply` → `PENDING` → 平台 `approve` 变 `ACTIVE`
 并写入 `users.role=MERCHANT` / `users.merchant_id`；驳回可改资料重新提交；
 平台可禁用/启用。审核用条件更新 `WHERE status='PENDING'`，防并发重复审核。
+入驻页的 Logo 用 `POST /api/merchant-apply/logo` 上传（申请人尚无商家角色，
+不能复用 `/api/merchant/files/upload`）；店铺资料页则走商家上传接口。
+提交成功（含驳回后重提）后前端 `router.replace('/')` 回主页，刷新仍停在主页；
+审核进度可再从用户面板的「商家入驻」进入查看。
 
 **授权以数据库为准**：`JwtAuthenticationFilter` 只从 JWT 取 userId，
 再用 `AuthIdentityService` 查用户 + 店铺快照（60 秒 Redis 缓存，变更时 evict）。
@@ -924,6 +933,52 @@ WHERE used_order_id = ? AND status = 'USED'
 V17 给 `products` / `orders` / `reviews` 加 `merchant_id`（存量回填 1）；
 V18 给 `coupons` / `user_coupons` 加可空 `merchant_id`（存量券保持平台券）。
 
+### 3.17 在线聊天与私信留言（V19）
+
+**会话模型**：一店 × 一客只有一条会话（`conversations.uk_customer_merchant`）。
+`last_message_id IS NULL` 的空会话不进列表。消息只追加，`messages.sender_type`
+为 `CUSTOMER` / `MERCHANT`，预留 `AGENT` 给 M6 客服复用。
+
+**权限**：顾客侧任意已登录非 ADMIN（商家账号也可作为顾客联系别家店）；
+商家侧 `/api/merchant/chat/**` 必须有 MERCHANT 角色。会话参与者按
+`customer_user_id` / `merchant_id` 判定，跨租户一律 404；**不提供商家创建会话的接口**，
+从协议层保证商家不能主动私信。平台自营店 `owner_user_id` 为 NULL，不允许发起。
+
+**未读与已读**：会话表冗余 `customer_unread` / `merchant_unread` 和双方
+`last_read_message_id`。发消息时：
+
+1. 插入消息；
+2. `last_message_*` 只在**更大消息 id** 时覆盖（防并发旧消息倒灌）；
+3. 原子累加对端未读。
+
+已读时先把指针 `GREATEST` 只前进，再 `COUNT` 重算未读 —— **不能直接置 0**，
+否则和并发到达的新消息竞争会丢未读。SSE `message` 事件与已读接口返回的
+`unread` 都是**该身份的全局未读总数**，前端直接用于顶栏/菜单角标。
+
+**卡片**：发送请求只传 `productId` / `orderId`，服务端查库校验归属后生成 JSON 快照存
+`messages.card_data`；商品改价、订单改状态都不影响历史消息。图片只接受本系统 MinIO
+`chat/` 前缀 URL，外链直接 400。文本 trim 后非空、≤2000 字。
+
+**SSE**：
+
+- EventSource 不能带 Authorization：`POST /api/chat/stream-ticket` 用 JWT 换
+  **60 秒一次性票据**（Redis key `its-my-go:chat:ticket:{uuid}`，带 TTL）；
+  `GET /api/chat/stream?ticket=` 用 `getAndDelete` 消费。SecurityConfig 只精确放行
+  这一条 GET，其余 `/api/chat/**` 仍需登录。
+- `ChatStreamRegistry` 是**单实例内存注册表**：按 userId 存连接，按 merchantId 统计
+  在线商家；每条连接独立加锁发送，发送/心跳失败立即摘除。Redis 不缓存消息。
+- 事件：`connected` / `message` / `read` / `presence`；`@Scheduled` 每 25 秒发心跳注释。
+- 推送注册在 `TransactionSynchronization.afterCommit`，事务回滚不推送；推送失败不回滚消息，
+  客户端重连后用 `afterId` 补齐。
+- 多实例部署需要 Redis Pub/Sub 或粘性会话，本期单机，明确不做。
+
+**入口行为**：从商品/店铺/订单页发起会话；只有**新建会话**时自动附一张卡片，
+重复点「联系卖家」不会重复发。所有入口都要登录，未登录先跳
+`/login?redirect=当前页`。
+
+**迁移（V19）**：建 `conversations` 与 `messages`；会话表带唯一键
+`uk_customer_merchant`、双方未读/已读指针；消息表索引 `(conversation_id, id)`。
+
 ---
 
 ## 4. 前端（`frontend/`）
@@ -949,12 +1004,16 @@ frontend/
 │   │   ├── coupon.ts       # 领券中心 / 我的券 / 可用券
 │   │   ├── shop.ts         # 公开店铺信息
 │   │   ├── merchant.ts     # 商家后台：资料 / 商品 / 订单 / 店铺券 / 评价
+│   │   ├── chat.ts         # 聊天：会话 / 消息 / SSE 票据 / 图片上传
 │   │   └── admin.ts        # 管理端：分类 / 商户 / 商品 / SKU / 上传 / 订单 / 券 / 评价
 │   ├── stores/user.ts      # 登录态（localStorage 的响应式包装）
+│   ├── stores/chat.ts      # 未读角标 + EventSource 生命周期（登录连接、登出断开）
 │   ├── utils/orderStatus.ts # 订单状态中文名与标签色（管理端列表只有原始 status）
 │   ├── components/
 │   │   ├── ProductImage.vue      # 商品图 + 无图占位（列表 / 详情 / 订单共用）
-│   │   └── AddressFormDialog.vue # 收货地址表单弹窗（结算页与用户中心共用）
+│   │   ├── ImageUpload.vue       # 图片上传（admin / merchant / 入驻申请三种接口）
+│   │   ├── AddressFormDialog.vue # 收货地址表单弹窗（结算页与用户中心共用）
+│   │   └── chat/                 # 会话列表 / 聊天窗口 / 消息气泡 / 输入框
 │   ├── styles/theme.css    # 色板 + Element Plus 主题覆盖
 │   ├── router/index.ts
 │   ├── views/
@@ -970,6 +1029,7 @@ frontend/
 │   │   ├── user/               # 用户中心（左侧菜单 + 子路由）
 │   │   │   ├── UserCenter.vue  # 外壳：资料卡 + 菜单 + <router-view>
 │   │   │   ├── Orders.vue      # 我的订单（按状态 Tab + 评价入口）
+│   │   │   ├── Messages.vue    # 我的消息（顾客 ↔ 商家会话）
 │   │   │   ├── Favorites.vue   # 我的收藏
 │   │   │   ├── Footprints.vue  # 浏览足迹
 │   │   │   ├── Coupons.vue     # 我的优惠券
@@ -986,10 +1046,11 @@ frontend/
 │   │       ├── Orders.vue      # 全平台订单 / 店铺筛选 / 发货 / 退款审核
 │   │       ├── Coupons.vue     # 平台券 + 店铺券模板
 │   │       ├── Reviews.vue     # 全平台评价显示 / 隐藏
-│   │       └── components/     # 商品表单、SKU 编辑器、库存调整、订单抽屉、上传
+│   │       └── components/     # 商品表单、SKU 编辑器、库存调整、订单抽屉
 │   │   └── merchant/           # 商家后台（独立外壳）
 │   │       ├── MerchantLayout.vue # 商家侧边菜单 + 页头
 │   │       ├── Apply.vue       # 入驻申请 / 审核状态 / 驳回后重提
+│   │       ├── Messages.vue    # 本店会话 / 回复 / 未读
 │   │       ├── Products.vue    # 本店商品 / SKU / 库存 / 上下架
 │   │       ├── Orders.vue      # 本店订单 / 发货 / 退款审核
 │   │       ├── Coupons.vue     # 本店店铺券
@@ -1164,7 +1225,8 @@ frontend/
 - **改密码失败时留在页面上**（后端返回 400），成功才登出 —— 输错旧密码不该被踢下线
 
 **顶栏用户区**（`App.vue`）：登录后是「圆形头像 + 昵称」，鼠标移上去**向下滑出一个抽屉面板**
-（我的订单 / 我的收藏 / 我的优惠券 / 领券中心 / 收货地址 / 个人资料 / 修改密码 / 退出登录），移开即收起。
+（我的订单 / 我的收藏 / 我的优惠券 / 收货地址 / 个人资料 / 修改密码 / 退出登录），移开即收起。
+**领券中心是公共入口，不放用户面板**：它放在顶栏主导航（「领券中心 / 购物车」），匿名可见。
 头像来自 `userStore.user.avatar`（登录响应里就带），空值回落到首字渐变占位。
 面板用 `opacity + translateY + visibility` 过渡，收起时 `pointer-events: none`；
 **面板顶部留了 8px 内边距**，让鼠标从头像滑到面板时不会跨出元素、把面板误收掉。
@@ -1223,6 +1285,33 @@ frontend/
 `utils/orderStatus.ts`（顾客端用的是后端给的 `statusLabel`，不需要它）。
 详情抽屉打开时才单独请求 `GET /api/admin/orders/{id}` 拿明细。
 
+### 4.12 消息中心（`components/chat/`）
+
+顾客与商家共用同一套组件，`ChatCenter.vue` 用 `mode="CUSTOMER" | "MERCHANT"`
+切换 API 与展示对象：
+
+- 顾客看店铺名 / Logo，显示商家在线状态与「进店逛逛」；
+- 商家看顾客昵称 / 头像，不显示顾客在线状态；
+- 窄屏（≤820px）单栏：会话列表 ↔ 聊天窗口切换，`ChatWindow` 的返回按钮回列表。
+
+**状态与实时**：`stores/chat.ts` 负责登录后取票据建 EventSource、断线指数退避重连、
+维护未读角标、分发事件。页面通过 `onEvent` 订阅新消息 / 已读 / 在线状态；
+消息按 id 去重，当前会话收到对端消息立即调用已读接口。
+`App.vue` watch 登录态调用 `connect()` / `disconnect()`，管理员不连接。
+
+**已读回执**：自己的气泡下方显示「已读 / 未读」，由 `peerLastReadMessageId` 与 SSE
+`read` 事件驱动。
+
+**入口**：
+
+- 商品详情店铺卡片「联系卖家」（带 productId，新会话自动发商品卡）
+- 店铺主页「联系商家」
+- 订单详情状态区「联系卖家」（带 orderId，自动发订单卡；merchantId=1 不显示）
+- 顶栏「消息」+ 未读角标、用户抽屉「我的消息」
+- 商家后台菜单「消息」+ 未读角标
+
+未登录点击入口跳 `/login?redirect=当前页`；平台自营店没有店主，不显示联系入口。
+
 ---
 
 ## 5. 测试怎么写的
@@ -1258,7 +1347,7 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 **测试跑在独立的库和 Redis database 上**（`its_mygo_test` / db 1），跟开发环境彻底分开 ——
 为什么非分不可、怎么配的，见 HANDOFF §5.20。
 
-覆盖重点（当前 **167** 条；CI 上跳过 3 条依赖 MinIO 的，跑 164）：
+覆盖重点（当前 **178** 条；CI 上跳过 3 条依赖 MinIO 的，跑 175）：
 
 | 测试类 | 覆盖 |
 |---|---|
@@ -1285,6 +1374,7 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 | **`MerchantProductTest`** | 商家只能看/改本店商品与 SKU；跨店操作 404；店铺禁用后顾客列表与详情不可见；平台可按商户筛选；平台改商品不改变归属 |
 | **`OrderSplitTest`** | 跨店结算生成 N 个子订单且金额正确；商家只能看/操作本店订单；平台券重复选择被拒；店铺券不能跨店；某店库存失败时 Redis 预扣回补 |
 | **`MerchantReviewTest`** | 商家只看本店评价、只能隐藏本店评价；平台可按商户筛选 |
+| **`ChatControllerTest`** | 会话找或建幂等、商品卡片只发一次；自己的店 / 平台自营店 / ADMIN 被拒；发送 / 未读 / 已读 / 已读回执；文本、长度、外链图片、未知类型校验；商品/订单卡片归属与快照冻结；跨用户/跨商家 404；停用店铺禁止发送但保留历史；`beforeId` 翻页与 `afterId` 补齐；SSE 票据过期/一次性/ADMIN 403 |
 | **`SkuCartTest`** | 同商品两个规格各占一行、重复加购只累加；小计按**那一款**的价（不是商品最低价）；跨商品的 skuId 被当「不存在」挡住；SKU 被删后那行标成不可购买；停售款加不进去 |
 | **`SkuOrderTest`** | 订单项带 `specText` 快照且单价取那一款；**规格改名后历史订单不变**；**取消只回补买过的那一款**、另一款纹丝不动；立即购买只扣选中的 SKU；买停售款被拒 |
 | **`SkuStockConcurrencyTest`** | 10 人抢 5 件的单一 SKU（恰好 5 成功、Redis 与库都对得上）；**同商品两款互不串扰**（黑 3 件售罄不影响白 10 件） |
