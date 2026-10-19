@@ -28,6 +28,9 @@ public class UserCoupon {
 
     private Long couponId;
 
+    /** 领取时的商户快照；NULL 表示平台券 */
+    private Long merchantId;
+
     private String couponName;
 
     private BigDecimal thresholdAmount;

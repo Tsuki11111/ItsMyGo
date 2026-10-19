@@ -28,8 +28,11 @@ public class User {
     /** 1 正常 / 0 禁用 */
     private Integer status;
 
-    /** CUSTOMER 顾客 / ADMIN 管理员 */
+    /** CUSTOMER 顾客 / MERCHANT 商家 / ADMIN 平台管理员 */
     private String role;
+
+    /** 所属商户；仅商家账号有值 */
+    private Long merchantId;
 
     private LocalDateTime createdAt;
 

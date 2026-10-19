@@ -25,9 +25,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private static final String PREFIX = "Bearer ";
 
     private final JwtService jwtService;
+    private final AuthIdentityService authIdentityService;
 
-    public JwtAuthenticationFilter(JwtService jwtService) {
+    public JwtAuthenticationFilter(JwtService jwtService, AuthIdentityService authIdentityService) {
         this.jwtService = jwtService;
+        this.authIdentityService = authIdentityService;
     }
 
     @Override
@@ -36,12 +38,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String header = request.getHeader(HEADER);
         if (header != null && header.startsWith(PREFIX)) {
             try {
-                CurrentUser user = jwtService.parse(header.substring(PREFIX.length()));
-                // Spring Security 的 hasRole("ADMIN") 匹配的是 ROLE_ADMIN 这个 authority
-                var authorities = List.of(new SimpleGrantedAuthority("ROLE_" + user.role()));
-                UsernamePasswordAuthenticationToken authentication =
-                        new UsernamePasswordAuthenticationToken(user, null, authorities);
-                SecurityContextHolder.getContext().setAuthentication(authentication);
+                // JWT 只负责证明「你是谁」；角色/店铺状态以数据库快照为准
+                CurrentUser parsed = jwtService.parse(header.substring(PREFIX.length()));
+                CurrentUser user = authIdentityService.load(parsed.id());
+                if (user != null) {
+                    // Spring Security 的 hasRole("ADMIN") 匹配的是 ROLE_ADMIN 这个 authority
+                    var authorities = List.of(new SimpleGrantedAuthority("ROLE_" + user.role()));
+                    UsernamePasswordAuthenticationToken authentication =
+                            new UsernamePasswordAuthenticationToken(user, null, authorities);
+                    SecurityContextHolder.getContext().setAuthentication(authentication);
+                } else {
+                    SecurityContextHolder.clearContext();
+                }
             } catch (JwtException | IllegalArgumentException e) {
                 SecurityContextHolder.clearContext();
             }

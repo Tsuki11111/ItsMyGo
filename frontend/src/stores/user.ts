@@ -24,6 +24,12 @@ export const useUserStore = defineStore('user', () => {
 
   const isLoggedIn = computed(() => Boolean(token.value && user.value))
   const isAdmin = computed(() => user.value?.role === 'ADMIN')
+  /** 商家后台权限：角色是 MERCHANT 且店铺处于营业状态 */
+  const isMerchant = computed(() =>
+    user.value?.role === 'MERCHANT' && user.value?.merchantStatus === 'ACTIVE',
+  )
+  /** 是否已经绑定过店铺（含审核中/被驳回/被禁用） */
+  const hasMerchant = computed(() => user.value?.merchantId != null)
   /** 顶栏显示用：优先昵称，没填就退回用户名 */
   const displayName = computed(() => user.value?.nickname || user.value?.username || '')
 
@@ -34,6 +40,9 @@ export const useUserStore = defineStore('user', () => {
       nickname: result.nickname,
       avatar: result.avatar,
       role: result.role,
+      merchantId: result.merchantId ?? null,
+      merchantName: result.merchantName ?? '',
+      merchantStatus: result.merchantStatus ?? '',
     }
     token.value = result.token
     user.value = identity
@@ -61,5 +70,5 @@ export const useUserStore = defineStore('user', () => {
   // token 在后端失效时（http.ts 收到 401）跟着一起登出
   window.addEventListener(UNAUTHORIZED_EVENT, logout)
 
-  return { token, user, isLoggedIn, isAdmin, displayName, save, patchProfile, logout }
+  return { token, user, isLoggedIn, isAdmin, isMerchant, hasMerchant, displayName, save, patchProfile, logout }
 })

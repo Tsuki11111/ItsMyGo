@@ -6,6 +6,8 @@ import com.tsuk1.itsmygo.dto.ChangePasswordRequest;
 import com.tsuk1.itsmygo.dto.ProfileView;
 import com.tsuk1.itsmygo.dto.UpdateProfileRequest;
 import com.tsuk1.itsmygo.entity.User;
+import com.tsuk1.itsmygo.entity.Merchant;
+import com.tsuk1.itsmygo.mapper.MerchantMapper;
 import com.tsuk1.itsmygo.mapper.UserMapper;
 import com.tsuk1.itsmygo.service.StorageService;
 import com.tsuk1.itsmygo.service.UserService;
@@ -17,12 +19,14 @@ import org.springframework.web.multipart.MultipartFile;
 public class UserServiceImpl implements UserService {
 
     private final UserMapper userMapper;
+    private final MerchantMapper merchantMapper;
     private final PasswordEncoder passwordEncoder;
     private final StorageService storageService;
 
-    public UserServiceImpl(UserMapper userMapper, PasswordEncoder passwordEncoder,
-                           StorageService storageService) {
+    public UserServiceImpl(UserMapper userMapper, MerchantMapper merchantMapper,
+                           PasswordEncoder passwordEncoder, StorageService storageService) {
         this.userMapper = userMapper;
+        this.merchantMapper = merchantMapper;
         this.passwordEncoder = passwordEncoder;
         this.storageService = storageService;
     }
@@ -85,7 +89,12 @@ public class UserServiceImpl implements UserService {
     }
 
     private ProfileView toView(User user) {
+        Merchant merchant = user.getMerchantId() == null ? null
+                : merchantMapper.selectById(user.getMerchantId());
         return new ProfileView(user.getId(), user.getUsername(), user.getNickname(),
-                user.getPhone(), user.getAvatar() == null ? "" : user.getAvatar(), user.getRole());
+                user.getPhone(), user.getAvatar() == null ? "" : user.getAvatar(), user.getRole(),
+                user.getMerchantId(),
+                merchant == null ? "" : merchant.getName(),
+                merchant == null ? "" : merchant.getStatus());
     }
 }

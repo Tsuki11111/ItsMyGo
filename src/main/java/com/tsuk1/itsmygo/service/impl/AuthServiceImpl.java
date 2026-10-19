@@ -8,6 +8,8 @@ import com.tsuk1.itsmygo.dto.LoginRequest;
 import com.tsuk1.itsmygo.dto.LoginResponse;
 import com.tsuk1.itsmygo.dto.RegisterRequest;
 import com.tsuk1.itsmygo.entity.User;
+import com.tsuk1.itsmygo.entity.Merchant;
+import com.tsuk1.itsmygo.mapper.MerchantMapper;
 import com.tsuk1.itsmygo.mapper.UserMapper;
 import com.tsuk1.itsmygo.security.JwtService;
 import com.tsuk1.itsmygo.service.AuthService;
@@ -19,11 +21,14 @@ import org.springframework.stereotype.Service;
 public class AuthServiceImpl implements AuthService {
 
     private final UserMapper userMapper;
+    private final MerchantMapper merchantMapper;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
 
-    public AuthServiceImpl(UserMapper userMapper, PasswordEncoder passwordEncoder, JwtService jwtService) {
+    public AuthServiceImpl(UserMapper userMapper, MerchantMapper merchantMapper,
+                           PasswordEncoder passwordEncoder, JwtService jwtService) {
         this.userMapper = userMapper;
+        this.merchantMapper = merchantMapper;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
     }
@@ -66,7 +71,12 @@ public class AuthServiceImpl implements AuthService {
 
     private LoginResponse toResponse(User user) {
         String token = jwtService.issue(user.getId(), user.getUsername(), user.getRole());
+        Merchant merchant = user.getMerchantId() == null ? null
+                : merchantMapper.selectById(user.getMerchantId());
         return new LoginResponse(token, user.getId(), user.getUsername(), user.getNickname(),
-                user.getAvatar() == null ? "" : user.getAvatar(), user.getRole());
+                user.getAvatar() == null ? "" : user.getAvatar(), user.getRole(),
+                user.getMerchantId(),
+                merchant == null ? "" : merchant.getName(),
+                merchant == null ? "" : merchant.getStatus());
     }
 }

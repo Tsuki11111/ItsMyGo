@@ -18,6 +18,9 @@ public class Product {
     @TableId(type = IdType.AUTO)
     private Long id;
 
+    /** 所属商户；存量商品默认是 1（平台自营） */
+    private Long merchantId;
+
     private Long categoryId;
 
     private String name;

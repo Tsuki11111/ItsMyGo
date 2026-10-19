@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Location, Lock, Setting, Star, SwitchButton, Ticket, Tickets, User } from '@element-plus/icons-vue'
+import { Location, Lock, Setting, Shop, Star, SwitchButton, Ticket, Tickets, User } from '@element-plus/icons-vue'
 import ProductImage from '@/components/ProductImage.vue'
 import { useUserStore } from '@/stores/user'
 
@@ -10,8 +10,12 @@ const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 
-/** 管理端有自己的外壳（AdminLayout），不共用顾客顶栏和内容宽度 */
-const isAdminRoute = computed(() => route.path === '/admin' || route.path.startsWith('/admin/'))
+/** 管理端 / 商家端有自己的外壳，不共用顾客顶栏和内容宽度 */
+const isBareRoute = computed(() => {
+  const path = route.path
+  return path === '/admin' || path.startsWith('/admin/')
+    || path === '/merchant' || path.startsWith('/merchant/')
+})
 
 /** 鼠标移到用户区时展开的抽屉面板 */
 const panelOpen = ref(false)
@@ -42,7 +46,7 @@ function onLogout() {
 </script>
 
 <template>
-  <header v-if="!isAdminRoute" class="topbar">
+  <header v-if="!isBareRoute" class="topbar">
     <div class="topbar-inner">
       <RouterLink to="/" class="logo">一次买够</RouterLink>
       <div class="search">
@@ -100,6 +104,16 @@ function onLogout() {
                     <el-icon><Setting /></el-icon>管理后台
                   </RouterLink>
                 </template>
+                <template v-else-if="userStore.isMerchant">
+                  <RouterLink to="/merchant/profile" class="panel-item" @click="panelOpen = false">
+                    <el-icon><Shop /></el-icon>商家后台
+                  </RouterLink>
+                </template>
+                <template v-else>
+                  <RouterLink to="/merchant/apply" class="panel-item" @click="panelOpen = false">
+                    <el-icon><Shop /></el-icon>商家入驻
+                  </RouterLink>
+                </template>
 
                 <div class="panel-divider"></div>
 
@@ -116,7 +130,7 @@ function onLogout() {
     </div>
   </header>
 
-  <main :class="isAdminRoute ? 'admin-main' : 'page'">
+  <main :class="isBareRoute ? 'admin-main' : 'page'">
     <RouterView />
   </main>
 </template>

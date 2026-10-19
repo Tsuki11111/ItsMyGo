@@ -15,6 +15,9 @@ export interface StoredUser {
   nickname: string
   avatar?: string
   role: string
+  merchantId?: number | null
+  merchantName?: string
+  merchantStatus?: string
 }
 
 export function getToken(): string | null {

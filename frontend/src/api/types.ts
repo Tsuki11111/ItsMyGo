@@ -27,8 +27,13 @@ export interface AuthResult {
   nickname: string
   /** 头像 URL，空串表示没设置 */
   avatar: string
-  /** CUSTOMER / ADMIN */
+  /** CUSTOMER / MERCHANT / ADMIN */
   role: string
+  /** 商家账号才有 */
+  merchantId?: number | null
+  merchantName?: string
+  /** PENDING / ACTIVE / REJECTED / DISABLED */
+  merchantStatus?: string
 }
 
 /** 用户中心里的个人资料（不含密码与账号状态） */
@@ -39,6 +44,9 @@ export interface UserProfile {
   phone: string
   avatar: string
   role: string
+  merchantId?: number | null
+  merchantName?: string
+  merchantStatus?: string
 }
 
 export interface Product {
@@ -431,4 +439,35 @@ export interface CouponPayload {
   validFrom: string
   validTo: string
   enabled: boolean
+}
+
+// ── 多商户 ──────────────────────────────────────────────────────
+
+/** 店铺信息：公开店铺页 / 商家资料 / 入驻申请状态共用 */
+export interface MerchantView {
+  id: number
+  name: string
+  logo: string
+  description: string
+  contactName: string
+  contactPhone: string
+  /** PENDING / ACTIVE / REJECTED / DISABLED */
+  status: string
+  rejectReason: string
+  ownerUserId: number | null
+  createdAt: string
+}
+
+/** 平台后台商户列表项 */
+export interface AdminMerchantView extends MerchantView {
+  ownerUsername: string
+}
+
+/** 入驻申请 / 店铺资料修改 */
+export interface MerchantPayload {
+  name: string
+  logo: string
+  description: string
+  contactName: string
+  contactPhone: string
 }

@@ -16,6 +16,9 @@ public class Coupon {
     @TableId(type = IdType.AUTO)
     private Long id;
 
+    /** 所属商户；NULL 表示平台券 */
+    private Long merchantId;
+
     private String name;
 
     /** 满多少可用 */

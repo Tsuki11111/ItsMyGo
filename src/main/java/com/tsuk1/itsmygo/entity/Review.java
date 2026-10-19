@@ -23,6 +23,9 @@ public class Review {
 
     private Long productId;
 
+    /** 所属商户（下单时快照，商品删除后仍可按店查询） */
+    private Long merchantId;
+
     private Long skuId;
 
     /** 1-5 星 */

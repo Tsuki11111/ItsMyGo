@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ChatDotRound, Discount, Goods, Menu as MenuIcon, Tickets } from '@element-plus/icons-vue'
+import { ChatDotRound, Discount, Goods, Menu as MenuIcon, Shop, Tickets } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 
 const route = useRoute()
@@ -11,6 +11,7 @@ const userStore = useUserStore()
 
 const MENU = [
   { path: '/admin/categories', label: '分类管理', icon: MenuIcon },
+  { path: '/admin/merchants', label: '商户管理', icon: Shop },
   { path: '/admin/products', label: '商品管理', icon: Goods },
   { path: '/admin/orders', label: '订单管理', icon: Tickets },
   { path: '/admin/coupons', label: '优惠券管理', icon: Discount },

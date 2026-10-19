@@ -39,10 +39,13 @@ public class SecurityConfig {
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/health", "/api/auth/register", "/api/auth/login").permitAll()
-                        // 顾客浏览商品与分类无需登录
-                        .requestMatchers(HttpMethod.GET, "/api/products/**", "/api/categories/**").permitAll()
+                        // 顾客浏览商品、分类与店铺主页无需登录
+                        .requestMatchers(HttpMethod.GET, "/api/products/**", "/api/categories/**",
+                                "/api/shops/**").permitAll()
                         // 领券中心匿名可看；**精确匹配**，不能写 /**，否则 /api/coupons/mine 也会被放行
                         .requestMatchers(HttpMethod.GET, "/api/coupons").permitAll()
+                        // 商家后台（角色由 AuthIdentityService 按数据库实时计算）
+                        .requestMatchers("/api/merchant/**").hasRole("MERCHANT")
                         // 管理端一律要求管理员
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated()

@@ -1,6 +1,7 @@
 import { del, get, post, postForm, put } from './http'
 import type {
   AdjustSkuStockPayload,
+  AdminMerchantView,
   AdminReviewView,
   CategoryNode,
   CategoryPayload,
@@ -162,4 +163,36 @@ export function fetchAdminReviews(query: AdminReviewQuery): Promise<PageResponse
 
 export function setReviewVisible(id: number, visible: boolean): Promise<void> {
   return put<void>(`/admin/reviews/${id}/visible`, { visible })
+}
+
+// ── 商户审核 ──
+
+export interface AdminMerchantQuery {
+  page?: number
+  size?: number
+  /** PENDING / ACTIVE / REJECTED / DISABLED */
+  status?: string
+  keyword?: string
+}
+
+export function fetchAdminMerchants(
+  query: AdminMerchantQuery,
+): Promise<PageResponse<AdminMerchantView>> {
+  return get<PageResponse<AdminMerchantView>>('/admin/merchants', { ...query })
+}
+
+export function approveMerchant(id: number): Promise<void> {
+  return post<void>(`/admin/merchants/${id}/approve`)
+}
+
+export function rejectMerchant(id: number, reason: string): Promise<void> {
+  return post<void>(`/admin/merchants/${id}/reject`, { reason })
+}
+
+export function disableMerchant(id: number): Promise<void> {
+  return post<void>(`/admin/merchants/${id}/disable`)
+}
+
+export function enableMerchant(id: number): Promise<void> {
+  return post<void>(`/admin/merchants/${id}/enable`)
 }

@@ -13,6 +13,21 @@ const router = createRouter({
     { path: '/order/:id', name: 'order-detail', component: () => import('@/views/OrderDetail.vue') },
     { path: '/coupons', name: 'coupon-center', component: () => import('@/views/CouponCenter.vue') },
     {
+      path: '/merchant/apply',
+      name: 'merchant-apply',
+      component: () => import('@/views/merchant/Apply.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/merchant',
+      component: () => import('@/views/merchant/MerchantLayout.vue'),
+      redirect: '/merchant/profile',
+      meta: { requiresMerchant: true },
+      children: [
+        { path: 'profile', name: 'merchant-profile', component: () => import('@/views/merchant/Profile.vue') },
+      ],
+    },
+    {
       path: '/user',
       component: () => import('@/views/user/UserCenter.vue'),
       redirect: '/user/orders',
@@ -39,6 +54,7 @@ const router = createRouter({
         { path: 'orders', name: 'admin-orders', component: () => import('@/views/admin/Orders.vue') },
         { path: 'coupons', name: 'admin-coupons', component: () => import('@/views/admin/Coupons.vue') },
         { path: 'reviews', name: 'admin-reviews', component: () => import('@/views/admin/Reviews.vue') },
+        { path: 'merchants', name: 'admin-merchants', component: () => import('@/views/admin/Merchants.vue') },
       ],
     },
   ],
@@ -51,14 +67,22 @@ const router = createRouter({
  */
 router.beforeEach((to) => {
   const requiresAdmin = to.matched.some((record) => record.meta.requiresAdmin)
+  const requiresMerchant = to.matched.some((record) => record.meta.requiresMerchant)
   const requiresAuth = to.matched.some((record) => record.meta.requiresAuth)
 
-  if ((requiresAuth || requiresAdmin) && !getToken()) {
+  if ((requiresAuth || requiresAdmin || requiresMerchant) && !getToken()) {
     return { path: '/login', query: { redirect: to.fullPath } }
   }
 
-  if (requiresAdmin && getStoredUser()?.role !== 'ADMIN') {
+  const stored = getStoredUser()
+  if (requiresAdmin && stored?.role !== 'ADMIN') {
     ElMessage.error('需要管理员权限')
+    return { path: '/' }
+  }
+
+  if (requiresMerchant
+      && (stored?.role !== 'MERCHANT' || stored.merchantStatus !== 'ACTIVE')) {
+    ElMessage.error('需要商家权限')
     return { path: '/' }
   }
 

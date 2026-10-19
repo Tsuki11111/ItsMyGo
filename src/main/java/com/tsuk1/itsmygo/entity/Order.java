@@ -1,8 +1,10 @@
 package com.tsuk1.itsmygo.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -18,6 +20,14 @@ public class Order {
     private String orderNo;
 
     private Long userId;
+
+    /** 所属商户；按店拆单后一个订单只属于一个商户 */
+    private Long merchantId;
+
+    /** 店铺名快照，列表展示用；不是数据库列 */
+    @TableField(exist = false)
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String merchantName;
 
     private BigDecimal totalAmount;
 
