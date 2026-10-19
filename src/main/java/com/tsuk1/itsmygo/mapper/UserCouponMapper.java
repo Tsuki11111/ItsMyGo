@@ -75,14 +75,20 @@ public interface UserCouponMapper extends BaseMapper<UserCoupon> {
 
     /** 结算页预校验：未使用、未过期、门槛满足；按减免从大到小 */
     @Select("""
+            <script>
             SELECT * FROM user_coupons
             WHERE user_id = #{userId}
               AND status = 'UNUSED'
-              AND valid_from <= NOW()
-              AND valid_to >= NOW()
-              AND threshold_amount <= #{amount}
+              AND valid_from &lt;= NOW()
+              AND valid_to &gt;= NOW()
+              AND threshold_amount &lt;= #{amount}
+            <if test="merchantId != null">
+              AND (merchant_id IS NULL OR merchant_id = #{merchantId})
+            </if>
             ORDER BY discount_amount DESC, id DESC
+            </script>
             """)
     List<UserCoupon> selectAvailable(@Param("userId") Long userId,
-                                     @Param("amount") BigDecimal amount);
+                                     @Param("amount") BigDecimal amount,
+                                     @Param("merchantId") Long merchantId);
 }

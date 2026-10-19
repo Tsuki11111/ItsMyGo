@@ -5,16 +5,19 @@ import type { FormInstance, FormRules } from 'element-plus'
 import {
   createAdminCoupon,
   fetchAdminCoupons,
+  fetchAdminMerchants,
   updateAdminCoupon,
 } from '@/api/admin'
-import type { Coupon } from '@/api/types'
+import type { AdminMerchantView, Coupon } from '@/api/types'
 
 const rows = ref<Coupon[]>([])
+const merchants = ref<AdminMerchantView[]>([])
 const total = ref(0)
 const page = ref(1)
 const size = ref(10)
 const enabled = ref<boolean | ''>('')
 const keyword = ref('')
+const merchantId = ref<number | null>(null)
 const loading = ref(false)
 
 const dialogVisible = ref(false)
@@ -30,6 +33,7 @@ const form = reactive({
   validFrom: '',
   validTo: '',
   enabled: true,
+  merchantId: null as number | null,
 })
 
 const rules: FormRules = {
@@ -46,12 +50,18 @@ async function load() {
       size: size.value,
       enabled: enabled.value === '' ? undefined : enabled.value,
       keyword: keyword.value.trim() || undefined,
+      merchantId: merchantId.value ?? undefined,
     })
     rows.value = result.records
     total.value = result.total
   } finally {
     loading.value = false
   }
+}
+
+async function loadMerchants() {
+  const result = await fetchAdminMerchants({ page: 1, size: 100 })
+  merchants.value = result.records
 }
 
 function search() {
@@ -62,6 +72,7 @@ function search() {
 function reset() {
   enabled.value = ''
   keyword.value = ''
+  merchantId.value = null
   page.value = 1
   load()
 }
@@ -89,6 +100,7 @@ function openCreate() {
     validFrom: toLocal(now),
     validTo: toLocal(weekLater),
     enabled: true,
+    merchantId: null,
   })
   dialogVisible.value = true
 }
@@ -103,6 +115,7 @@ function openEdit(row: Coupon) {
     validFrom: row.validFrom,
     validTo: row.validTo,
     enabled: row.status === 1,
+    merchantId: row.merchantId ?? null,
   })
   dialogVisible.value = true
 }
@@ -128,6 +141,7 @@ async function submit() {
     validFrom: form.validFrom,
     validTo: form.validTo,
     enabled: form.enabled,
+    merchantId: form.merchantId,
   }
 
   saving.value = true
@@ -168,7 +182,10 @@ function formatTime(value: string): string {
   return value.replace('T', ' ').slice(0, 16)
 }
 
-onMounted(load)
+onMounted(async () => {
+  await loadMerchants()
+  await load()
+})
 </script>
 
 <template>
@@ -179,6 +196,21 @@ onMounted(load)
     </div>
 
     <div class="filters">
+      <el-select
+        v-model="merchantId"
+        clearable
+        filterable
+        placeholder="全部店铺"
+        style="width: 180px"
+        @change="search"
+      >
+        <el-option
+          v-for="merchant in merchants"
+          :key="merchant.id"
+          :label="merchant.name"
+          :value="merchant.id"
+        />
+      </el-select>
       <el-select v-model="enabled" clearable placeholder="全部状态" style="width: 140px">
         <el-option label="启用" :value="true" />
         <el-option label="停用" :value="false" />
@@ -197,6 +229,13 @@ onMounted(load)
 
     <el-table v-loading="loading" :data="rows" border>
       <el-table-column prop="id" label="ID" width="70" align="center" />
+      <el-table-column label="归属" width="130">
+        <template #default="{ row }">
+          <el-tag :type="row.merchantId ? 'primary' : 'success'" size="small">
+            {{ row.merchantId ? merchants.find((m) => m.id === row.merchantId)?.name ?? `#${row.merchantId}` : '平台券' }}
+          </el-tag>
+        </template>
+      </el-table-column>
       <el-table-column prop="name" label="券名称" min-width="160" />
       <el-table-column label="满减" width="150">
         <template #default="{ row }">
@@ -250,6 +289,24 @@ onMounted(load)
       <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
         <el-form-item label="券名称" prop="name">
           <el-input v-model="form.name" maxlength="64" />
+        </el-form-item>
+        <el-form-item label="归属">
+          <el-select
+            v-model="form.merchantId"
+            clearable
+            filterable
+            placeholder="平台券（留空）"
+            style="width: 260px"
+            :disabled="editing !== null && editing.claimedCount > 0"
+          >
+            <el-option
+              v-for="merchant in merchants"
+              :key="merchant.id"
+              :label="merchant.name"
+              :value="merchant.id"
+            />
+          </el-select>
+          <span class="hint">留空=平台券；选择店铺=店铺券</span>
         </el-form-item>
         <el-form-item label="使用门槛">
           <el-input-number v-model="form.thresholdAmount" :min="0" :precision="2" />

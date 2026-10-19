@@ -7,6 +7,8 @@ public record AdminReviewView(
         Long id,
         Long userId,
         String userNickname,
+        Long merchantId,
+        String merchantName,
         Long productId,
         String productName,
         Integer rating,

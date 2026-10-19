@@ -21,5 +21,16 @@ public interface ReviewService {
 
     PageResponse<AdminReviewView> pageForAdmin(int page, int size, Boolean visible, String keyword);
 
+    /** 平台可按商户筛选 */
+    PageResponse<AdminReviewView> pageForAdmin(int page, int size, Boolean visible, String keyword,
+                                               Long merchantId);
+
     void setVisible(Long reviewId, boolean visible);
+
+    // ── 商家端 ──
+
+    PageResponse<AdminReviewView> pageForMerchant(Long merchantId, int page, int size,
+                                                  Boolean visible, String keyword);
+
+    void setVisibleForMerchant(Long merchantId, Long reviewId, boolean visible);
 }

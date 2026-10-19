@@ -89,6 +89,7 @@ function thresholdText(item: UserCouponView): string {
         </div>
         <div class="detail">
           <p class="name">{{ item.couponName }}</p>
+          <p class="scope">{{ item.merchantId ? `${item.merchantName} · 店铺券` : '平台券 · 全场可用' }}</p>
           <p class="period">有效期至 {{ formatDate(item.validTo) }}</p>
           <p v-if="item.status === 'USED'" class="state">已用于订单 #{{ item.usedOrderId }}</p>
           <p v-else-if="item.status === 'EXPIRED'" class="state">已过期</p>
@@ -217,6 +218,12 @@ function thresholdText(item: UserCouponView): string {
   margin: 6px 0 0;
   font-size: 12px;
   color: var(--c-text-3);
+}
+
+.scope {
+  margin: 5px 0 0;
+  font-size: 12px;
+  color: var(--c-pink);
 }
 
 .pager {

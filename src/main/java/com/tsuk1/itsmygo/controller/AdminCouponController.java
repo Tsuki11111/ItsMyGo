@@ -30,8 +30,9 @@ public class AdminCouponController {
     public Result<PageResponse<Coupon>> page(@RequestParam(defaultValue = "1") int page,
                                              @RequestParam(defaultValue = "10") int size,
                                              @RequestParam(required = false) Boolean enabled,
-                                             @RequestParam(required = false) String keyword) {
-        return Result.ok(couponService.pageForAdmin(page, size, enabled, keyword));
+                                             @RequestParam(required = false) String keyword,
+                                             @RequestParam(required = false) Long merchantId) {
+        return Result.ok(couponService.pageForAdmin(page, size, enabled, keyword, merchantId));
     }
 
     @PostMapping

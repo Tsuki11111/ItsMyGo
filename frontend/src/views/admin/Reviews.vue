@@ -1,15 +1,17 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { fetchAdminReviews, setReviewVisible } from '@/api/admin'
-import type { AdminReviewView } from '@/api/types'
+import { fetchAdminMerchants, fetchAdminReviews, setReviewVisible } from '@/api/admin'
+import type { AdminMerchantView, AdminReviewView } from '@/api/types'
 
 const rows = ref<AdminReviewView[]>([])
+const merchants = ref<AdminMerchantView[]>([])
 const total = ref(0)
 const page = ref(1)
 const size = ref(10)
 const visible = ref<boolean | ''>('')
 const keyword = ref('')
+const merchantId = ref<number | null>(null)
 const loading = ref(false)
 
 async function load() {
@@ -20,12 +22,18 @@ async function load() {
       size: size.value,
       visible: visible.value === '' ? undefined : visible.value,
       keyword: keyword.value.trim() || undefined,
+      merchantId: merchantId.value ?? undefined,
     })
     rows.value = result.records
     total.value = result.total
   } finally {
     loading.value = false
   }
+}
+
+async function loadMerchants() {
+  const result = await fetchAdminMerchants({ page: 1, size: 100 })
+  merchants.value = result.records
 }
 
 function search() {
@@ -36,6 +44,7 @@ function search() {
 function reset() {
   visible.value = ''
   keyword.value = ''
+  merchantId.value = null
   page.value = 1
   load()
 }
@@ -65,7 +74,10 @@ function formatTime(value: string): string {
   return value.replace('T', ' ').slice(0, 16)
 }
 
-onMounted(load)
+onMounted(async () => {
+  await loadMerchants()
+  await load()
+})
 </script>
 
 <template>
@@ -75,6 +87,21 @@ onMounted(load)
     </div>
 
     <div class="filters">
+      <el-select
+        v-model="merchantId"
+        clearable
+        filterable
+        placeholder="全部店铺"
+        style="width: 180px"
+        @change="search"
+      >
+        <el-option
+          v-for="merchant in merchants"
+          :key="merchant.id"
+          :label="merchant.name"
+          :value="merchant.id"
+        />
+      </el-select>
       <el-select v-model="visible" clearable placeholder="全部状态" style="width: 140px">
         <el-option label="展示中" :value="true" />
         <el-option label="已隐藏" :value="false" />
@@ -93,6 +120,7 @@ onMounted(load)
 
     <el-table v-loading="loading" :data="rows" border>
       <el-table-column prop="id" label="ID" width="70" align="center" />
+      <el-table-column prop="merchantName" label="店铺" width="130" />
       <el-table-column prop="productName" label="商品" min-width="160" />
       <el-table-column prop="userNickname" label="用户" width="120" />
       <el-table-column label="评分" width="150">

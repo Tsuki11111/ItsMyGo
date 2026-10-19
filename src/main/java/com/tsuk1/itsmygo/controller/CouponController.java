@@ -56,10 +56,11 @@ public class CouponController {
         return Result.ok(couponService.mine(user.id(), page, size, status));
     }
 
-    /** 结算页预校验：按商品总额筛出可用券 */
+    /** 结算页预校验：按商品总额与店铺筛出可用券（平台券 + 该店铺券） */
     @GetMapping("/mine/available")
     public Result<List<UserCouponView>> available(@AuthenticationPrincipal CurrentUser user,
-                                                  @RequestParam BigDecimal amount) {
-        return Result.ok(couponService.available(user.id(), amount));
+                                                  @RequestParam BigDecimal amount,
+                                                  @RequestParam(required = false) Long merchantId) {
+        return Result.ok(couponService.available(user.id(), amount, merchantId));
     }
 }

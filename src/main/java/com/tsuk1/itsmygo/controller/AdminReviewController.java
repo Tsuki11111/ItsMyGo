@@ -30,8 +30,9 @@ public class AdminReviewController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size,
             @RequestParam(required = false) Boolean visible,
-            @RequestParam(required = false) String keyword) {
-        return Result.ok(reviewService.pageForAdmin(page, size, visible, keyword));
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) Long merchantId) {
+        return Result.ok(reviewService.pageForAdmin(page, size, visible, keyword, merchantId));
     }
 
     @PutMapping("/{id}/visible")

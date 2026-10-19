@@ -7,7 +7,9 @@ import com.tsuk1.itsmygo.common.exception.BizException;
 import com.tsuk1.itsmygo.dto.FootprintView;
 import com.tsuk1.itsmygo.dto.PageResponse;
 import com.tsuk1.itsmygo.entity.Product;
+import com.tsuk1.itsmygo.entity.Merchant;
 import com.tsuk1.itsmygo.entity.UserFootprint;
+import com.tsuk1.itsmygo.mapper.MerchantMapper;
 import com.tsuk1.itsmygo.mapper.ProductMapper;
 import com.tsuk1.itsmygo.mapper.UserFootprintMapper;
 import com.tsuk1.itsmygo.service.FootprintService;
@@ -30,10 +32,13 @@ public class FootprintServiceImpl implements FootprintService {
 
     private final UserFootprintMapper footprintMapper;
     private final ProductMapper productMapper;
+    private final MerchantMapper merchantMapper;
 
-    public FootprintServiceImpl(UserFootprintMapper footprintMapper, ProductMapper productMapper) {
+    public FootprintServiceImpl(UserFootprintMapper footprintMapper, ProductMapper productMapper,
+                                MerchantMapper merchantMapper) {
         this.footprintMapper = footprintMapper;
         this.productMapper = productMapper;
+        this.merchantMapper = merchantMapper;
     }
 
     @Override
@@ -60,9 +65,17 @@ public class FootprintServiceImpl implements FootprintService {
         Map<Long, Product> products = footprints.isEmpty() ? Map.of()
                 : productMapper.selectByIds(footprints.stream().map(UserFootprint::getProductId).distinct().toList())
                 .stream().collect(Collectors.toMap(Product::getId, Function.identity()));
+        Map<Long, Merchant> merchants = products.isEmpty() ? Map.of()
+                : merchantMapper.selectByIds(products.values().stream().map(Product::getMerchantId)
+                        .filter(java.util.Objects::nonNull).distinct().toList())
+                .stream().collect(Collectors.toMap(Merchant::getId, Function.identity()));
 
         List<FootprintView> views = footprints.stream()
-                .map(footprint -> toView(footprint, products.get(footprint.getProductId())))
+                .map(footprint -> {
+                    Product product = products.get(footprint.getProductId());
+                    Merchant merchant = product == null ? null : merchants.get(product.getMerchantId());
+                    return toView(footprint, product, merchant);
+                })
                 .toList();
         return new PageResponse<>(views, result.getTotal(), result.getCurrent(), result.getSize());
     }
@@ -73,14 +86,15 @@ public class FootprintServiceImpl implements FootprintService {
                 .eq(UserFootprint::getUserId, userId));
     }
 
-    private FootprintView toView(UserFootprint footprint, Product product) {
+    private FootprintView toView(UserFootprint footprint, Product product, Merchant merchant) {
         if (product == null) {
             return new FootprintView(footprint.getId(), footprint.getProductId(),
-                    "商品已不存在", "", "", BigDecimal.ZERO, 0, footprint.getViewedAt());
+                    "商品已不存在", "", "", BigDecimal.ZERO, 0, footprint.getViewedAt(), null, "");
         }
         return new FootprintView(footprint.getId(), product.getId(), product.getName(),
                 product.getSubtitle(), product.getMainImage(), product.getPrice(),
-                product.getStatus(), footprint.getViewedAt());
+                product.getStatus(), footprint.getViewedAt(),
+                product.getMerchantId(), merchant == null ? "" : merchant.getName());
     }
 
     private int normalizePage(int page) {

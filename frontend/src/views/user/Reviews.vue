@@ -49,6 +49,13 @@ onMounted(load)
             <RouterLink :to="`/product/${item.productId}`" class="product-name">
               {{ item.productName }}
             </RouterLink>
+            <RouterLink
+              v-if="item.merchantId"
+              :to="`/shop/${item.merchantId}`"
+              class="shop-link"
+            >
+              {{ item.merchantName }}
+            </RouterLink>
             <el-rate :model-value="item.rating" disabled size="small" />
           </div>
           <el-tag :type="item.status === 1 ? 'success' : 'info'" size="small">
@@ -130,6 +137,14 @@ onMounted(load)
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.shop-link {
+  display: inline-block;
+  margin-bottom: 4px;
+  font-size: 11px;
+  color: var(--c-pink);
+  text-decoration: none;
 }
 
 .content {

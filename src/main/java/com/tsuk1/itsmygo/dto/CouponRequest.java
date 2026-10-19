@@ -34,6 +34,9 @@ public record CouponRequest(
         LocalDateTime validTo,
 
         @NotNull(message = "启用状态不能为空")
-        Boolean enabled
+        Boolean enabled,
+
+        /** NULL=平台券；非空=指定店铺券 */
+        Long merchantId
 ) {
 }

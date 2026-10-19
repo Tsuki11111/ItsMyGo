@@ -13,9 +13,11 @@ import com.tsuk1.itsmygo.dto.ReviewView;
 import com.tsuk1.itsmygo.entity.Order;
 import com.tsuk1.itsmygo.entity.OrderItem;
 import com.tsuk1.itsmygo.entity.OrderStatus;
+import com.tsuk1.itsmygo.entity.Merchant;
 import com.tsuk1.itsmygo.entity.Product;
 import com.tsuk1.itsmygo.entity.Review;
 import com.tsuk1.itsmygo.entity.User;
+import com.tsuk1.itsmygo.mapper.MerchantMapper;
 import com.tsuk1.itsmygo.mapper.OrderItemMapper;
 import com.tsuk1.itsmygo.mapper.OrderMapper;
 import com.tsuk1.itsmygo.mapper.ProductMapper;
@@ -44,15 +46,17 @@ public class ReviewServiceImpl implements ReviewService {
     private final OrderItemMapper orderItemMapper;
     private final ProductMapper productMapper;
     private final UserMapper userMapper;
+    private final MerchantMapper merchantMapper;
 
     public ReviewServiceImpl(ReviewMapper reviewMapper, OrderMapper orderMapper,
                              OrderItemMapper orderItemMapper, ProductMapper productMapper,
-                             UserMapper userMapper) {
+                             UserMapper userMapper, MerchantMapper merchantMapper) {
         this.reviewMapper = reviewMapper;
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
         this.productMapper = productMapper;
         this.userMapper = userMapper;
+        this.merchantMapper = merchantMapper;
     }
 
     @Override
@@ -80,6 +84,7 @@ public class ReviewServiceImpl implements ReviewService {
         review.setOrderId(order.getId());
         review.setOrderItemId(item.getId());
         review.setProductId(item.getProductId());
+        review.setMerchantId(order.getMerchantId());
         review.setSkuId(item.getSkuId());
         review.setRating(request.rating());
         review.setContent(request.content() == null ? "" : request.content().trim());
@@ -103,12 +108,15 @@ public class ReviewServiceImpl implements ReviewService {
 
         List<Review> reviews = result.getRecords();
         Map<Long, Product> products = loadProducts(reviews.stream().map(Review::getProductId).toList());
+        Map<Long, Merchant> merchants = loadMerchants(reviews.stream().map(Review::getMerchantId).toList());
 
         List<MyReviewView> views = reviews.stream().map(review -> {
             Product product = products.get(review.getProductId());
+            Merchant merchant = merchants.get(review.getMerchantId());
             return new MyReviewView(review.getId(), review.getOrderItemId(), review.getProductId(),
                     product == null ? "商品已不存在" : product.getName(),
                     product == null ? "" : product.getMainImage(),
+                    review.getMerchantId(), merchant == null ? "" : merchant.getName(),
                     review.getRating(), review.getContent(), review.getStatus(), review.getCreatedAt());
         }).toList();
 
@@ -151,28 +159,66 @@ public class ReviewServiceImpl implements ReviewService {
 
     @Override
     public PageResponse<AdminReviewView> pageForAdmin(int page, int size, Boolean visible, String keyword) {
+        return pageForAdmin(page, size, visible, keyword, null);
+    }
+
+    @Override
+    public PageResponse<AdminReviewView> pageForAdmin(int page, int size, Boolean visible,
+                                                      String keyword, Long merchantId) {
         Page<Review> result = reviewMapper.selectPage(
                 new Page<>(normalizePage(page), normalizeSize(size)),
                 Wrappers.<Review>lambdaQuery()
                         .eq(visible != null, Review::getStatus, Boolean.TRUE.equals(visible) ? VISIBLE : HIDDEN)
+                        .eq(merchantId != null, Review::getMerchantId, merchantId)
                         .like(StringUtils.hasText(keyword), Review::getContent, keyword)
                         .orderByDesc(Review::getId));
+        return toAdminPage(result);
+    }
 
+    @Override
+    public PageResponse<AdminReviewView> pageForMerchant(Long merchantId, int page, int size,
+                                                         Boolean visible, String keyword) {
+        Page<Review> result = reviewMapper.selectPage(
+                new Page<>(normalizePage(page), normalizeSize(size)),
+                Wrappers.<Review>lambdaQuery()
+                        .eq(Review::getMerchantId, merchantId)
+                        .eq(visible != null, Review::getStatus, Boolean.TRUE.equals(visible) ? VISIBLE : HIDDEN)
+                        .like(StringUtils.hasText(keyword), Review::getContent, keyword)
+                        .orderByDesc(Review::getId));
+        return toAdminPage(result);
+    }
+
+    private PageResponse<AdminReviewView> toAdminPage(Page<Review> result) {
         List<Review> reviews = result.getRecords();
         Map<Long, Product> products = loadProducts(reviews.stream().map(Review::getProductId).toList());
         Map<Long, User> users = loadUsers(reviews.stream().map(Review::getUserId).toList());
+        Map<Long, Merchant> merchants = loadMerchants(reviews.stream().map(Review::getMerchantId).toList());
 
         List<AdminReviewView> views = reviews.stream().map(review -> {
             Product product = products.get(review.getProductId());
             User user = users.get(review.getUserId());
+            Merchant merchant = merchants.get(review.getMerchantId());
             return new AdminReviewView(review.getId(), review.getUserId(),
                     user == null ? "未知用户" : user.getNickname(),
+                    review.getMerchantId(), merchant == null ? "" : merchant.getName(),
                     review.getProductId(),
                     product == null ? "商品已不存在" : product.getName(),
                     review.getRating(), review.getContent(), review.getStatus(), review.getCreatedAt());
         }).toList();
 
         return new PageResponse<>(views, result.getTotal(), result.getCurrent(), result.getSize());
+    }
+
+    @Override
+    public void setVisibleForMerchant(Long merchantId, Long reviewId, boolean visible) {
+        Review review = reviewMapper.selectById(reviewId);
+        if (review == null || !merchantId.equals(review.getMerchantId())) {
+            throw new BizException(ResultCode.NOT_FOUND, "评价不存在");
+        }
+        Review update = new Review();
+        update.setId(reviewId);
+        update.setStatus(visible ? VISIBLE : HIDDEN);
+        reviewMapper.updateById(update);
     }
 
     @Override
@@ -199,6 +245,13 @@ public class ReviewServiceImpl implements ReviewService {
         if (ids.isEmpty()) return Map.of();
         return userMapper.selectByIds(ids).stream()
                 .collect(Collectors.toMap(User::getId, Function.identity()));
+    }
+
+    private Map<Long, Merchant> loadMerchants(List<Long> merchantIds) {
+        List<Long> ids = merchantIds.stream().filter(java.util.Objects::nonNull).distinct().toList();
+        if (ids.isEmpty()) return Map.of();
+        return merchantMapper.selectByIds(ids).stream()
+                .collect(Collectors.toMap(Merchant::getId, Function.identity()));
     }
 
     private void requireProduct(Long productId) {

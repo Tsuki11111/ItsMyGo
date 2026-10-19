@@ -9,6 +9,8 @@ public record MyReviewView(
         Long productId,
         String productName,
         String productImage,
+        Long merchantId,
+        String merchantName,
         Integer rating,
         String content,
         /** 1 展示 / 0 已被管理端隐藏 */

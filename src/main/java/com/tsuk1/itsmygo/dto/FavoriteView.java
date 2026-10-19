@@ -13,6 +13,8 @@ public record FavoriteView(
         BigDecimal price,
         /** 1 上架 / 0 下架；商品已删除时也为 0 */
         Integer status,
-        LocalDateTime createdAt
+        LocalDateTime createdAt,
+        Long merchantId,
+        String merchantName
 ) {
 }

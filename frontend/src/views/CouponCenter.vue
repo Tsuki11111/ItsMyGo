@@ -61,6 +61,7 @@ onMounted(load)
         </div>
         <div class="detail">
           <p class="name">{{ item.name }}</p>
+          <p class="scope">{{ item.merchantId ? `${item.merchantName} · 店铺券` : '平台券 · 全场可用' }}</p>
           <p class="period">有效期至 {{ formatDate(item.validTo) }}</p>
           <p class="remain">剩余 {{ item.remainingCount }} 张</p>
         </div>
@@ -158,6 +159,12 @@ onMounted(load)
   margin: 6px 0 0;
   font-size: 12px;
   color: var(--c-text-3);
+}
+
+.scope {
+  margin: 5px 0 0;
+  font-size: 12px;
+  color: var(--c-pink);
 }
 
 .action {

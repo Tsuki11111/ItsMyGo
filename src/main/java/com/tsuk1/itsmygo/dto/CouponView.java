@@ -6,6 +6,9 @@ import java.time.LocalDateTime;
 /** 领券中心列表项 */
 public record CouponView(
         Long id,
+        /** NULL=平台券 */
+        Long merchantId,
+        String merchantName,
         String name,
         BigDecimal thresholdAmount,
         BigDecimal discountAmount,

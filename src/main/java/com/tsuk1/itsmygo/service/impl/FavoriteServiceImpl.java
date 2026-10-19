@@ -7,7 +7,9 @@ import com.tsuk1.itsmygo.common.exception.BizException;
 import com.tsuk1.itsmygo.dto.FavoriteView;
 import com.tsuk1.itsmygo.dto.PageResponse;
 import com.tsuk1.itsmygo.entity.Product;
+import com.tsuk1.itsmygo.entity.Merchant;
 import com.tsuk1.itsmygo.entity.UserFavorite;
+import com.tsuk1.itsmygo.mapper.MerchantMapper;
 import com.tsuk1.itsmygo.mapper.ProductMapper;
 import com.tsuk1.itsmygo.mapper.UserFavoriteMapper;
 import com.tsuk1.itsmygo.service.FavoriteService;
@@ -26,10 +28,13 @@ public class FavoriteServiceImpl implements FavoriteService {
 
     private final UserFavoriteMapper favoriteMapper;
     private final ProductMapper productMapper;
+    private final MerchantMapper merchantMapper;
 
-    public FavoriteServiceImpl(UserFavoriteMapper favoriteMapper, ProductMapper productMapper) {
+    public FavoriteServiceImpl(UserFavoriteMapper favoriteMapper, ProductMapper productMapper,
+                               MerchantMapper merchantMapper) {
         this.favoriteMapper = favoriteMapper;
         this.productMapper = productMapper;
+        this.merchantMapper = merchantMapper;
     }
 
     @Override
@@ -45,9 +50,17 @@ public class FavoriteServiceImpl implements FavoriteService {
         Map<Long, Product> products = favorites.isEmpty() ? Map.of()
                 : productMapper.selectByIds(favorites.stream().map(UserFavorite::getProductId).distinct().toList())
                 .stream().collect(Collectors.toMap(Product::getId, Function.identity()));
+        Map<Long, Merchant> merchants = products.isEmpty() ? Map.of()
+                : merchantMapper.selectByIds(products.values().stream().map(Product::getMerchantId)
+                        .filter(java.util.Objects::nonNull).distinct().toList())
+                .stream().collect(Collectors.toMap(Merchant::getId, Function.identity()));
 
         List<FavoriteView> views = favorites.stream()
-                .map(favorite -> toView(favorite, products.get(favorite.getProductId())))
+                .map(favorite -> {
+                    Product product = products.get(favorite.getProductId());
+                    Merchant merchant = product == null ? null : merchants.get(product.getMerchantId());
+                    return toView(favorite, product, merchant);
+                })
                 .toList();
         return new PageResponse<>(views, result.getTotal(), result.getCurrent(), result.getSize());
     }
@@ -73,15 +86,16 @@ public class FavoriteServiceImpl implements FavoriteService {
                 .eq(UserFavorite::getProductId, productId));
     }
 
-    private FavoriteView toView(UserFavorite favorite, Product product) {
+    private FavoriteView toView(UserFavorite favorite, Product product, Merchant merchant) {
         if (product == null) {
             // 商品被硬删除（管理端不提供，但历史数据可能有）
             return new FavoriteView(favorite.getId(), favorite.getProductId(),
-                    "商品已不存在", "", "", BigDecimal.ZERO, 0, favorite.getCreatedAt());
+                    "商品已不存在", "", "", BigDecimal.ZERO, 0, favorite.getCreatedAt(), null, "");
         }
         return new FavoriteView(favorite.getId(), product.getId(), product.getName(),
                 product.getSubtitle(), product.getMainImage(), product.getPrice(),
-                product.getStatus(), favorite.getCreatedAt());
+                product.getStatus(), favorite.getCreatedAt(),
+                product.getMerchantId(), merchant == null ? "" : merchant.getName());
     }
 
     private void requireProduct(Long productId) {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import ProductImage from '@/components/ProductImage.vue'
 import { fetchFavorites, removeFavorite } from '@/api/favorite'
@@ -70,6 +70,14 @@ onMounted(load)
           <ProductImage :src="item.mainImage" :name="item.name" :id="item.productId" />
         </button>
         <div class="info">
+          <RouterLink
+            v-if="item.merchantId"
+            :to="`/shop/${item.merchantId}`"
+            class="shop-link"
+            @click.stop
+          >
+            {{ item.merchantName }}
+          </RouterLink>
           <button type="button" class="name" @click="open(item)">{{ item.name }}</button>
           <p v-if="item.subtitle" class="sub">{{ item.subtitle }}</p>
           <div class="bottom">
@@ -177,6 +185,14 @@ onMounted(load)
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.shop-link {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+  color: var(--c-pink);
+  text-decoration: none;
 }
 
 .sub {
