@@ -44,6 +44,8 @@ public class SecurityConfig {
                                 "/api/shops/**").permitAll()
                         // 领券中心匿名可看；**精确匹配**，不能写 /**，否则 /api/coupons/mine 也会被放行
                         .requestMatchers(HttpMethod.GET, "/api/coupons").permitAll()
+                        // SSE 流用一次性票据鉴权（EventSource 带不了 Authorization），其余聊天接口仍需登录
+                        .requestMatchers(HttpMethod.GET, "/api/chat/stream").permitAll()
                         // 商家后台（角色由 AuthIdentityService 按数据库实时计算）
                         .requestMatchers("/api/merchant/**").hasRole("MERCHANT")
                         // 管理端一律要求管理员

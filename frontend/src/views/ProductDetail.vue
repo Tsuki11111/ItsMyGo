@@ -6,6 +6,7 @@ import { Star, StarFilled } from '@element-plus/icons-vue'
 import ProductImage from '@/components/ProductImage.vue'
 import { fetchProduct, fetchProducts, fetchStock } from '@/api/product'
 import { fetchShop } from '@/api/shop'
+import { startConversation } from '@/api/chat'
 import { addToCart } from '@/api/cart'
 import { addFavorite, fetchFavoriteStatus, removeFavorite } from '@/api/favorite'
 import { recordFootprint } from '@/api/footprint'
@@ -33,6 +34,7 @@ const favorited = ref(false)
 const favoriteBusy = ref(false)
 /** 所属店铺 */
 const shop = ref<MerchantView | null>(null)
+const startingChat = ref(false)
 
 /** 商品评价 */
 const reviewSummary = ref<ReviewSummary | null>(null)
@@ -76,6 +78,27 @@ const soldOut = computed(() => displayStock.value === 0)
 
 function pickSpecValue(specId: number, valueId: number) {
   selectedValues.value = { ...selectedValues.value, [specId]: valueId }
+}
+
+/** 从商品页联系卖家：新会话会自动附一条商品卡片 */
+async function contactSeller() {
+  if (!shop.value || !product.value) return
+  if (!userStore.isLoggedIn) {
+    await router.push({ path: '/login', query: { redirect: route.fullPath } })
+    return
+  }
+  startingChat.value = true
+  try {
+    const conversation = await startConversation({
+      merchantId: shop.value.id,
+      productId: product.value.id,
+    })
+    await router.push(`/user/messages/${conversation.id}`)
+  } catch {
+    // 平台自营店/店铺停用等，拦截器已提示
+  } finally {
+    startingChat.value = false
+  }
 }
 
 function currentId(): number {
@@ -329,7 +352,18 @@ onMounted(load)
               <p class="shop-name">{{ shop.name }}</p>
               <p class="shop-desc">{{ shop.description || '进店看看更多商品' }}</p>
             </div>
-            <RouterLink :to="`/shop/${shop.id}`" class="shop-link">进店逛逛</RouterLink>
+            <div class="shop-actions">
+              <button
+                v-if="shop.ownerUserId"
+                type="button"
+                class="contact-btn"
+                :disabled="startingChat"
+                @click="contactSeller"
+              >
+                {{ startingChat ? '打开中…' : '联系卖家' }}
+              </button>
+              <RouterLink :to="`/shop/${shop.id}`" class="shop-link">进店逛逛</RouterLink>
+            </div>
           </div>
 
           <!-- ── 规格选择栏：选中哪一款，价格 / 库存 / 图片就跟着变 ── -->
@@ -597,6 +631,29 @@ onMounted(load)
   font-size: 12px;
   color: var(--c-pink);
   text-decoration: none;
+}
+
+.shop-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+
+.contact-btn {
+  padding: 5px 12px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--c-pink);
+  background: var(--c-pink-tint);
+  border: none;
+  border-radius: var(--radius-btn);
+  cursor: pointer;
+}
+
+.contact-btn:disabled {
+  color: var(--c-text-3);
+  cursor: not-allowed;
 }
 
 .price {

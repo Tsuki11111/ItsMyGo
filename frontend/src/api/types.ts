@@ -506,3 +506,86 @@ export interface MerchantPayload {
   contactName: string
   contactPhone: string
 }
+
+// ── 在线聊天 ──────────────────────────────────────────────────────
+
+export type ChatScope = 'CUSTOMER' | 'MERCHANT'
+export type ChatSenderType = ChatScope | 'AGENT'
+export type ChatContentType = 'TEXT' | 'IMAGE' | 'PRODUCT' | 'ORDER'
+
+export interface ChatProductCard {
+  productId: number
+  name: string
+  image: string
+  price: number
+  merchantId: number
+  status: number
+}
+
+export interface ChatOrderCard {
+  orderId: number
+  orderNo: string
+  status: string
+  statusLabel: string
+  totalAmount: number
+  firstItemName: string
+  firstItemImage: string
+}
+
+export interface ChatMessage {
+  id: number
+  conversationId: number
+  senderUserId: number
+  senderType: ChatSenderType
+  contentType: ChatContentType
+  content: string
+  card: ChatProductCard | ChatOrderCard | null
+  createdAt: string
+}
+
+export interface ConversationView {
+  id: number
+  merchantId: number
+  merchantName: string
+  merchantLogo: string
+  customerId: number
+  customerName: string
+  customerAvatar: string
+  lastMessageId: number | null
+  lastMessagePreview: string
+  lastMessageAt: string | null
+  /** 当前身份在这条会话里的未读数 */
+  unread: number
+  peerOnline: boolean
+  createdAt: string
+}
+
+export interface ChatMessagePage {
+  records: ChatMessage[]
+  hasMore: boolean
+  peerLastReadMessageId: number | null
+}
+
+export interface ChatUnreadView {
+  customerUnread: number
+  merchantUnread: number
+}
+
+export interface ChatStreamTicket {
+  ticket: string
+  expiresInSeconds: number
+}
+
+export interface ChatSendPayload {
+  type: ChatContentType
+  text?: string
+  imageUrl?: string
+  productId?: number
+  orderId?: number
+}
+
+export interface StartConversationPayload {
+  merchantId: number
+  productId?: number
+  orderId?: number
+}

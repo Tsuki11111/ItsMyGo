@@ -5,15 +5,19 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import ProductImage from '@/components/ProductImage.vue'
 import ReviewDialog from '@/views/user/components/ReviewDialog.vue'
 import { applyRefund, cancelOrder, confirmOrder, fetchOrder, payOrder } from '@/api/order'
+import { startConversation } from '@/api/chat'
+import { useUserStore } from '@/stores/user'
 import type { OrderItem, OrderView } from '@/api/types'
 
 const route = useRoute()
 const router = useRouter()
+const userStore = useUserStore()
 
 const view = ref<OrderView | null>(null)
 const loading = ref(true)
 const acting = ref(false)
 const notFound = ref(false)
+const startingChat = ref(false)
 
 const order = computed(() => view.value?.order ?? null)
 const payable = computed(() => order.value?.status === 'PENDING_PAYMENT')
@@ -33,6 +37,27 @@ const reviewItem = ref<OrderItem | null>(null)
 function openReview(item: OrderItem) {
   reviewItem.value = item
   reviewVisible.value = true
+}
+
+/** 从订单页联系卖家：新会话会自动附一条订单卡片 */
+async function contactSeller() {
+  if (!order.value) return
+  if (!userStore.isLoggedIn) {
+    await router.push({ path: '/login', query: { redirect: route.fullPath } })
+    return
+  }
+  startingChat.value = true
+  try {
+    const conversation = await startConversation({
+      merchantId: order.value.merchantId,
+      orderId: order.value.id,
+    })
+    await router.push(`/user/messages/${conversation.id}`)
+  } catch {
+    // 拦截器已提示
+  } finally {
+    startingChat.value = false
+  }
 }
 
 /** 后端给的是 LocalDateTime（`2026-10-16T18:34:30`），显示时把 T 换掉就行 */
@@ -160,6 +185,15 @@ onMounted(load)
           <span class="order-no">订单号 {{ order.orderNo }}</span>
         </div>
         <div class="status-actions">
+          <button
+            v-if="order.merchantId !== 1"
+            type="button"
+            class="action-btn"
+            :disabled="startingChat"
+            @click="contactSeller"
+          >
+            {{ startingChat ? '打开中…' : '联系卖家' }}
+          </button>
           <button
             v-if="payable"
             type="button"

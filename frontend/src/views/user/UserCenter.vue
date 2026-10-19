@@ -13,6 +13,7 @@ const profile = ref<UserProfile | null>(null)
 
 const MENU = [
   { path: '/user/orders', label: '我的订单' },
+  { path: '/user/messages', label: '我的消息' },
   { path: '/user/favorites', label: '我的收藏' },
   { path: '/user/footprints', label: '浏览足迹' },
   { path: '/user/coupons', label: '我的优惠券' },
@@ -47,7 +48,12 @@ onMounted(async () => {
       </div>
 
       <el-menu :default-active="route.path" router class="side-menu">
-        <el-menu-item v-for="item in MENU" :key="item.path" :index="item.path">
+        <el-menu-item
+          v-for="item in MENU"
+          v-show="item.path !== '/user/messages' || !userStore.isAdmin"
+          :key="item.path"
+          :index="item.path"
+        >
           {{ item.label }}
         </el-menu-item>
       </el-menu>

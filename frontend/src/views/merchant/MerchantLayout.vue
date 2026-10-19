@@ -2,14 +2,17 @@
 import { computed } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ChatDotRound, Discount, Goods, Shop, Tickets } from '@element-plus/icons-vue'
+import { ChatDotRound, ChatLineRound, Discount, Goods, Shop, Tickets } from '@element-plus/icons-vue'
+import { useChatStore } from '@/stores/chat'
 import { useUserStore } from '@/stores/user'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+const chatStore = useChatStore()
 
 const MENU = [
+  { path: '/merchant/messages', label: '消息', icon: ChatLineRound },
   { path: '/merchant/products', label: '商品管理', icon: Goods },
   { path: '/merchant/orders', label: '订单管理', icon: Tickets },
   { path: '/merchant/coupons', label: '优惠券', icon: Discount },
@@ -37,6 +40,12 @@ function logout() {
         <el-menu-item v-for="item in MENU" :key="item.path" :index="item.path">
           <el-icon><component :is="item.icon" /></el-icon>
           <span>{{ item.label }}</span>
+          <span
+            v-if="item.path === '/merchant/messages' && chatStore.merchantUnread > 0"
+            class="menu-unread"
+          >
+            {{ chatStore.merchantUnread > 99 ? '99+' : chatStore.merchantUnread }}
+          </span>
         </el-menu-item>
       </el-menu>
     </el-aside>
@@ -82,6 +91,19 @@ function logout() {
 
 .merchant-menu {
   border-right: none;
+}
+
+.menu-unread {
+  margin-left: auto;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  font-size: 10px;
+  line-height: 17px;
+  text-align: center;
+  color: #fff;
+  background: var(--c-pink);
+  border-radius: 9px;
 }
 
 .merchant-header {

@@ -2,13 +2,15 @@
 import { computed, ref, watch } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Location, Lock, Setting, Shop, Star, SwitchButton, Ticket, Tickets, User } from '@element-plus/icons-vue'
+import { Location, Lock, Setting, Shop, Star, SwitchButton, Ticket, Tickets, User, ChatDotRound } from '@element-plus/icons-vue'
 import ProductImage from '@/components/ProductImage.vue'
+import { useChatStore } from '@/stores/chat'
 import { useUserStore } from '@/stores/user'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+const chatStore = useChatStore()
 
 /** 管理端 / 商家端有自己的外壳，不共用顾客顶栏和内容宽度 */
 const isBareRoute = computed(() => {
@@ -43,6 +45,16 @@ function onLogout() {
   userStore.logout()
   ElMessage.success('已退出登录')
 }
+
+// 登录后建立 SSE；登出时断开。管理员不参与聊天，store 内部会跳过。
+watch(
+  () => userStore.isLoggedIn,
+  (loggedIn) => {
+    if (loggedIn) void chatStore.connect()
+    else chatStore.disconnect()
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -59,6 +71,20 @@ function onLogout() {
         />
       </div>
       <nav class="actions">
+        <RouterLink
+          v-if="userStore.isLoggedIn && !userStore.isAdmin"
+          to="/user/messages"
+          class="link message-link"
+        >
+          <el-badge
+            :value="chatStore.unreadTotal"
+            :max="99"
+            :hidden="chatStore.unreadTotal === 0"
+          >
+            <span>消息</span>
+          </el-badge>
+        </RouterLink>
+        <RouterLink to="/coupons" class="link">领券中心</RouterLink>
         <RouterLink to="/cart" class="link">购物车</RouterLink>
 
         <template v-if="userStore.isLoggedIn">
@@ -80,14 +106,19 @@ function onLogout() {
                 <RouterLink to="/user/orders" class="panel-item" @click="panelOpen = false">
                   <el-icon><Tickets /></el-icon>我的订单
                 </RouterLink>
+                <RouterLink
+                  v-if="!userStore.isAdmin"
+                  to="/user/messages"
+                  class="panel-item"
+                  @click="panelOpen = false"
+                >
+                  <el-icon><ChatDotRound /></el-icon>我的消息
+                </RouterLink>
                 <RouterLink to="/user/favorites" class="panel-item" @click="panelOpen = false">
                   <el-icon><Star /></el-icon>我的收藏
                 </RouterLink>
                 <RouterLink to="/user/coupons" class="panel-item" @click="panelOpen = false">
                   <el-icon><Ticket /></el-icon>我的优惠券
-                </RouterLink>
-                <RouterLink to="/coupons" class="panel-item" @click="panelOpen = false">
-                  <el-icon><Ticket /></el-icon>领券中心
                 </RouterLink>
                 <RouterLink to="/user/addresses" class="panel-item" @click="panelOpen = false">
                   <el-icon><Location /></el-icon>收货地址
@@ -184,6 +215,15 @@ function onLogout() {
 
 .link:hover {
   color: var(--c-pink);
+}
+
+.message-link {
+  display: inline-flex;
+  align-items: center;
+}
+
+.message-link :deep(.el-badge__content) {
+  font-size: 10px;
 }
 
 /* ── 用户区：悬停展开的抽屉面板 ── */

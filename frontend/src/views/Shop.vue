@@ -4,10 +4,13 @@ import { useRoute, useRouter } from 'vue-router'
 import ProductImage from '@/components/ProductImage.vue'
 import { fetchShop } from '@/api/shop'
 import { fetchProducts } from '@/api/product'
+import { startConversation } from '@/api/chat'
+import { useUserStore } from '@/stores/user'
 import type { MerchantView, Product } from '@/api/types'
 
 const route = useRoute()
 const router = useRouter()
+const userStore = useUserStore()
 
 const shop = ref<MerchantView | null>(null)
 const products = ref<Product[]>([])
@@ -16,6 +19,7 @@ const page = ref(1)
 const size = 12
 const loading = ref(true)
 const notFound = ref(false)
+const startingChat = ref(false)
 
 function shopId(): number {
   return Number(route.params.id)
@@ -58,6 +62,23 @@ function onPageChange(next: number) {
   loadProducts()
 }
 
+async function contactSeller() {
+  if (!shop.value) return
+  if (!userStore.isLoggedIn) {
+    await router.push({ path: '/login', query: { redirect: route.fullPath } })
+    return
+  }
+  startingChat.value = true
+  try {
+    const conversation = await startConversation({ merchantId: shop.value.id })
+    await router.push(`/user/messages/${conversation.id}`)
+  } catch {
+    // 拦截器已提示
+  } finally {
+    startingChat.value = false
+  }
+}
+
 watch(() => route.params.id, load)
 onMounted(load)
 </script>
@@ -78,6 +99,16 @@ onMounted(load)
           <p class="desc">{{ shop.description || '这家店还没有填写简介' }}</p>
         </div>
         <el-tag type="success" size="small">营业中</el-tag>
+        <el-button
+          v-if="shop.ownerUserId"
+          type="primary"
+          plain
+          size="small"
+          :loading="startingChat"
+          @click="contactSeller"
+        >
+          联系商家
+        </el-button>
       </section>
 
       <section class="block">
