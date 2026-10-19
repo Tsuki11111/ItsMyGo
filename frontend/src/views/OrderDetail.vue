@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import ProductImage from '@/components/ProductImage.vue'
 import ReviewDialog from '@/views/user/components/ReviewDialog.vue'
-import { fetchOrder, payOrder } from '@/api/order'
+import { applyRefund, cancelOrder, confirmOrder, fetchOrder, payOrder } from '@/api/order'
 import type { OrderItem, OrderView } from '@/api/types'
 
 const route = useRoute()
@@ -12,11 +12,20 @@ const router = useRouter()
 
 const view = ref<OrderView | null>(null)
 const loading = ref(true)
-const paying = ref(false)
+const acting = ref(false)
 const notFound = ref(false)
 
 const order = computed(() => view.value?.order ?? null)
 const payable = computed(() => order.value?.status === 'PENDING_PAYMENT')
+/** 待支付 / 已支付可取消；已发货之后只能走退款 */
+const cancelable = computed(() =>
+  order.value?.status === 'PENDING_PAYMENT' || order.value?.status === 'PAID',
+)
+const confirmable = computed(() => order.value?.status === 'SHIPPED')
+/** 付过钱且还没退过：已支付 / 已发货 / 已完成 */
+const refundable = computed(() =>
+  ['PAID', 'SHIPPED', 'COMPLETED'].includes(order.value?.status ?? ''),
+)
 
 const reviewVisible = ref(false)
 const reviewItem = ref<OrderItem | null>(null)
@@ -47,7 +56,7 @@ async function load() {
 
 async function onPay() {
   if (!order.value) return
-  paying.value = true
+  acting.value = true
   try {
     view.value = await payOrder(order.value.id)
     ElMessage.success('支付成功')
@@ -55,7 +64,76 @@ async function onPay() {
     // 状态已经变了（比如刚好被超时任务取消），拦截器已提示；重新拉一次看真实状态
     await load()
   } finally {
-    paying.value = false
+    acting.value = false
+  }
+}
+
+async function onCancel() {
+  if (!order.value) return
+  try {
+    await ElMessageBox.confirm(
+      '取消后库存会回滚；若使用了优惠券且未过期，券会自动退回。确定取消订单吗？',
+      '取消订单',
+      { type: 'warning', confirmButtonText: '取消订单', cancelButtonText: '再想想' },
+    )
+  } catch {
+    return
+  }
+
+  acting.value = true
+  try {
+    view.value = await cancelOrder(order.value.id)
+    ElMessage.success('订单已取消')
+  } catch {
+    await load()
+  } finally {
+    acting.value = false
+  }
+}
+
+async function onConfirmReceipt() {
+  if (!order.value) return
+  try {
+    await ElMessageBox.confirm('确认已经收到商品吗？确认后订单将完成。', '确认收货', {
+      type: 'warning',
+      confirmButtonText: '确认收货',
+      cancelButtonText: '取消',
+    })
+  } catch {
+    return
+  }
+
+  acting.value = true
+  try {
+    view.value = await confirmOrder(order.value.id)
+    ElMessage.success('已确认收货')
+  } catch {
+    await load()
+  } finally {
+    acting.value = false
+  }
+}
+
+async function onRefund() {
+  if (!order.value) return
+  try {
+    await ElMessageBox.confirm(
+      '申请退款后订单将进入「退款中」，等待商家审核。确定申请吗？',
+      '申请退款',
+      { type: 'warning', confirmButtonText: '申请退款', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+
+  acting.value = true
+  try {
+    view.value = await applyRefund(order.value.id)
+    ElMessage.success('已提交退款申请')
+  } catch {
+    await load()
+  } finally {
+    acting.value = false
   }
 }
 
@@ -80,15 +158,44 @@ onMounted(load)
           <span class="status-label">{{ view.statusLabel }}</span>
           <span class="order-no">订单号 {{ order.orderNo }}</span>
         </div>
-        <button
-          v-if="payable"
-          type="button"
-          class="pay-btn"
-          :disabled="paying"
-          @click="onPay"
-        >
-          {{ paying ? '支付中…' : '立即支付' }}
-        </button>
+        <div class="status-actions">
+          <button
+            v-if="payable"
+            type="button"
+            class="pay-btn"
+            :disabled="acting"
+            @click="onPay"
+          >
+            {{ acting ? '处理中…' : '立即支付' }}
+          </button>
+          <button
+            v-if="cancelable"
+            type="button"
+            class="action-btn"
+            :disabled="acting"
+            @click="onCancel"
+          >
+            取消订单
+          </button>
+          <button
+            v-if="confirmable"
+            type="button"
+            class="pay-btn"
+            :disabled="acting"
+            @click="onConfirmReceipt"
+          >
+            {{ acting ? '处理中…' : '确认收货' }}
+          </button>
+          <button
+            v-if="refundable"
+            type="button"
+            class="action-btn"
+            :disabled="acting"
+            @click="onRefund"
+          >
+            申请退款
+          </button>
+        </div>
       </section>
 
       <!-- ── 收货信息 ── -->
@@ -225,8 +332,14 @@ onMounted(load)
   color: var(--c-text-3);
 }
 
-.pay-btn {
+.status-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin-left: auto;
+}
+
+.pay-btn {
   flex: none;
   width: 140px;
   padding: 11px 0;
@@ -246,6 +359,29 @@ onMounted(load)
 
 .pay-btn:disabled {
   background: var(--c-text-3);
+  cursor: not-allowed;
+}
+
+.action-btn {
+  flex: none;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--c-text-2);
+  background: #fff;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-btn);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.action-btn:hover:not(:disabled) {
+  color: var(--c-pink);
+  border-color: var(--c-pink);
+}
+
+.action-btn:disabled {
+  color: var(--c-text-3);
   cursor: not-allowed;
 }
 
