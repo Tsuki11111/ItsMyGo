@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
+import ImageUpload from '@/components/ImageUpload.vue'
 import { applyMerchant, fetchMerchantApplication } from '@/api/merchant'
 import { useUserStore } from '@/stores/user'
 import type { MerchantView } from '@/api/types'
@@ -77,6 +78,8 @@ async function submit() {
       contactPhone: form.contactPhone.trim(),
     })
     ElMessage.success(application.value.status === 'PENDING' ? '申请已提交，等待平台审核' : '已重新提交')
+    // 提交完成后回主页；审核进度可再从用户面板的「商家入驻」进入查看
+    router.replace('/')
   } finally {
     submitting.value = false
   }
@@ -151,7 +154,7 @@ onMounted(load)
           <el-input v-model="form.name" maxlength="64" placeholder="如：小张数码店" />
         </el-form-item>
         <el-form-item label="Logo">
-          <el-input v-model="form.logo" maxlength="512" placeholder="选填，图片 URL" />
+          <ImageUpload v-model="form.logo" apply />
         </el-form-item>
         <el-form-item label="店铺简介">
           <el-input

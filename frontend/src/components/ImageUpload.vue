@@ -3,9 +3,15 @@ import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { UploadRequestOptions } from 'element-plus'
 import { uploadImage } from '@/api/admin'
-import { uploadMerchantImage } from '@/api/merchant'
+import { uploadMerchantApplyLogo, uploadMerchantImage } from '@/api/merchant'
 
-const props = defineProps<{ modelValue: string; compact?: boolean; merchant?: boolean }>()
+const props = defineProps<{
+  modelValue: string
+  compact?: boolean
+  merchant?: boolean
+  /** 入驻申请场景：申请人还没有 MERCHANT 角色，走单独的 Logo 上传接口 */
+  apply?: boolean
+}>()
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 
 const uploading = ref(false)
@@ -17,9 +23,11 @@ const uploading = ref(false)
 async function onUpload(options: UploadRequestOptions) {
   uploading.value = true
   try {
-    const url = props.merchant
-      ? await uploadMerchantImage(options.file)
-      : await uploadImage(options.file)
+    const url = props.apply
+      ? await uploadMerchantApplyLogo(options.file)
+      : props.merchant
+        ? await uploadMerchantImage(options.file)
+        : await uploadImage(options.file)
     emit('update:modelValue', url)
     ElMessage.success('图片已上传')
   } catch {

@@ -2,6 +2,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
+import ImageUpload from '@/components/ImageUpload.vue'
 import { fetchMerchantProfile, updateMerchantProfile } from '@/api/merchant'
 import type { MerchantView } from '@/api/types'
 
@@ -87,7 +88,7 @@ onMounted(load)
         <el-input v-model="form.name" maxlength="64" />
       </el-form-item>
       <el-form-item label="Logo">
-        <el-input v-model="form.logo" maxlength="512" placeholder="图片 URL（后续支持上传）" />
+        <ImageUpload v-model="form.logo" merchant />
       </el-form-item>
       <el-form-item label="店铺简介">
         <el-input

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import ImageUpload from './ImageUpload.vue'
+import ImageUpload from '@/components/ImageUpload.vue'
 import StockAdjustDialog from './StockAdjustDialog.vue'
 import { fetchProductSkus, saveProductSkus } from '@/api/admin'
 import { fetchMerchantProductSkus, saveMerchantProductSkus } from '@/api/merchant'

@@ -26,6 +26,13 @@ export function fetchMerchantApplication(): Promise<MerchantView | null> {
   return get<MerchantView | null>('/merchant-apply')
 }
 
+/** 入驻申请：申请人还没有商家角色，走单独开放的 Logo 上传接口 */
+export function uploadMerchantApplyLogo(file: File): Promise<string> {
+  const form = new FormData()
+  form.append('file', file)
+  return postForm<string>('/merchant-apply/logo', form)
+}
+
 /** 商家后台：自己的店铺资料 */
 export function fetchMerchantProfile(): Promise<MerchantView> {
   return get<MerchantView>('/merchant/profile')

@@ -2,7 +2,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
-import ImageUpload from './ImageUpload.vue'
+import ImageUpload from '@/components/ImageUpload.vue'
 import { createProduct, updateProduct } from '@/api/admin'
 import { createMerchantProduct, updateMerchantProduct } from '@/api/merchant'
 import type { CategoryNode, Product } from '@/api/types'

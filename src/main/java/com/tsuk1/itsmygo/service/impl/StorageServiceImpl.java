@@ -45,8 +45,10 @@ public class StorageServiceImpl implements StorageService {
         this.publicPrefix = endpoint.endsWith("/") ? endpoint + bucket : endpoint + "/" + bucket;
     }
 
-    /** 头像单独限 2MB —— 商品图有 5MB 的 multipart 上限兜着，头像不需要那么大 */
+    /** 头像和店铺 Logo 单独限 2MB —— 商品图有 5MB 的 multipart 上限兜着 */
     private static final long AVATAR_MAX_BYTES = 2L * 1024 * 1024;
+    private static final long MERCHANT_LOGO_MAX_BYTES = 2L * 1024 * 1024;
+    private static final long CHAT_IMAGE_MAX_BYTES = 5L * 1024 * 1024;
 
     @Override
     public String uploadProductImage(MultipartFile file) {
@@ -56,6 +58,21 @@ public class StorageServiceImpl implements StorageService {
     @Override
     public String uploadAvatar(MultipartFile file) {
         return upload(file, "avatars/", AVATAR_MAX_BYTES);
+    }
+
+    @Override
+    public String uploadMerchantLogo(MultipartFile file) {
+        return upload(file, "merchants/", MERCHANT_LOGO_MAX_BYTES);
+    }
+
+    @Override
+    public String uploadChatImage(MultipartFile file) {
+        return upload(file, "chat/", CHAT_IMAGE_MAX_BYTES);
+    }
+
+    @Override
+    public boolean isChatImageUrl(String url) {
+        return url != null && url.startsWith(publicPrefix + "/chat/");
     }
 
     /**
