@@ -12,6 +12,8 @@ import com.tsuk1.itsmygo.dto.ProductSkuView;
 import com.tsuk1.itsmygo.dto.StockView;
 import com.tsuk1.itsmygo.entity.Product;
 import com.tsuk1.itsmygo.entity.ProductSku;
+import com.tsuk1.itsmygo.entity.Merchant;
+import com.tsuk1.itsmygo.mapper.MerchantMapper;
 import com.tsuk1.itsmygo.mapper.ProductMapper;
 import com.tsuk1.itsmygo.service.ProductService;
 import com.tsuk1.itsmygo.service.ProductSkuService;
@@ -37,24 +39,31 @@ public class ProductServiceImpl implements ProductService {
     private final RedisCacheHelper cacheHelper;
     private final StockService stockService;
     private final ProductSkuService productSkuService;
+    private final MerchantMapper merchantMapper;
 
     public ProductServiceImpl(ProductMapper productMapper, ProductBloomFilter bloomFilter,
                               RedisCacheHelper cacheHelper, StockService stockService,
-                              ProductSkuService productSkuService) {
+                              ProductSkuService productSkuService, MerchantMapper merchantMapper) {
         this.productMapper = productMapper;
         this.bloomFilter = bloomFilter;
         this.cacheHelper = cacheHelper;
         this.stockService = stockService;
         this.productSkuService = productSkuService;
+        this.merchantMapper = merchantMapper;
     }
 
     @Override
-    public PageResponse<Product> page(int page, int size, Long categoryId, String keyword, boolean onlyOnSale) {
+    public PageResponse<Product> page(int page, int size, Long categoryId, String keyword,
+                                      boolean onlyOnSale, Long merchantId, boolean onlyActiveMerchant) {
         Page<Product> pageRequest = new Page<>(normalizePage(page), normalizeSize(size));
 
         var wrapper = Wrappers.<Product>lambdaQuery()
                 .eq(onlyOnSale, Product::getStatus, ON_SALE)
+                .eq(merchantId != null, Product::getMerchantId, merchantId)
                 .eq(categoryId != null, Product::getCategoryId, categoryId)
+                // 顾客端只看到 ACTIVE 店铺的商品；管理端不过滤
+                .inSql(onlyActiveMerchant, Product::getMerchantId,
+                        "SELECT id FROM merchants WHERE status = 'ACTIVE'")
                 // 关键词目前用 LIKE；数据量上万后再考虑 FULLTEXT(ngram) 或搜索引擎
                 .and(StringUtils.hasText(keyword), w -> w
                         .like(Product::getName, keyword)
@@ -81,6 +90,8 @@ public class ProductServiceImpl implements ProductService {
         }
         Product product = cacheHelper.getOrLoad(cacheKey(id), PRODUCT_CACHE_TTL, Product.class,
                 () -> loadDetail(id));
+        // 缓存里不含店铺状态：店铺被禁用后即使商品缓存还在，也必须 404
+        requireActiveMerchant(product.getMerchantId());
         return withRealtimeStock(product);
     }
 
@@ -125,6 +136,7 @@ public class ProductServiceImpl implements ProductService {
         // skuId 列表从详情缓存取，命中就零查库；库存走批量 multiGet
         Product cached = cacheHelper.getOrLoad(cacheKey(id), PRODUCT_CACHE_TTL, Product.class,
                 () -> loadDetail(id));
+        requireActiveMerchant(cached.getMerchantId());
         withRealtimeStock(cached);
 
         List<ProductSku> skus = cached.getSkus() == null ? List.of() : cached.getSkus();
@@ -144,8 +156,10 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     @Transactional
-    public Product create(ProductRequest request) {
+    public Product create(ProductRequest request, Long merchantId) {
+        requireActiveMerchant(merchantId);
         Product product = new Product();
+        product.setMerchantId(merchantId);
         apply(product, request);
         product.setSales(0);
         // 新商品还没有规格，价格与库存先落在它的默认 SKU 上
@@ -161,8 +175,8 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     @Transactional
-    public Product update(Long id, ProductRequest request) {
-        Product product = requireExists(id);
+    public Product update(Long id, ProductRequest request, Long merchantId) {
+        Product product = requireOwned(id, merchantId);
         apply(product, request);
         productMapper.updateById(product);
         // 单规格商品的价与库存也挂在它那条默认 SKU 上，得跟着改（里面会一并刷库存计数器）。
@@ -174,10 +188,19 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
-    public void delete(Long id) {
-        requireExists(id);
+    public void delete(Long id, Long merchantId) {
+        requireOwned(id, merchantId);
         productMapper.deleteById(id);
         cacheHelper.evict(cacheKey(id));
+    }
+
+    @Override
+    public Product detailForMerchant(Long id, Long merchantId) {
+        Product product = requireOwned(id, merchantId);
+        ProductSkuView view = productSkuService.get(id);
+        product.setSpecs(view.specs());
+        product.setSkus(view.skus());
+        return withRealtimeStock(product);
     }
 
     private String cacheKey(Long id) {
@@ -195,12 +218,21 @@ public class ProductServiceImpl implements ProductService {
         product.setStatus(Boolean.TRUE.equals(request.onSale()) ? ON_SALE : 0);
     }
 
-    private Product requireExists(Long id) {
+    /** merchantId 为 null 表示平台管理员；非空时商品必须属于该商户 */
+    private Product requireOwned(Long id, Long merchantId) {
         Product product = productMapper.selectById(id);
-        if (product == null) {
+        if (product == null || (merchantId != null && !merchantId.equals(product.getMerchantId()))) {
+            // 别人的商品一律当不存在，不泄露存在性
             throw new BizException(ResultCode.NOT_FOUND, "商品不存在");
         }
         return product;
+    }
+
+    private void requireActiveMerchant(Long merchantId) {
+        Merchant merchant = merchantId == null ? null : merchantMapper.selectById(merchantId);
+        if (merchant == null || !Merchant.ACTIVE.equals(merchant.getStatus())) {
+            throw new BizException(ResultCode.NOT_FOUND, "商品不存在或已下架");
+        }
     }
 
     private int normalizePage(int page) {

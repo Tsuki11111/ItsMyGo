@@ -7,6 +7,7 @@ const router = createRouter({
   routes: [
     { path: '/', name: 'home', component: () => import('@/views/ProductList.vue') },
     { path: '/product/:id', name: 'product-detail', component: () => import('@/views/ProductDetail.vue') },
+    { path: '/shop/:id', name: 'shop', component: () => import('@/views/Shop.vue') },
     { path: '/login', name: 'login', component: () => import('@/views/Login.vue') },
     { path: '/cart', name: 'cart', component: () => import('@/views/Cart.vue') },
     { path: '/checkout', name: 'checkout', component: () => import('@/views/Checkout.vue') },
@@ -24,6 +25,7 @@ const router = createRouter({
       redirect: '/merchant/profile',
       meta: { requiresMerchant: true },
       children: [
+        { path: 'products', name: 'merchant-products', component: () => import('@/views/merchant/Products.vue') },
         { path: 'profile', name: 'merchant-profile', component: () => import('@/views/merchant/Profile.vue') },
       ],
     },

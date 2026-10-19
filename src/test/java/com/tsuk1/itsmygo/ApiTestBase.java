@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.tsuk1.itsmygo.common.Roles;
 import com.tsuk1.itsmygo.dto.CategoryRequest;
 import com.tsuk1.itsmygo.dto.LoginRequest;
+import com.tsuk1.itsmygo.dto.MerchantRequest;
 import com.tsuk1.itsmygo.dto.ProductRequest;
 import com.tsuk1.itsmygo.dto.RegisterRequest;
 import com.tsuk1.itsmygo.entity.ProductSku;
@@ -23,6 +24,7 @@ import tools.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -133,6 +135,32 @@ abstract class ApiTestBase {
                                 categoryId, name, "sub", "", new BigDecimal(price), stock, "", true))))
                 .andReturn().getResponse().getContentAsString();
         return objectMapper.readTree(body).path("data").path("id").asLong();
+    }
+
+    /**
+     * 造一个已审核通过的商家：注册顾客 → 提交入驻 → 平台通过。
+     * 返回的仍是顾客注册时拿到的 token —— 授权按数据库实时计算，
+     * 审核通过后同一个 token 就能访问 /api/merchant/**。
+     */
+    protected MerchantSession merchantSession(String username, String shopName) throws Exception {
+        String customer = customerToken(username);
+        String applyBody = mockMvc.perform(post("/api/merchant-apply")
+                        .header("Authorization", bearer(customer))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new MerchantRequest(
+                                shopName, "", "测试店铺", "店主", "13800000000"))))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        long merchantId = objectMapper.readTree(applyBody).path("data").path("id").asLong();
+
+        String admin = adminToken("adm" + System.nanoTime());
+        mockMvc.perform(post("/api/admin/merchants/" + merchantId + "/approve")
+                        .header("Authorization", bearer(admin)))
+                .andExpect(status().isOk());
+        return new MerchantSession(customer, merchantId);
+    }
+
+    protected record MerchantSession(String token, long merchantId) {
     }
 
     private String tokenFrom(String responseBody) {

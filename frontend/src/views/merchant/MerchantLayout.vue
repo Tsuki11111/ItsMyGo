@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Shop } from '@element-plus/icons-vue'
+import { Goods, Shop } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 
 const route = useRoute()
@@ -10,6 +10,7 @@ const router = useRouter()
 const userStore = useUserStore()
 
 const MENU = [
+  { path: '/merchant/products', label: '商品管理', icon: Goods },
   { path: '/merchant/profile', label: '店铺资料', icon: Shop },
 ]
 

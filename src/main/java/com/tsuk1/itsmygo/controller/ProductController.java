@@ -27,8 +27,11 @@ public class ProductController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) Long categoryId,
-            @RequestParam(required = false) String keyword) {
-        return Result.ok(productService.page(page, size, categoryId, keyword, true));
+            @RequestParam(required = false) String keyword,
+            /** 店铺主页用：只看该商户的商品 */
+            @RequestParam(required = false) Long merchantId) {
+        // 顾客端只展示 ACTIVE 店铺的商品
+        return Result.ok(productService.page(page, size, categoryId, keyword, true, merchantId, true));
     }
 
     @GetMapping("/{id}")

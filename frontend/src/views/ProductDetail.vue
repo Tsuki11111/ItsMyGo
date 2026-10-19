@@ -5,12 +5,13 @@ import { ElMessage } from 'element-plus'
 import { Star, StarFilled } from '@element-plus/icons-vue'
 import ProductImage from '@/components/ProductImage.vue'
 import { fetchProduct, fetchProducts, fetchStock } from '@/api/product'
+import { fetchShop } from '@/api/shop'
 import { addToCart } from '@/api/cart'
 import { addFavorite, fetchFavoriteStatus, removeFavorite } from '@/api/favorite'
 import { recordFootprint } from '@/api/footprint'
 import { fetchProductReviews, fetchReviewSummary } from '@/api/review'
 import { useUserStore } from '@/stores/user'
-import type { Product, ProductSku, ReviewSummary, ReviewView } from '@/api/types'
+import type { MerchantView, Product, ProductSku, ReviewSummary, ReviewView } from '@/api/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -30,6 +31,8 @@ const notFound = ref(false)
 /** 收藏状态；未登录时恒为 false */
 const favorited = ref(false)
 const favoriteBusy = ref(false)
+/** 所属店铺 */
+const shop = ref<MerchantView | null>(null)
 
 /** 商品评价 */
 const reviewSummary = ref<ReviewSummary | null>(null)
@@ -86,6 +89,7 @@ async function load() {
   quantity.value = 1
   selectedValues.value = {}
   favorited.value = false
+  shop.value = null
   reviewSummary.value = null
   reviews.value = []
   reviewTotal.value = 0
@@ -104,10 +108,19 @@ async function load() {
 
   loadRelated(id)
   loadReviews(id)
+  loadShop(product.value.merchantId)
   if (userStore.isLoggedIn) {
     loadFavorite(id)
     // 足迹上报失败不影响页面；同一商品只更新时间
     recordFootprint(id).catch(() => {})
+  }
+}
+
+async function loadShop(merchantId: number) {
+  try {
+    shop.value = await fetchShop(merchantId)
+  } catch {
+    shop.value = null
   }
 }
 
@@ -305,6 +318,18 @@ onMounted(load)
               <span class="price-num">{{ displayPrice.toFixed(2) }}</span>
             </span>
             <span class="sales">已售 {{ product.sales }} 件</span>
+          </div>
+
+          <!-- 所属店铺 -->
+          <div v-if="shop" class="shop-card">
+            <div class="shop-avatar">
+              <ProductImage :src="shop.logo" :name="shop.name" :id="shop.id" />
+            </div>
+            <div class="shop-info">
+              <p class="shop-name">{{ shop.name }}</p>
+              <p class="shop-desc">{{ shop.description || '进店看看更多商品' }}</p>
+            </div>
+            <RouterLink :to="`/shop/${shop.id}`" class="shop-link">进店逛逛</RouterLink>
           </div>
 
           <!-- ── 规格选择栏：选中哪一款，价格 / 库存 / 图片就跟着变 ── -->
@@ -523,6 +548,55 @@ onMounted(load)
   padding: 16px 20px;
   background: var(--c-pink-tint);
   border-radius: var(--radius-card);
+}
+
+/* ── 所属店铺 ── */
+.shop-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-tag);
+}
+
+.shop-avatar {
+  width: 42px;
+  height: 42px;
+  flex: none;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--c-pink-tint);
+  font-size: 16px;
+}
+
+.shop-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.shop-name {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c-text);
+}
+
+.shop-desc {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: var(--c-text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shop-link {
+  flex: none;
+  font-size: 12px;
+  color: var(--c-pink);
+  text-decoration: none;
 }
 
 .price {

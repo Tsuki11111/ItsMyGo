@@ -70,8 +70,8 @@ public class ProductSkuServiceImpl implements ProductSkuService {
     // ── 读 ──
 
     @Override
-    public ProductSkuView get(Long productId) {
-        requireProduct(productId);
+    public ProductSkuView get(Long productId, Long merchantId) {
+        requireOwnedProduct(productId, merchantId);
         List<ProductSpec> specs = loadSpecsWithValues(productId);
         return new ProductSkuView(specs, listSkus(productId));
     }
@@ -80,8 +80,8 @@ public class ProductSkuServiceImpl implements ProductSkuService {
 
     @Override
     @Transactional
-    public ProductSkuView save(Long productId, SkuSaveRequest request) {
-        requireProduct(productId);
+    public ProductSkuView save(Long productId, SkuSaveRequest request, Long merchantId) {
+        requireOwnedProduct(productId, merchantId);
         validateShape(request);
 
         // 规格值的新增要先落地拿到 id，SKU 才能引用它们 —— 映射表把负数临时 id 换成真身
@@ -119,8 +119,9 @@ public class ProductSkuServiceImpl implements ProductSkuService {
 
     @Override
     @Transactional
-    public ProductSku adjustStock(Long productId, Long skuId, Integer stock, Integer expectedStock) {
-        requireProduct(productId);
+    public ProductSku adjustStock(Long productId, Long skuId, Integer stock, Integer expectedStock,
+                                  Long merchantId) {
+        requireOwnedProduct(productId, merchantId);
         ProductSku sku = skuMapper.selectById(skuId);
         if (sku == null || !productId.equals(sku.getProductId())) {
             // 别人商品下的 SKU 一律当「不存在」，不泄露存在性
@@ -414,9 +415,10 @@ public class ProductSkuServiceImpl implements ProductSkuService {
 
     // ── 小工具 ──
 
-    private Product requireProduct(Long productId) {
+    private Product requireOwnedProduct(Long productId, Long merchantId) {
         Product product = productMapper.selectById(productId);
-        if (product == null) {
+        if (product == null || (merchantId != null && !merchantId.equals(product.getMerchantId()))) {
+            // 别人的商品一律当不存在，不泄露存在性
             throw new BizException(ResultCode.NOT_FOUND, "商品不存在");
         }
         return product;

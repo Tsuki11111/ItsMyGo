@@ -44,6 +44,7 @@ export interface AdminProductQuery {
   size?: number
   categoryId?: number
   keyword?: string
+  merchantId?: number
 }
 
 /** 管理端商品列表：含下架商品 */

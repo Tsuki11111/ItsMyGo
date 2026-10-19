@@ -6,19 +6,22 @@ import SkuEditorDialog from './components/SkuEditorDialog.vue'
 import ProductImage from '@/components/ProductImage.vue'
 import {
   fetchAdminCategories,
+  fetchAdminMerchants,
   fetchAdminProducts,
   rebuildBloomFilter,
   updateProduct,
 } from '@/api/admin'
-import type { CategoryNode, Product } from '@/api/types'
+import type { AdminMerchantView, CategoryNode, Product } from '@/api/types'
 
 const categories = ref<CategoryNode[]>([])
+const merchants = ref<AdminMerchantView[]>([])
 const products = ref<Product[]>([])
 const total = ref(0)
 const page = ref(1)
 const size = ref(10)
 const keyword = ref('')
 const categoryId = ref<number | null>(null)
+const merchantId = ref<number | null>(null)
 const loading = ref(false)
 
 const formVisible = ref(false)
@@ -43,6 +46,19 @@ async function loadCategories() {
   categories.value = await fetchAdminCategories()
 }
 
+async function loadMerchants() {
+  const result = await fetchAdminMerchants({ page: 1, size: 100 })
+  merchants.value = result.records
+}
+
+const merchantNameById = computed(() => {
+  const map = new Map<number, string>()
+  for (const merchant of merchants.value) {
+    map.set(merchant.id, merchant.name)
+  }
+  return map
+})
+
 async function load() {
   loading.value = true
   try {
@@ -51,6 +67,7 @@ async function load() {
       size: size.value,
       categoryId: categoryId.value ?? undefined,
       keyword: keyword.value.trim() || undefined,
+      merchantId: merchantId.value ?? undefined,
     })
     products.value = result.records
     total.value = result.total
@@ -67,6 +84,7 @@ function search() {
 function reset() {
   keyword.value = ''
   categoryId.value = null
+  merchantId.value = null
   page.value = 1
   load()
 }
@@ -138,7 +156,7 @@ function formatTime(value: string): string {
 }
 
 onMounted(async () => {
-  await loadCategories()
+  await Promise.all([loadCategories(), loadMerchants()])
   await load()
 })
 </script>
@@ -154,6 +172,20 @@ onMounted(async () => {
     </div>
 
     <div class="filters">
+      <el-select
+        v-model="merchantId"
+        clearable
+        filterable
+        placeholder="全部店铺"
+        style="width: 180px"
+      >
+        <el-option
+          v-for="merchant in merchants"
+          :key="merchant.id"
+          :label="merchant.name"
+          :value="merchant.id"
+        />
+      </el-select>
       <el-tree-select
         v-model="categoryId"
         :data="categories"
@@ -194,6 +226,11 @@ onMounted(async () => {
       <el-table-column label="分类" width="120">
         <template #default="{ row }">
           {{ categoryNameById.get(row.categoryId) ?? `#${row.categoryId}` }}
+        </template>
+      </el-table-column>
+      <el-table-column label="店铺" width="130">
+        <template #default="{ row }">
+          {{ merchantNameById.get(row.merchantId) ?? `#${row.merchantId}` }}
         </template>
       </el-table-column>
       <el-table-column label="价格" width="110" align="right">

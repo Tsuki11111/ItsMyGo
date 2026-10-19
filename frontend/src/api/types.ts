@@ -51,6 +51,8 @@ export interface UserProfile {
 
 export interface Product {
   id: number
+  /** 所属商户；商品详情/店铺页用 */
+  merchantId: number
   categoryId: number
   name: string
   subtitle: string

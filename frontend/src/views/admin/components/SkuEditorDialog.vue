@@ -4,11 +4,14 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import ImageUpload from './ImageUpload.vue'
 import StockAdjustDialog from './StockAdjustDialog.vue'
 import { fetchProductSkus, saveProductSkus } from '@/api/admin'
+import { fetchMerchantProductSkus, saveMerchantProductSkus } from '@/api/merchant'
 import type { Product, ProductSku, SkuSavePayload } from '@/api/types'
 
 const props = defineProps<{
   modelValue: boolean
   product: Product | null
+  /** 商家后台复用：走 /api/merchant/** */
+  merchant?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -96,7 +99,8 @@ async function load() {
 
   loading.value = true
   try {
-    const view = await fetchProductSkus(props.product.id)
+    const fetchFn = props.merchant ? fetchMerchantProductSkus : fetchProductSkus
+    const view = await fetchFn(props.product.id)
     nextTempId = -1
     originalSkus.value = view.skus
     originalByKey = new Map(view.skus.map((sku) => [sku.specValueIds, sku]))
@@ -174,7 +178,8 @@ function onStockUpdated(updated: ProductSku) {
 /** 只刷新已有 SKU 的库存，不覆盖表单里还没保存的价格/图片 */
 async function refreshStock() {
   if (!props.product) return
-  const view = await fetchProductSkus(props.product.id)
+  const fetchFn = props.merchant ? fetchMerchantProductSkus : fetchProductSkus
+  const view = await fetchFn(props.product.id)
   originalByKey = new Map(view.skus.map((sku) => [sku.specValueIds, sku]))
   originalSkus.value = view.skus
   for (const row of rows.value) {
@@ -255,7 +260,8 @@ async function submit() {
 
   saving.value = true
   try {
-    await saveProductSkus(props.product.id, payload)
+    const saveFn = props.merchant ? saveMerchantProductSkus : saveProductSkus
+    await saveFn(props.product.id, payload)
     ElMessage.success('规格与 SKU 已保存')
     emit('saved')
     emit('update:modelValue', false)
@@ -367,7 +373,7 @@ async function submit() {
 
           <el-table-column label="规格图" width="190">
             <template #default="{ row }">
-              <ImageUpload v-model="row.image" compact />
+              <ImageUpload v-model="row.image" compact :merchant="merchant" />
             </template>
           </el-table-column>
         </el-table>
@@ -390,6 +396,7 @@ async function submit() {
       v-model="adjustVisible"
       :product-id="product?.id ?? 0"
       :sku="adjustTarget?.existing ?? null"
+      :merchant="merchant"
       @updated="onStockUpdated"
     />
   </el-dialog>

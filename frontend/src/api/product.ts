@@ -6,6 +6,8 @@ export interface ProductQuery {
   size?: number
   categoryId?: number
   keyword?: string
+  /** 店铺主页用：只看该商户的商品 */
+  merchantId?: number
 }
 
 export function fetchProducts(query: ProductQuery): Promise<PageResponse<Product>> {

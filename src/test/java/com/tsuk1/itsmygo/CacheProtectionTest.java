@@ -6,6 +6,7 @@ import com.tsuk1.itsmygo.common.exception.BizException;
 import com.tsuk1.itsmygo.entity.Category;
 import com.tsuk1.itsmygo.entity.Product;
 import com.tsuk1.itsmygo.mapper.CategoryMapper;
+import com.tsuk1.itsmygo.mapper.MerchantMapper;
 import com.tsuk1.itsmygo.mapper.ProductMapper;
 import com.tsuk1.itsmygo.service.ProductSkuService;
 import com.tsuk1.itsmygo.service.StockService;
@@ -44,6 +45,8 @@ class CacheProtectionTest {
     @Autowired
     private ProductMapper productMapper;
     @Autowired
+    private MerchantMapper merchantMapper;
+    @Autowired
     private CategoryMapper categoryMapper;
     @Autowired
     private StockService stockService;
@@ -67,7 +70,7 @@ class CacheProtectionTest {
             return null;
         });
 
-        ProductServiceImpl service = new ProductServiceImpl(countingMapper, bloomFilter, cacheHelper, stockService, productSkuService);
+        ProductServiceImpl service = new ProductServiceImpl(countingMapper, bloomFilter, cacheHelper, stockService, productSkuService, merchantMapper);
 
         long ghostId = 999_999_999L;
         assertThatThrownBy(() -> service.detailForCustomer(ghostId))
@@ -94,7 +97,7 @@ class CacheProtectionTest {
             return realMapper.selectById(invocation.getArgument(0));
         });
 
-        ProductServiceImpl service = new ProductServiceImpl(countingMapper, bloomFilter, cacheHelper, stockService, productSkuService);
+        ProductServiceImpl service = new ProductServiceImpl(countingMapper, bloomFilter, cacheHelper, stockService, productSkuService, merchantMapper);
         assertThat(service.detailForCustomer(createdProductId).getId()).isEqualTo(createdProductId);
         assertThat(dbQueries.get()).isEqualTo(1);
     }

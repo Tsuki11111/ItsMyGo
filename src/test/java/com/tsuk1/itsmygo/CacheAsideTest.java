@@ -7,6 +7,7 @@ import com.tsuk1.itsmygo.dto.ProductRequest;
 import com.tsuk1.itsmygo.entity.Category;
 import com.tsuk1.itsmygo.entity.Product;
 import com.tsuk1.itsmygo.mapper.CategoryMapper;
+import com.tsuk1.itsmygo.mapper.MerchantMapper;
 import com.tsuk1.itsmygo.mapper.ProductMapper;
 import com.tsuk1.itsmygo.service.CategoryService;
 import com.tsuk1.itsmygo.service.ProductService;
@@ -49,6 +50,8 @@ class CacheAsideTest {
     @Autowired
     private ProductMapper productMapper;
     @Autowired
+    private MerchantMapper merchantMapper;
+    @Autowired
     private CategoryMapper categoryMapper;
     @Autowired
     private RedisCacheHelper cacheHelper;
@@ -76,7 +79,7 @@ class CacheAsideTest {
         });
         // 只把 Mapper 换成计数版，缓存用的还是真实那一个
         ProductServiceImpl countingService =
-                new ProductServiceImpl(countingMapper, bloomFilter, cacheHelper, stockService, productSkuService);
+                new ProductServiceImpl(countingMapper, bloomFilter, cacheHelper, stockService, productSkuService, merchantMapper);
 
         countingService.detailForCustomer(createdProductId);
         countingService.detailForCustomer(createdProductId);

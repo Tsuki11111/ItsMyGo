@@ -8,11 +8,20 @@ import com.tsuk1.itsmygo.entity.ProductSku;
 /** 商品的规格与 SKU */
 public interface ProductSkuService {
 
+    /** 商家后台回显：校验商品归属；merchantId 为 null 表示平台管理员 */
+    ProductSkuView get(Long productId, Long merchantId);
+
     /** 管理端回显某商品的规格与 SKU */
-    ProductSkuView get(Long productId);
+    default ProductSkuView get(Long productId) {
+        return get(productId, null);
+    }
+
+    ProductSkuView save(Long productId, SkuSaveRequest request, Long merchantId);
 
     /** 整组覆盖保存（规格 + 规格值 + SKU），返回保存后的结果 */
-    ProductSkuView save(Long productId, SkuSaveRequest request);
+    default ProductSkuView save(Long productId, SkuSaveRequest request) {
+        return save(productId, request, null);
+    }
 
     /**
      * 商品新建时给它一条**默认 SKU**（无规格），价格库存先落在那里。
@@ -37,5 +46,10 @@ public interface ProductSkuService {
      * @param expectedStock 表单提交时看到的库存；与库里不一致说明期间被并发改过
      * @return 调整后的 SKU
      */
-    ProductSku adjustStock(Long productId, Long skuId, Integer stock, Integer expectedStock);
+    ProductSku adjustStock(Long productId, Long skuId, Integer stock, Integer expectedStock,
+                           Long merchantId);
+
+    default ProductSku adjustStock(Long productId, Long skuId, Integer stock, Integer expectedStock) {
+        return adjustStock(productId, skuId, stock, expectedStock, null);
+    }
 }

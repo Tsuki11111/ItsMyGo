@@ -43,13 +43,16 @@ public class AdminProductController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) Long categoryId,
-            @RequestParam(required = false) String keyword) {
-        return Result.ok(productService.page(page, size, categoryId, keyword, false));
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) Long merchantId) {
+        return Result.ok(productService.page(page, size, categoryId, keyword, false,
+                merchantId, false));
     }
 
     @PostMapping
-    public Result<Product> create(@Valid @RequestBody ProductRequest request) {
-        return Result.ok(productService.create(request));
+    public Result<Product> create(@Valid @RequestBody ProductRequest request,
+                                  @RequestParam(defaultValue = "1") Long merchantId) {
+        return Result.ok(productService.create(request, merchantId));
     }
 
     @PutMapping("/{id}")

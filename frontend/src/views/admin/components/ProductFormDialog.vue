@@ -4,12 +4,15 @@ import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import ImageUpload from './ImageUpload.vue'
 import { createProduct, updateProduct } from '@/api/admin'
+import { createMerchantProduct, updateMerchantProduct } from '@/api/merchant'
 import type { CategoryNode, Product } from '@/api/types'
 
 const props = defineProps<{
   modelValue: boolean
   product: Product | null
   categories: CategoryNode[]
+  /** 商家后台复用：走 /api/merchant/** 而不是 /api/admin/** */
+  merchant?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -99,10 +102,12 @@ async function submit() {
   saving.value = true
   try {
     if (props.product) {
-      await updateProduct(props.product.id, payload)
+      const updateFn = props.merchant ? updateMerchantProduct : updateProduct
+      await updateFn(props.product.id, payload)
       ElMessage.success('商品已更新')
     } else {
-      await createProduct(payload)
+      const createFn = props.merchant ? createMerchantProduct : createProduct
+      await createFn(payload)
       ElMessage.success('商品已创建（已自动生成默认 SKU）')
     }
     emit('update:modelValue', false)
@@ -152,7 +157,7 @@ async function submit() {
       </el-form-item>
 
       <el-form-item label="主图">
-        <ImageUpload v-model="form.mainImage" />
+        <ImageUpload v-model="form.mainImage" :merchant="merchant" />
       </el-form-item>
 
       <el-form-item label="价格">

@@ -2,12 +2,15 @@
 import { ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { adjustSkuStock } from '@/api/admin'
+import { adjustMerchantSkuStock } from '@/api/merchant'
 import type { ProductSku } from '@/api/types'
 
 const props = defineProps<{
   modelValue: boolean
   productId: number
   sku: ProductSku | null
+  /** 商家后台复用：走 /api/merchant/** */
+  merchant?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -30,7 +33,8 @@ async function submit() {
 
   saving.value = true
   try {
-    const updated = await adjustSkuStock(props.productId, props.sku.id, {
+    const adjustFn = props.merchant ? adjustMerchantSkuStock : adjustSkuStock
+    const updated = await adjustFn(props.productId, props.sku.id, {
       stock: stock.value,
       // 条件更新：期间被下单/取消改过就拒绝，而不是硬覆盖
       expectedStock: props.sku.stock,
