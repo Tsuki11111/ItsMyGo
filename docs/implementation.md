@@ -870,6 +870,60 @@ WHERE used_order_id = ? AND status = 'USED'
 不能写 `/api/coupons/**`，否则 `/api/coupons/mine` 会变成匿名可访问。
 管理端模板**不提供删除**，停用即可；停用只阻止新领取，已领的券仍按快照可用。
 
+### 3.16 多商户：店铺、归属与按店拆单
+
+**角色与默认商户**：`CUSTOMER` / `MERCHANT` / `ADMIN`。
+`merchants` 表的 **id=1「平台自营」** 承接改造前的全部存量数据，`owner_user_id = NULL`，
+只能由平台管理员管理，不允许审核、禁用或转让。
+
+**入驻流程**：顾客 `POST /api/merchant-apply` → `PENDING` → 平台 `approve` 变 `ACTIVE`
+并写入 `users.role=MERCHANT` / `users.merchant_id`；驳回可改资料重新提交；
+平台可禁用/启用。审核用条件更新 `WHERE status='PENDING'`，防并发重复审核。
+
+**授权以数据库为准**：`JwtAuthenticationFilter` 只从 JWT 取 userId，
+再用 `AuthIdentityService` 查用户 + 店铺快照（60 秒 Redis 缓存，变更时 evict）。
+店铺不是 `ACTIVE` 时有效角色降为 CUSTOMER，**旧 token 立即失去商家权限**。
+`merchantId` 永远由服务端身份推导，请求体里的 merchantId 一律不信任。
+
+**商品归属**：`products.merchant_id`。顾客列表/详情只展示 `merchants.status='ACTIVE'`
+的商品；详情命中缓存后仍要**在缓存外再查一次店铺状态**，否则禁用店铺后旧缓存还能访问。
+商家接口 `/api/merchant/products/**`（含 SKU / 库存 / 上传）逐项校验商品归属，越权 404；
+平台 `/api/admin/products` 可全量查看并按店铺筛选。分类仍由平台统一维护。
+
+**购物车与店铺页**：`cart_items` **不存 merchant_id**，由商品派生，避免归属漂移；
+`CartItemView` 带 merchantId/merchantName/merchantActive，前端按店分组。
+公开店铺 `GET /api/shops/{id}` 只返回 ACTIVE 店铺；`/shop/:id` 展示店铺商品。
+
+**按店拆单**：`orders.merchant_id` 是订单归属；`order_items` 不冗余 merchant（一单只属于一店）。
+`CreateOrderRequest.coupons` 是 `[{merchantId, userCouponId}]`：
+
+1. 后端按 `product.merchant_id` 分组、校验商品/规格/店铺
+2. **先预校验所有券再动库存**：每组最多一张、同一张券全局去重（平台券只能给一个子订单）、
+   店铺券必须匹配本店、门槛按该组商品总额
+3. 按 skuId 排序预扣库存，逐组插订单、条件 markUsed 券、插明细
+4. 清一次购物车勾选行，返回 `CheckoutView{orders:[...]}`（一个商家一单）
+
+**事务回补**：整个拆单在一个 `@Transactional` 里。Redis 预扣与提交令牌归还除了业务 catch，
+还注册 `TransactionSynchronization.afterCompletion(ROLLED_BACK)` —— 提交阶段失败也能回补；
+用 `AtomicBoolean` 防止业务 catch 与事务回调重复回补。每个子订单独立支付、
+取消、确认收货、退款；`payments.uk_order_id` 因此不用改。
+
+**商家订单**：`/api/merchant/orders/**` 的列表/详情/发货/退款审核全部按 token merchantId 过滤，
+别家订单一律 404。平台 `/api/admin/orders` 保留全平台监管，并支持按商户筛选。
+订单响应里的 `merchantName` 是批量查店铺名回填的，列表不会 N+1。
+
+**优惠券归属**：`coupons.merchant_id` 为 NULL 是平台券，非空是店铺券；
+`user_coupons` 领取时快照 merchantId。平台券可指定给任意一个子订单，店铺券只能用于本店。
+领券中心展示两类券并标注店铺；店铺券只在店铺 ACTIVE 时可领。
+券一旦有领取记录，归属/金额/有效期不可再改（模板名称与启停仍可改）。
+
+**评价归属**：`reviews.merchant_id` 下单时从 `orders.merchant_id` 快照；
+商家 `/api/merchant/reviews` 只看/只隐藏本店评价，平台可全量并按商户筛选。
+
+**迁移（V16–V18）**：V16 建 `merchants` + 默认商户 + `users.merchant_id`；
+V17 给 `products` / `orders` / `reviews` 加 `merchant_id`（存量回填 1）；
+V18 给 `coupons` / `user_coupons` 加可空 `merchant_id`（存量券保持平台券）。
+
 ---
 
 ## 4. 前端（`frontend/`）
@@ -893,7 +947,9 @@ frontend/
 │   │   ├── footprint.ts    # 浏览足迹
 │   │   ├── review.ts       # 评价（提交 / 我的 / 商品公开评价）
 │   │   ├── coupon.ts       # 领券中心 / 我的券 / 可用券
-│   │   └── admin.ts        # 管理端：分类 / 商品 / SKU / 上传 / 订单 / 券 / 评价
+│   │   ├── shop.ts         # 公开店铺信息
+│   │   ├── merchant.ts     # 商家后台：资料 / 商品 / 订单 / 店铺券 / 评价
+│   │   └── admin.ts        # 管理端：分类 / 商户 / 商品 / SKU / 上传 / 订单 / 券 / 评价
 │   ├── stores/user.ts      # 登录态（localStorage 的响应式包装）
 │   ├── utils/orderStatus.ts # 订单状态中文名与标签色（管理端列表只有原始 status）
 │   ├── components/
@@ -905,9 +961,11 @@ frontend/
 │   │   ├── ProductList.vue     # 首页：品类栏 + 轮播 + 品牌专区 + 商品网格（滚动加载）
 │   │   ├── ProductDetail.vue   # 商品详情（含规格选择栏）
 │   │   ├── Login.vue           # 登录 / 注册（同一个页签切换）
-│   │   ├── Cart.vue            # 购物车：勾选 / 改数量 / 移除 / 去结算
-│   │   ├── Checkout.vue        # 确认订单：两种来源（购物车 / 立即购买）
+│   │   ├── Cart.vue            # 购物车：按店分组、勾选 / 改数量 / 移除 / 去结算
+│   │   ├── Checkout.vue        # 确认订单：按店分组、每店选券、两种商品来源
+│   │   ├── CheckoutResult.vue  # 下单结果：多个子订单分别支付
 │   │   ├── OrderDetail.vue     # 订单详情 + 支付 + 评价
+│   │   ├── Shop.vue            # 店铺主页（店铺信息 + 商品）
 │   │   ├── CouponCenter.vue    # 领券中心（匿名可浏览）
 │   │   ├── user/               # 用户中心（左侧菜单 + 子路由）
 │   │   │   ├── UserCenter.vue  # 外壳：资料卡 + 菜单 + <router-view>
@@ -920,14 +978,23 @@ frontend/
 │   │   │   ├── Profile.vue     # 个人资料（昵称 / 手机 / 头像）
 │   │   │   ├── Password.vue    # 修改密码
 │   │   │   └── components/ReviewDialog.vue # 发表评价弹窗
-│   │   └── admin/              # 管理端（独立外壳，不共用顾客顶栏）
+│   │   ├── admin/              # 平台管理端（独立外壳，不共用顾客顶栏）
 │   │       ├── AdminLayout.vue # 侧边菜单 + 页头 + <router-view>
+│   │       ├── Merchants.vue   # 商户审核 / 禁用 / 启用
 │   │       ├── Categories.vue  # 分类树 CRUD
-│   │       ├── Products.vue    # 商品列表 / 上下架 / 传图
-│   │       ├── Orders.vue      # 订单列表 / 发货 / 退款审核
-│   │       ├── Coupons.vue     # 优惠券模板
-│   │       ├── Reviews.vue     # 评价显示 / 隐藏
+│   │       ├── Products.vue    # 商品列表 / 店铺筛选 / 上下架 / 传图
+│   │       ├── Orders.vue      # 全平台订单 / 店铺筛选 / 发货 / 退款审核
+│   │       ├── Coupons.vue     # 平台券 + 店铺券模板
+│   │       ├── Reviews.vue     # 全平台评价显示 / 隐藏
 │   │       └── components/     # 商品表单、SKU 编辑器、库存调整、订单抽屉、上传
+│   │   └── merchant/           # 商家后台（独立外壳）
+│   │       ├── MerchantLayout.vue # 商家侧边菜单 + 页头
+│   │       ├── Apply.vue       # 入驻申请 / 审核状态 / 驳回后重提
+│   │       ├── Products.vue    # 本店商品 / SKU / 库存 / 上下架
+│   │       ├── Orders.vue      # 本店订单 / 发货 / 退款审核
+│   │       ├── Coupons.vue     # 本店店铺券
+│   │       ├── Reviews.vue     # 本店评价显示 / 隐藏
+│   │       └── Profile.vue     # 店铺资料
 │   ├── App.vue             # 顶栏 + 内容区（管理端路由下隐藏顾客顶栏）
 │   └── main.ts
 └── .gitignore
@@ -1125,8 +1192,13 @@ frontend/
 | `Categories.vue` | `el-table` 树形（`row-key="id"` + `tree-props`）；父分类下拉用 `el-tree-select`，**必须剔除自己及全部后代**（后端只拦了「自己设自己」）；启停用 `@change` 调更新接口，成功后重拉树 |
 | `Products.vue` | 分类 + 关键词筛选、分页；**不做硬删除**，只提供上下架（避免购物车/订单/统计的孤儿数据）；商品表单里的主图用 `ImageUpload` 上传 |
 | `Orders.vue` | 状态单选筛选（**管理端接口只支持单个枚举，不支持逗号**）、分页；详情用 `OrderDetailDrawer`；发货填单号、退款同意/驳回、取消超时未支付订单 |
-| `Coupons.vue` | 券模板列表、新增/编辑、启停；**不提供删除**；编辑时总量不能小于已领数 |
-| `Reviews.vue` | 评价列表、按展示状态筛选、显示/隐藏开关；**不删除评价** |
+| `Coupons.vue` | 券模板列表、新增/编辑、启停；**不提供删除**；编辑时总量不能小于已领数；可建平台券或指定店铺券 |
+| `Reviews.vue` | 评价列表、按展示状态/店铺筛选、显示/隐藏开关；**不删除评价** |
+
+**多商户后**新增 `Merchants.vue`（入驻审核 / 禁用 / 启用）；商品、订单、券、评价页都增加
+「店铺」列与筛选。商家后台复用同一批组件（`ProductFormDialog` / `SkuEditorDialog` /
+`OrderDetailDrawer` 等）—— 通过 `merchant` prop 把 API 从 `/api/admin/**` 切到
+`/api/merchant/**`，不复制组件。
 
 **商品表单的多规格约束**：`hasSpecs === 1` 时**禁用价格/库存输入框**并提示去 SKU 编辑器。
 原因在 §3.12 与 `ProductServiceImpl.update`：多规格商品调 `syncDefaultSku` 是 no-op，
@@ -1186,7 +1258,7 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 **测试跑在独立的库和 Redis database 上**（`its_mygo_test` / db 1），跟开发环境彻底分开 ——
 为什么非分不可、怎么配的，见 HANDOFF §5.20。
 
-覆盖重点（当前 **148** 条；CI 上跳过 3 条依赖 MinIO 的，跑 145）：
+覆盖重点（当前 **167** 条；CI 上跳过 3 条依赖 MinIO 的，跑 164）：
 
 | 测试类 | 覆盖 |
 |---|---|
@@ -1209,6 +1281,10 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 | **`ReviewControllerTest`** | 仅已完成订单项可评；同一订单项不可重复评；评分越界 400；商品公开评价只展示未隐藏；汇总平均分/数量；管理端隐藏后商品详情消失、我的评价标记隐藏；顾客不能隐藏；别人的订单项 404 |
 | **`CouponControllerTest`** | 领取后领券中心 claimed/剩余数正确；重复领取 400 而非 500；最后一张领完拒绝；过期券不可领且不展示；可用券按金额过滤；**EXPIRED 由 SQL 按数据库时间计算**；管理端模板增改与停用；总量不能小于已领；非管理员 403 |
 | **`OrderCouponTest`** | 用券后实付 = 原价 - 减免；门槛不足拒绝；已用券不能再用于另一单；别人的券 404；取消订单退券；退款同意退券；**退回过期券置 EXPIRED** |
+| **`MerchantApplyControllerTest`** | 申请 / 重复申请 / 驳回后重提 / 平台通过后 role 与 merchant_id 生效；禁用后旧 token 立即 403、店铺页 404；默认商户不能审核/禁用；店铺名唯一 |
+| **`MerchantProductTest`** | 商家只能看/改本店商品与 SKU；跨店操作 404；店铺禁用后顾客列表与详情不可见；平台可按商户筛选；平台改商品不改变归属 |
+| **`OrderSplitTest`** | 跨店结算生成 N 个子订单且金额正确；商家只能看/操作本店订单；平台券重复选择被拒；店铺券不能跨店；某店库存失败时 Redis 预扣回补 |
+| **`MerchantReviewTest`** | 商家只看本店评价、只能隐藏本店评价；平台可按商户筛选 |
 | **`SkuCartTest`** | 同商品两个规格各占一行、重复加购只累加；小计按**那一款**的价（不是商品最低价）；跨商品的 skuId 被当「不存在」挡住；SKU 被删后那行标成不可购买；停售款加不进去 |
 | **`SkuOrderTest`** | 订单项带 `specText` 快照且单价取那一款；**规格改名后历史订单不变**；**取消只回补买过的那一款**、另一款纹丝不动；立即购买只扣选中的 SKU；买停售款被拒 |
 | **`SkuStockConcurrencyTest`** | 10 人抢 5 件的单一 SKU（恰好 5 成功、Redis 与库都对得上）；**同商品两款互不串扰**（黑 3 件售罄不影响白 10 件） |
@@ -1234,10 +1310,14 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 
 ## 7. 还没实现的部分
 
-管理端前端已完成：**分类管理、商品管理（含传图 / 上下架）、规格与 SKU 编辑器、
-订单管理（发货 / 退款审核 / 取消超时订单）、优惠券模板、评价管理**，见 §4.11。
-顾客端在 M5 已完成商品列表、商品详情（含规格选择栏 / 收藏 / 评价展示）、登录注册、购物车、
-结算下单（购物车 / 立即购买 / 优惠券抵扣）、订单详情、用户中心
+**多商户改造已完成**（2026-10-19）：商家入驻/审核、店铺主页、商品归属、
+商家商品/订单/店铺券/评价后台、跨店购物车按店拆单分别支付、平台监管，
+见 §3.16。明确**不做**：佣金、分账、商家结算/提现、商家子账号、关注店铺。
+
+平台管理端已完成：**商户审核、分类管理、商品管理（含传图 / 上下架）、规格与 SKU 编辑器、
+订单管理（发货 / 退款审核 / 取消超时订单）、平台券 + 店铺券、评价管理**，见 §4.11。
+顾客端已完成商品列表、商品详情（含规格选择栏 / 收藏 / 评价展示 / 店铺卡片）、登录注册、
+购物车（按店分组）、结算（按店选券、拆单）、多订单结果页、订单详情、用户中心
 （订单 / 收藏 / 足迹 / 优惠券 / 评价 / 地址 / 资料 / 改密）。
 
 ⚠️ **顾客端订单操作入口已补齐**：订单详情页按状态显示

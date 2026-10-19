@@ -28,22 +28,21 @@
 
 ## 1. 当前状态一句话
 
-**M5（前端）已完成（2026-10-18）。** 顾客端跑通：**商品列表（滚动加载 + 品牌专区）、
-商品详情（含多规格选择栏 / 收藏 / 评价展示）、登录注册、购物车、结算下单
-（购物车 / 立即购买 / 优惠券抵扣）、订单详情与支付（含取消 / 确认收货 / 申请退款）、用户中心
-（订单 / 收藏 / 足迹 / 优惠券 / 评价 / 地址 / 个人资料 / 改密 / 头像）**；
-管理端跑通：**分类管理、商品管理（含传图 / 上下架）、规格与 SKU 编辑器、
-订单管理（发货 / 退款审核 / 取消超时订单）、优惠券模板、评价管理**。
-后端已做 **SKU 化改造**（价格与库存的真相下沉到 SKU），**自动化测试 148 条**。
+**多商户改造已完成（2026-10-19）。** 商家可自助申请入驻、平台审核；商品归属店铺；
+顾客跨店购物车结算时**按店拆单、分别支付**；商家后台管理本店商品 / 订单 / 店铺券 / 评价；
+平台后台监管全平台。顾客端包含商品列表、详情（收藏 / 评价 / 店铺卡片）、购物车（按店分组）、
+结算（按店选券）、多订单结果页、订单详情与售后、用户中心（收藏 / 足迹 / 券 / 评价等）；
+平台端包含商户审核、分类、商品、订单、平台券 + 店铺券、评价管理。
+后端 **自动化测试 167 条**。
 
-**交接时工作区是干净的** —— 用户中心后续功能已提交（见 §6 最新一条），可以直接开始新一轮工作。
+**交接时工作区是干净的** —— 多商户改造已提交（见 §6 最新一条），可以直接开始新一轮工作。
 
 前端技术栈：Vite 8 + Vue 3.5 + TypeScript 5.9 + Element Plus 2.14 + Pinia + Vue Router。
 配色定稿为「浅粉做面 + 深粉做点」，见 [docs/color-preview.html](docs/color-preview.html)；
-**管理端直接套 Element Plus 默认样式**，不参与这套配色。
+**管理端 / 商家端直接套 Element Plus 默认样式**。
 
-**做之前先看 [docs/implementation.md](docs/implementation.md) §4** —— 前端的工程结构、
-配色规矩、登录态怎么存、下单链路怎么串、和后端对接的四个约定、管理端各页要点都在那。
+**做之前先看 [docs/implementation.md](docs/implementation.md) §4** —— 前端工程结构、
+配色、登录态、下单链路、四个对接约定、管理端与商家端页面要点都在那。
 前端**还没有自动化测试**，也没进 CI。
 
 下一步：**M6 客服接入 → M7 查订单环回**。
@@ -52,7 +51,8 @@
 
 ## 2. 下一步做什么：客服接入
 
-用户中心后续（收藏 / 足迹 / 优惠券 / 评价）与顾客端订单操作入口都已完成，本轮不再拆新页面。
+用户中心后续、顾客端订单操作、多商户改造都已完成，本轮不再拆新页面
+（佣金 / 分账 / 商家结算、商家子账号、关注店铺明确不做）。
 
 1. **M6 客服接入 → M7 查订单环回** — 先读外部仓库 `D:\PycharmProjects\rag_helper`
    的 `evolution-plan.md` §5/§6 与 `proto/agent.proto`，对接契约以那边为准
@@ -129,13 +129,16 @@ src/main/java/com/tsuk1/itsmygo/
 ### 3.3 数据库
 
 - 开发库 `its_mygo`、测试库 `its_mygo_test`（都在共用的 `mysql` 容器里，为什么要分开见 §5.20）
-- 迁移脚本在 `src/main/resources/db/migration/`，**当前 schema 版本 v15**
-- 已建表：`users`（V1，V3 加 `role`，V12 加 `avatar`）、`addresses`（V2）、`categories`（V4）、
-  `products`（V5，V9 加 `has_specs`）、`cart_items`（V6，V10 改成按 SKU 唯一）、
-  `orders` / `order_items`（V7，V8 加 `status_before_refund`，V11 加 `sku_id` / `spec_text`，
-  **V15 加优惠快照字段**）、`payments`（V8）、`product_specs` / `product_spec_values` / `product_skus`（V9）、
-  **`user_favorites` / `user_footprints`（V13）、`reviews`（V14）、
-  `coupons` / `user_coupons`（V15）**
+- 迁移脚本在 `src/main/resources/db/migration/`，**当前 schema 版本 v18**
+- 已建表：`merchants`（V16，默认商户 id=1 平台自营）、`users`（V1，V3 加 `role`，
+  V12 加 `avatar`，**V16 加 `merchant_id`**）、`addresses`（V2）、`categories`（V4）、
+  `products`（V5，V9 加 `has_specs`，**V17 加 `merchant_id`**）、
+  `cart_items`（V6，V10 改成按 SKU 唯一）、`orders` / `order_items`（V7，V8 加
+  `status_before_refund`，V11 加 `sku_id` / `spec_text`，V15 加优惠快照字段，
+  **V17 给 orders 加 `merchant_id`**）、`payments`（V8）、
+  `product_specs` / `product_spec_values` / `product_skus`（V9）、
+  `user_favorites` / `user_footprints`（V13）、`reviews`（V14，**V17 加 `merchant_id`**）、
+  `coupons` / `user_coupons`（V15，**V18 加可空 `merchant_id`**）
   （另有 Flyway 自建的 `flyway_schema_history`，是迁移记录表，**不要动**）
 - **V9 给存量商品回填了默认 SKU**（无规格的那条），老数据不用手工处理；
   但**新直插 `products` 的地方（手工 SQL、导入脚本）必须自己补 SKU** —— 见 §5.21
@@ -153,15 +156,18 @@ frontend/
 │   ├── api/http.ts         # axios 封装：拦截器按 body 的 code 判断 + 登录凭据存取
 │   ├── api/types.ts        # 与后端 DTO 对应的类型（手写）
 │   ├── api/{product,cart,auth,address,order,user}.ts
-│   ├── api/admin.ts        # 管理端：分类 / 商品 / SKU / 上传 / 订单 / 券 / 评价
+│   ├── api/admin.ts        # 平台管理端：分类 / 商户 / 商品 / SKU / 上传 / 订单 / 券 / 评价
+│   ├── api/merchant.ts     # 商家后台：资料 / 商品 / 订单 / 店铺券 / 评价
+│   ├── api/shop.ts         # 公开店铺信息
 │   ├── api/{favorite,footprint,review,coupon}.ts
 │   ├── stores/user.ts      # 登录态
 │   ├── utils/orderStatus.ts # 订单状态中文名与标签色（管理端列表只有原始 status）
 │   ├── components/ProductImage.vue   # 商品图 + 无图占位
 │   ├── styles/theme.css    # 色板 + Element Plus 主题覆盖（必须在 element-plus 之后引入）
 │   ├── router/ · App.vue · main.ts
-│   ├── views/              # 顾客端页面 + user/ 用户中心 + CouponCenter.vue
-│   └── views/admin/        # 管理端：AdminLayout + 分类 / 商品 / 订单 / 券 / 评价 + components/
+│   ├── views/              # 顾客端页面 + user/ 用户中心 + Shop.vue / CheckoutResult.vue
+│   ├── views/admin/        # 平台管理端：Merchants + 分类 / 商品 / 订单 / 券 / 评价 + components/
+│   └── views/merchant/     # 商家后台：Apply / Products / Orders / Coupons / Reviews / Profile
 ```
 
 **启动**（后端要同时跑着）：
@@ -802,9 +808,68 @@ catch 并转 400「该优惠券已领取」；否则用户看到的是服务器�
 `pageForCustomer` 先把本页所有已完成订单的 itemIds 收集起来、一次 `IN` 查询，
 再回填 `reviewed`。`previewLimit` 截断必须在回填之后。
 
+### 5.24 ★ 多商户改造的五个坑（2026-10-19 踩到 / 补齐）
+
+**① JWT 里的 role 不能当权限。** 商家审核通过/禁用后，旧 token 里的 claim 不会变。
+`JwtAuthenticationFilter` 只取 userId，角色与店铺状态交给 `AuthIdentityService`
+按数据库查（60 秒 Redis 缓存 + 变更时 evict）；店铺非 ACTIVE 时有效角色降为 CUSTOMER。
+`merchantId` 也永远从身份推导，不能信任请求体。
+
+**② 拆单必须一个事务 + 事务回调回补 Redis。** 一次结算生成 N 个订单；业务 catch
+只能覆盖方法内异常，**提交阶段失败不会进 catch**。Redis 预扣和提交令牌归还都要挂
+`TransactionSynchronization.afterCompletion(ROLLED_BACK)`，并用 `AtomicBoolean`
+防止业务 catch 与事务回调重复回补（`release` 是 INCRBY，重复会多补）。
+
+**③ 平台券重复选择要在扣库存前拦住。** 同一张平台券被分配给多个子订单时，
+靠第二次 `markUsed` 返回 0 虽然能回滚，但报错含混、依赖执行顺序。正确做法是
+**先校验所有券再预扣库存**：userCouponId 全局去重、每组最多一张、店铺券匹配本店、
+门槛按该组商品总额算。
+
+**④ 商品详情缓存不含店铺状态。** 店铺被禁用后，`its-my-go:product:{id}` 可能还在；
+`detailForCustomer` / `stockForCustomer` 命中缓存后必须**再查一次店铺 ACTIVE**，
+否则禁用店铺的商品还能继续卖。
+
+**⑤ 下单响应改了结构但测试大量依赖旧路径。** `CheckoutView` 顶层保留
+`order/statusLabel/items/itemCount` 镜像第一个子订单，同时新增 `orders` 数组 ——
+旧测试的 `$.data.order` / `$.data.items` 不用改，新前端用 `$.data.orders`。
+另外测试方法本身在 `@Transactional` 里时，服务层扣减会加入测试事务，
+**看不到生产环境的整单回滚**；这类断言只能测 Redis 回补。
+
 ---
 
 ## 6. 历史记录
+
+### 2026-10-19 · 多商户平台改造
+
+**范围**：单商户自营 → 多商户平台。商家自助申请 + 平台审核；商品归属店铺；
+跨店购物车按店拆单、分别支付；商家后台（商品 / 订单 / 店铺券 / 评价 / 资料）；
+平台监管（商户审核、分类、全平台商品 / 订单 / 券 / 评价）。
+**不做**佣金、分账、商家结算/提现、商家子账号、关注店铺。
+
+**数据库（V16–V18）**：`merchants` + 默认商户 id=1 + `users.merchant_id`；
+`products` / `orders` / `reviews` 加 `merchant_id`（存量回填 1）；
+`coupons` / `user_coupons` 加可空 `merchant_id`（NULL=平台券）。
+
+**后端**：角色加 `MERCHANT`；`AuthIdentityService` 按数据库实时算权限（60 秒缓存，
+审核/禁用时 evict），旧 token 不再保留越权；商家商品 / 订单 / 券 / 评价接口全部按
+token merchantId 过滤；购物车视图带店铺信息；`OrderServiceImpl` 按店分组拆单，
+券在扣库存前全局预校验，Redis 预扣与令牌归还挂事务回滚回调；
+`CheckoutView` 保留旧字段兼容测试；公开店铺、平台商户审核、平台/店铺券、商家评价接口。
+
+**前端**：`/shop/:id` 店铺主页与商品详情店铺卡片；购物车 / 结算按店分组、每店选券；
+`CheckoutResult` 多订单分别支付；订单与券展示店铺；`/merchant` 商家后台
+（商品 / 订单 / 店铺券 / 评价 / 资料）复用 admin 组件（`merchant` prop 切 API）；
+`/admin/merchants` 商户审核 + 各页店铺列/筛选。
+
+**测试 148 → 167**：新增 `MerchantApplyControllerTest` 10、`MerchantProductTest` 4、
+`OrderSplitTest` 4、`MerchantReviewTest` 1。全量 167 条全绿。
+
+**浏览器实测**：顾客申请入驻 → 平台通过 → 商家后台建商品/SKU → 店铺页与详情店铺卡片；
+跨店购物车两组 → 每店选券 → 提交生成 2 个子订单 → 分别支付 →
+商家只看/只发本店订单，平台看全量；商家禁用后旧 token 被拦、店铺页 404。
+
+**决策变更**：`decisions-ecommerce.md` §1.1/§1.2/§1.7 已同步为多商户定位，
+并记录「佣金/分账/结算仍不做」。
 
 ### 2026-10-19 · 顾客端订单操作入口：取消 / 确认收货 / 申请退款
 
