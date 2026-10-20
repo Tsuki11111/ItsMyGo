@@ -1,28 +1,355 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { ElMessage } from 'element-plus'
-import { ArrowLeft, Promotion, Service } from '@element-plus/icons-vue'
-import type { ChatScope } from '@/api/types'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import DOMPurify from 'dompurify'
+import { marked } from 'marked'
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  Clock,
+  Loading,
+  Plus,
+  Promotion,
+  Service,
+  VideoPause,
+} from '@element-plus/icons-vue'
+import {
+  fetchAgentHistory,
+  fetchAgentSessions,
+  stopAgent,
+  streamAgentMessage,
+} from '@/api/agent'
+import { useUserStore } from '@/stores/user'
+import type {
+  AgentImage,
+  AgentSessionView,
+  AgentStreamEvent,
+  AgentTraceEvent,
+  AgentUsageEvent,
+  ChatScope,
+} from '@/api/types'
+
+interface UiMessage {
+  id: string
+  role: 'user' | 'assistant'
+  text: string
+  images: AgentImage[]
+  traces: AgentTraceEvent[]
+  usage: AgentUsageEvent | null
+  webOnly: boolean
+  error: string
+  stopped: boolean
+}
 
 const props = defineProps<{ mode: ChatScope }>()
 const emit = defineEmits<{ back: [] }>()
 
-const intro = computed(() => {
-  if (props.mode === 'CUSTOMER') {
-    return '可以帮你查询商品信息、订单进度和售后问题。'
+const userStore = useUserStore()
+
+const messages = ref<UiMessage[]>([])
+const sessions = ref<AgentSessionView[]>([])
+const input = ref('')
+const streaming = ref(false)
+const loadingHistory = ref(false)
+const sessionId = ref<string | null>(null)
+const runId = ref('')
+const scrollEl = ref<HTMLElement>()
+/** 执行流默认折叠；按消息 id 记录展开状态 */
+const expandedTraces = ref<Record<string, boolean>>({})
+const activeAssistantId = ref<string | null>(null)
+
+let abortController: AbortController | null = null
+let assistantSeq = 0
+
+DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+  if (node.tagName === 'A') {
+    node.setAttribute('target', '_blank')
+    node.setAttribute('rel', 'noopener noreferrer')
   }
-  return '可以帮你处理店铺经营、订单履约和平台规则相关的问题。'
 })
+
+/** 模型回复是 Markdown：先渲染，再用 DOMPurify 消毒后交给 v-html */
+function renderMarkdown(text: string): string {
+  if (!text) return ''
+  const html = marked.parse(text, { async: false, breaks: true, gfm: true }) as string
+  return DOMPurify.sanitize(html)
+}
+
+const sessionKey = computed(() =>
+  userStore.user ? `its-my-go:agent-session:${userStore.user.userId}` : '',
+)
+
+const intro = computed(() =>
+  props.mode === 'CUSTOMER'
+    ? '可以帮你查询商品信息、使用方法和售后问题。'
+    : '可以帮你查询商品信息、产品参数和售后问题。',
+)
 
 const suggestions = computed(() =>
   props.mode === 'CUSTOMER'
-    ? ['这款商品怎么安装？', '我的订单到哪了？', '怎么申请退款？']
-    : ['今天的订单怎么处理？', '退款审核规则是什么？', '店铺数据在哪里看？'],
+    ? ['打印机怎么安装墨盒？', '这款路由器怎么设置？', '售后怎么处理？']
+    : ['这款商品的参数在哪里看？', '打印机怎么安装墨盒？', '售后怎么处理？'],
 )
 
-function onSuggest() {
-  ElMessage.info('智能客服正在接入中，敬请期待')
+const canSend = computed(() => input.value.trim().length > 0 && !streaming.value)
+
+const TRACE_LABELS: Record<string, string> = {
+  delegate: '派发',
+  tool: '工具',
+  result: '结果',
+  reply: '回复',
+  node: '步骤',
 }
+
+function traceLine(trace: AgentTraceEvent): string {
+  const label = TRACE_LABELS[trace.kind] || trace.kind
+  return [label, trace.agent, trace.detail].filter(Boolean).join(' · ')
+}
+
+function toggleTraces(messageId: string) {
+  expandedTraces.value = {
+    ...expandedTraces.value,
+    [messageId]: !expandedTraces.value[messageId],
+  }
+}
+
+function isActiveAssistant(message: UiMessage): boolean {
+  return streaming.value && activeAssistantId.value === message.id
+}
+
+function traceSummary(message: UiMessage): string {
+  if (!message.traces.length) return '正在思考…'
+  if (isActiveAssistant(message)) {
+    return traceLine(message.traces[message.traces.length - 1])
+  }
+  return `执行过程 · ${message.traces.length} 步`
+}
+
+function usageText(usage: AgentUsageEvent): string {
+  return `${usage.calls} 次调用 · ${usage.totalTokens} tokens · ¥${usage.cost.toFixed(4)} · ${(usage.elapsedMs / 1000).toFixed(1)}s`
+}
+
+function findMessage(id: string): UiMessage | undefined {
+  return messages.value.find((item) => item.id === id)
+}
+
+async function scrollToBottom() {
+  await nextTick()
+  const el = scrollEl.value
+  if (el) el.scrollTop = el.scrollHeight
+}
+
+async function loadHistory(savedSessionId: string) {
+  loadingHistory.value = true
+  try {
+    const view = await fetchAgentHistory(savedSessionId, 30)
+    messages.value = view.messages.map((item, index) => ({
+      id: `h-${index}`,
+      role: item.role === 'user' ? 'user' : 'assistant',
+      text: item.text,
+      images: item.images || [],
+      traces: item.traces || [],
+      usage: null,
+      webOnly: false,
+      error: '',
+      stopped: false,
+    }))
+    await scrollToBottom()
+  } catch {
+    // 历史加载失败不销毁会话，用户仍可继续发送
+  } finally {
+    loadingHistory.value = false
+  }
+}
+
+function persistSession(id: string | null) {
+  if (!sessionKey.value) return
+  if (id) localStorage.setItem(sessionKey.value, id)
+  else localStorage.removeItem(sessionKey.value)
+}
+
+async function refreshSessions() {
+  try {
+    sessions.value = await fetchAgentSessions(20)
+  } catch {
+    // 会话列表失败不影响当前对话
+  }
+}
+
+async function selectSession(command: unknown) {
+  const id = String(command || '')
+  if (streaming.value || !id) return
+  sessionId.value = id
+  persistSession(id)
+  messages.value = []
+  await loadHistory(id)
+}
+
+async function sendMessage(preset?: string) {
+  const content = (preset ?? input.value).trim()
+  if (!content || streaming.value) return
+
+  input.value = ''
+  const userId = `u-${Date.now()}`
+  const assistantId = `a-${++assistantSeq}`
+  messages.value.push({
+    id: userId,
+    role: 'user',
+    text: content,
+    images: [],
+    traces: [],
+    usage: null,
+    webOnly: false,
+    error: '',
+    stopped: false,
+  })
+  messages.value.push({
+    id: assistantId,
+    role: 'assistant',
+    text: '',
+    images: [],
+    traces: [],
+    usage: null,
+    webOnly: false,
+    error: '',
+    stopped: false,
+  })
+
+  streaming.value = true
+  activeAssistantId.value = assistantId
+  runId.value = ''
+  abortController = new AbortController()
+  await scrollToBottom()
+
+  const handleEvent = (event: AgentStreamEvent) => {
+    const assistant = findMessage(assistantId)
+    if (!assistant) return
+    switch (event.type) {
+      case 'start':
+        sessionId.value = event.sessionId
+        runId.value = event.runId
+        persistSession(event.sessionId)
+        break
+      case 'trace':
+        assistant.traces.push({
+          kind: event.kind,
+          agent: event.agent,
+          detail: event.detail,
+        })
+        break
+      case 'delta':
+        assistant.text += event.delta
+        break
+      case 'final':
+        assistant.text = event.answer || assistant.text
+        assistant.images = event.images || []
+        assistant.webOnly = event.webOnly
+        break
+      case 'usage':
+        assistant.usage = {
+          calls: event.calls,
+          failed: event.failed,
+          totalTokens: event.totalTokens,
+          cost: event.cost,
+          elapsedMs: event.elapsedMs,
+          unpricedCalls: event.unpricedCalls,
+        }
+        break
+      case 'error':
+        assistant.error = event.message
+        break
+      case 'done':
+        if (event.reason === 'stopped') assistant.stopped = true
+        streaming.value = false
+        activeAssistantId.value = null
+        void refreshSessions()
+        break
+    }
+    void scrollToBottom()
+  }
+
+  try {
+    await streamAgentMessage(
+      { sessionId: sessionId.value, message: content },
+      handleEvent,
+      abortController.signal,
+    )
+    const assistant = findMessage(assistantId)
+    if (assistant && !assistant.text && !assistant.error
+        && !assistant.stopped && assistant.images.length === 0) {
+      assistant.error = '客服没有返回内容，请重试'
+    }
+  } catch (error) {
+    if ((error as Error).name !== 'AbortError') {
+      const assistant = findMessage(assistantId)
+      if (assistant && !assistant.stopped) {
+        assistant.error = (error as Error).message || '客服服务暂时不可用'
+      }
+    }
+  } finally {
+    streaming.value = false
+    activeAssistantId.value = null
+    abortController = null
+    runId.value = ''
+    await scrollToBottom()
+  }
+}
+
+async function stop() {
+  if (!streaming.value) return
+  const id = sessionId.value
+  const currentRunId = runId.value
+  if (id && currentRunId) {
+    try {
+      await stopAgent(id, currentRunId)
+    } catch {
+      // 停止失败也要断开本地流
+    }
+  }
+  abortController?.abort()
+  const last = messages.value[messages.value.length - 1]
+  if (last && last.role === 'assistant' && !last.text) {
+    last.stopped = true
+  }
+  streaming.value = false
+  activeAssistantId.value = null
+}
+
+function newSession() {
+  if (streaming.value) {
+    void stop()
+  }
+  sessionId.value = null
+  runId.value = ''
+  persistSession(null)
+  messages.value = []
+}
+
+function onEnter(event: KeyboardEvent) {
+  if (event.isComposing) return
+  event.preventDefault()
+  void sendMessage()
+}
+
+onMounted(async () => {
+  await refreshSessions()
+  const saved = sessionKey.value ? localStorage.getItem(sessionKey.value) : null
+  const target = saved || sessions.value[0]?.sessionId || null
+  if (target) {
+    sessionId.value = target
+    persistSession(target)
+    await loadHistory(target)
+    // 老会话第一次加载时 agent 才认领归属，认领后再刷一次列表
+    await refreshSessions()
+  }
+})
+
+onBeforeUnmount(() => {
+  abortController?.abort()
+  if (streaming.value && sessionId.value && runId.value) {
+    void stopAgent(sessionId.value, runId.value).catch(() => undefined)
+  }
+})
 </script>
 
 <template>
@@ -37,43 +364,153 @@ function onSuggest() {
       </span>
       <div class="who">
         <p class="name">买小购</p>
-        <p class="status">智能客服 · 接入中</p>
+        <p class="status">{{ streaming ? '正在回复…' : '智能客服' }}</p>
       </div>
-      <el-tag size="small" type="info" effect="plain">AI</el-tag>
+
+      <div class="head-actions">
+        <el-dropdown v-if="sessions.length" trigger="click" @command="selectSession">
+          <el-button link size="small">
+            <el-icon><Clock /></el-icon>
+            <span>历史</span>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item
+                v-for="item in sessions"
+                :key="item.sessionId"
+                :command="item.sessionId"
+              >
+                <span class="session-item">
+                  <span class="session-title">{{ item.title || item.sessionId }}</span>
+                  <span class="session-count">{{ item.count }} 条</span>
+                </span>
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+        <el-button v-if="streaming" link type="primary" size="small" @click="stop">
+          <el-icon><VideoPause /></el-icon>
+          <span>停止</span>
+        </el-button>
+        <el-button link size="small" @click="newSession">
+          <el-icon><Plus /></el-icon>
+          <span>新会话</span>
+        </el-button>
+      </div>
     </header>
 
-    <div class="messages">
-      <div class="welcome">
+    <div ref="scrollEl" v-loading="loadingHistory" class="messages">
+      <template v-if="messages.length">
+        <div
+          v-for="message in messages"
+          :key="message.id"
+          class="msg-row"
+          :class="{ mine: message.role === 'user' }"
+        >
+          <span v-if="message.role === 'assistant'" class="bot-avatar">
+            <el-icon><Service /></el-icon>
+          </span>
+
+          <div class="bubble" :class="{ 'agent-bubble': message.role === 'assistant' }">
+            <div
+              v-if="message.traces.length || (isActiveAssistant(message) && !message.error)"
+              class="trace-box"
+            >
+              <button type="button" class="trace-summary" @click="toggleTraces(message.id)">
+                <el-icon
+                  class="trace-icon"
+                  :class="{ 'is-loading': isActiveAssistant(message) }"
+                >
+                  <Loading v-if="isActiveAssistant(message)" />
+                  <ArrowDown v-else-if="expandedTraces[message.id]" />
+                  <ArrowRight v-else />
+                </el-icon>
+                <span class="trace-text">{{ traceSummary(message) }}</span>
+                <span v-if="message.traces.length" class="trace-action">
+                  {{ expandedTraces[message.id] ? '收起' : '展开' }}
+                </span>
+              </button>
+
+              <div v-if="expandedTraces[message.id] && message.traces.length" class="trace-list">
+                <p
+                  v-for="(trace, index) in message.traces"
+                  :key="index"
+                  class="trace-line"
+                  :class="{
+                    latest: isActiveAssistant(message) && index === message.traces.length - 1,
+                  }"
+                >
+                  <span class="trace-index">{{ index + 1 }}</span>
+                  <span class="trace-detail">{{ traceLine(trace) }}</span>
+                </p>
+              </div>
+            </div>
+
+            <p v-if="message.role === 'user' && message.text" class="answer plain">
+              {{ message.text }}
+            </p>
+            <div
+              v-else-if="message.role === 'assistant' && message.text"
+              class="answer markdown-body"
+              v-html="renderMarkdown(message.text)"
+            ></div>
+
+            <div v-if="message.images.length" class="images">
+              <figure v-for="(image, index) in message.images" :key="index" class="image-item">
+                <el-image
+                  :src="image.url"
+                  :preview-src-list="message.images.map((item) => item.url)"
+                  :initial-index="index"
+                  preview-teleported
+                  fit="cover"
+                  class="answer-image"
+                />
+                <figcaption v-if="image.caption">{{ image.caption }}</figcaption>
+              </figure>
+            </div>
+
+            <p v-if="message.webOnly" class="web-only">本轮仅联网结果，知识库未命中</p>
+            <p v-if="message.usage" class="usage">{{ usageText(message.usage) }}</p>
+            <p v-if="message.error" class="error">{{ message.error }}</p>
+            <p v-if="message.stopped" class="stopped">已停止生成</p>
+          </div>
+        </div>
+      </template>
+
+      <div v-else class="welcome">
         <p class="greeting">你好，我是买小购。</p>
         <p>{{ intro }}</p>
-        <p class="pending">智能客服正在接入中，很快就能和我对话了。</p>
-      </div>
+        <p class="pending">可以问我产品使用、参数或售后问题。</p>
 
-      <div class="suggestions">
-        <p class="tip">你可以问：</p>
-        <div class="chips">
-          <button
-            v-for="item in suggestions"
-            :key="item"
-            type="button"
-            class="chip"
-            @click="onSuggest"
-          >
-            {{ item }}
-          </button>
+        <div class="suggestions">
+          <p class="tip">你可以问：</p>
+          <div class="chips">
+            <button
+              v-for="item in suggestions"
+              :key="item"
+              type="button"
+              class="chip"
+              :disabled="streaming"
+              @click="sendMessage(item)"
+            >
+              {{ item }}
+            </button>
+          </div>
         </div>
       </div>
     </div>
 
     <div class="composer">
       <el-input
+        v-model="input"
         type="textarea"
-        :autosize="{ minRows: 2, maxRows: 4 }"
+        :autosize="{ minRows: 2, maxRows: 5 }"
         resize="none"
-        disabled
-        placeholder="智能客服接入中，暂时无法发送消息"
+        :disabled="streaming"
+        placeholder="问问买小购，比如：打印机怎么装墨盒？"
+        @keydown.enter.exact="onEnter"
       />
-      <el-button type="primary" disabled>
+      <el-button type="primary" :loading="streaming" :disabled="!canSend" @click="sendMessage()">
         <el-icon><Promotion /></el-icon>
         <span>发送</span>
       </el-button>
@@ -149,15 +586,42 @@ function onSuggest() {
   color: var(--c-text-3);
 }
 
+.head-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+
+.session-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 320px;
+}
+
+.session-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-count {
+  flex: none;
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--c-text-3);
+}
+
 .messages {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 18px 16px;
+  padding: 16px 14px;
 }
 
 .welcome {
-  max-width: 520px;
+  max-width: 560px;
   padding: 14px 16px;
   font-size: 14px;
   line-height: 1.7;
@@ -183,7 +647,7 @@ function onSuggest() {
 }
 
 .suggestions {
-  margin-top: 18px;
+  margin-top: 16px;
 }
 
 .tip {
@@ -209,8 +673,274 @@ function onSuggest() {
   cursor: pointer;
 }
 
-.chip:hover {
+.chip:hover:not(:disabled) {
   background: var(--c-pink-soft);
+}
+
+.chip:disabled {
+  color: var(--c-text-3);
+  cursor: not-allowed;
+}
+
+.msg-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.msg-row.mine {
+  justify-content: flex-end;
+}
+
+.bot-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  font-size: 14px;
+  color: #fff;
+  background: linear-gradient(135deg, var(--c-pink), #f39ab9);
+  border-radius: 8px;
+}
+
+.bubble {
+  max-width: 78%;
+  padding: 9px 12px;
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--c-text);
+  background: var(--c-pink-soft);
+  border-radius: 12px;
+}
+
+.agent-bubble {
+  background: #fff;
+  border: 1px solid var(--c-border);
+}
+
+.answer {
+  margin: 0;
+  word-break: break-word;
+}
+
+.answer.plain {
+  white-space: pre-wrap;
+}
+
+.markdown-body {
+  line-height: 1.7;
+}
+
+.markdown-body :deep(p) {
+  margin: 0 0 8px;
+}
+
+.markdown-body :deep(p:last-child) {
+  margin-bottom: 0;
+}
+
+.markdown-body :deep(ul),
+.markdown-body :deep(ol) {
+  margin: 4px 0 8px;
+  padding-left: 20px;
+}
+
+.markdown-body :deep(li) {
+  margin: 2px 0;
+}
+
+.markdown-body :deep(strong) {
+  font-weight: 600;
+}
+
+.markdown-body :deep(h1),
+.markdown-body :deep(h2),
+.markdown-body :deep(h3),
+.markdown-body :deep(h4) {
+  margin: 10px 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.markdown-body :deep(code) {
+  padding: 1px 4px;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 12px;
+  background: var(--c-pink-tint);
+  border-radius: 4px;
+}
+
+.markdown-body :deep(pre) {
+  margin: 8px 0;
+  padding: 10px;
+  overflow-x: auto;
+  background: #f6f8fa;
+  border-radius: 8px;
+}
+
+.markdown-body :deep(pre code) {
+  padding: 0;
+  background: none;
+}
+
+.markdown-body :deep(blockquote) {
+  margin: 8px 0;
+  padding-left: 10px;
+  color: var(--c-text-2);
+  border-left: 3px solid var(--c-border);
+}
+
+.markdown-body :deep(a) {
+  color: var(--c-pink);
+}
+
+.markdown-body :deep(hr) {
+  margin: 10px 0;
+  border: none;
+  border-top: 1px solid var(--c-border);
+}
+
+.markdown-body :deep(table) {
+  width: 100%;
+  margin: 8px 0;
+  font-size: 13px;
+  border-collapse: collapse;
+}
+
+.markdown-body :deep(th),
+.markdown-body :deep(td) {
+  padding: 4px 6px;
+  border: 1px solid var(--c-border);
+}
+
+.markdown-body :deep(img) {
+  max-width: 100%;
+  border-radius: 6px;
+}
+
+.trace-box {
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed var(--c-border);
+}
+
+.trace-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--c-text-3);
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.trace-icon {
+  flex: none;
+  font-size: 12px;
+}
+
+.trace-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trace-action {
+  flex: none;
+  color: var(--c-pink);
+}
+
+.trace-list {
+  margin-top: 6px;
+  padding-left: 2px;
+}
+
+.trace-line {
+  display: flex;
+  gap: 6px;
+  margin: 3px 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--c-text-3);
+}
+
+.trace-line.latest {
+  color: var(--c-pink);
+}
+
+.trace-index {
+  flex: none;
+  width: 16px;
+  color: var(--c-text-3);
+}
+
+.trace-detail {
+  min-width: 0;
+  word-break: break-word;
+}
+
+.images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.image-item {
+  margin: 0;
+  max-width: 200px;
+}
+
+.image-item figcaption {
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--c-text-3);
+}
+
+.answer-image {
+  width: 180px;
+  height: 130px;
+  border-radius: 8px;
+  cursor: zoom-in;
+}
+
+.web-only {
+  margin: 8px 0 0;
+  padding: 5px 8px;
+  font-size: 11px;
+  color: #b88230;
+  background: #fff8e6;
+  border-radius: 6px;
+}
+
+.usage {
+  margin: 8px 0 0;
+  font-size: 10px;
+  color: var(--c-text-3);
+}
+
+.error {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #d9534f;
+}
+
+.stopped {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: var(--c-text-3);
 }
 
 .composer {

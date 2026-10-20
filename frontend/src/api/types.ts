@@ -589,3 +589,75 @@ export interface StartConversationPayload {
   productId?: number
   orderId?: number
 }
+
+// ── 买小购客服智能体 ─────────────────────────────────────────────
+
+export interface AgentImage {
+  url: string
+  caption: string
+}
+
+export interface AgentHistoryMessage {
+  role: string
+  text: string
+  images: AgentImage[]
+  ts: string
+  traces: AgentTraceEvent[]
+}
+
+export interface AgentHistoryView {
+  messages: AgentHistoryMessage[]
+}
+
+export interface AgentSessionView {
+  sessionId: string
+  title: string
+  count: number
+  lastAt: string
+}
+
+export interface AgentConversePayload {
+  sessionId?: string | null
+  message: string
+}
+
+export interface AgentStartEvent {
+  sessionId: string
+  runId: string
+}
+
+export interface AgentTraceEvent {
+  kind: string
+  agent: string
+  detail: string
+}
+
+export interface AgentUsageEvent {
+  calls: number
+  failed: number
+  totalTokens: number
+  cost: number
+  elapsedMs: number
+  unpricedCalls: number
+}
+
+export interface AgentFinalEvent {
+  answer: string
+  images: AgentImage[]
+  webOnly: boolean
+}
+
+export interface AgentErrorEvent {
+  code: string
+  message: string
+  retryable: boolean
+}
+
+export type AgentStreamEvent =
+  | ({ type: 'start' } & AgentStartEvent)
+  | ({ type: 'trace' } & AgentTraceEvent)
+  | { type: 'delta'; delta: string }
+  | ({ type: 'usage' } & AgentUsageEvent)
+  | ({ type: 'final' } & AgentFinalEvent)
+  | ({ type: 'error' } & AgentErrorEvent)
+  | { type: 'done'; reason: 'final' | 'stopped' | 'error' }

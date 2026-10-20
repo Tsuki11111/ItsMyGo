@@ -39,6 +39,12 @@ itsmygo:
     access-key: ${MINIO_ACCESS_KEY}
     secret-key: ${MINIO_SECRET_KEY}
     bucket: its-my-go-product-images
+  # 买小购客服智能体：内网 gRPC；密钥只放后端 .env
+  agent:
+    grpc:
+      target: ${AGENT_GRPC_TARGET:127.0.0.1:8003}
+      key: ${AGENT_GRPC_KEY:}
+      deadline-seconds: ${AGENT_GRPC_DEADLINE_SECONDS:240}
 
 # MyBatis-Plus 的 SQL 是运行时生成的，不开日志根本看不见
 logging:

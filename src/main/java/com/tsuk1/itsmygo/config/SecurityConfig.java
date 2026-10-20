@@ -3,6 +3,7 @@ package com.tsuk1.itsmygo.config;
 import com.tsuk1.itsmygo.common.Result;
 import com.tsuk1.itsmygo.common.ResultCode;
 import com.tsuk1.itsmygo.security.JwtAuthenticationFilter;
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -38,6 +39,9 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        // SseEmitter 完成时会走一次 ASYNC dispatch；原始请求已经鉴权过，
+                        // 这里放行异步分派，否则 /api/agent/converse 会在收尾时报 403
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
                         .requestMatchers("/api/health", "/api/auth/register", "/api/auth/login").permitAll()
                         // 顾客浏览商品、分类与店铺主页无需登录
                         .requestMatchers(HttpMethod.GET, "/api/products/**", "/api/categories/**",

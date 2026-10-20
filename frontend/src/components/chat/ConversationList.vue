@@ -67,7 +67,7 @@ function formatTime(value: string | null): string {
             <span class="agent-tag">AI</span>
           </span>
           <span class="row">
-            <span class="preview">智能客服 · 即将接入</span>
+            <span class="preview">商品咨询 · 执行过程可见</span>
           </span>
         </span>
       </button>
