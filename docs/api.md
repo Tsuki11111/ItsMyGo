@@ -1,0 +1,941 @@
+# 一次买够 · 后端 API 接口文档
+
+> 适用版本：schema v19（2026-10-20）
+> 服务地址：`http://localhost:8080`（开发环境，前端经 Vite 代理 `/api` 访问）
+> 本文覆盖 `src/main/java/com/tsuk1/itsmygo/controller/` 下全部接口。
+
+---
+
+## 1. 通用约定
+
+### 1.1 请求格式
+
+- 除文件上传外，请求与响应均为 `application/json; charset=UTF-8`。
+- 时间字段为 ISO-8601 本地时间，如 `2026-10-20T19:03:01`。
+- 金额字段为 `BigDecimal`，JSON 中是数字（如 `66.00`）。
+- 文件上传使用 `multipart/form-data`，字段名统一为 `file`。
+
+### 1.2 认证
+
+登录/注册成功后返回 JWT，后续请求放在请求头：
+
+```http
+Authorization: Bearer <token>
+```
+
+角色只有三种：`CUSTOMER`、`MERCHANT`、`ADMIN`。
+**权限以数据库为准**（`AuthIdentityService` 实时查询，60 秒缓存）；JWT 里的 role 不参与授权。
+店铺不是 `ACTIVE` 时，商家角色会临时降为 `CUSTOMER`，旧 token 立即失去商家权限。
+
+### 1.3 统一响应
+
+```json
+{
+  "code": 200,
+  "message": "成功",
+  "data": {}
+}
+```
+
+| code | 含义 | HTTP 状态 |
+|---|---|---|
+| 200 | 成功 | 200 |
+| 400 | 参数错误 / 业务规则不满足 | **200** |
+| 401 | 未登录、token 无效或已过期 | 401（Security 层）或 200（业务抛出） |
+| 403 | 无权限 | 403（Security 层）或 200（业务抛出） |
+| 404 | 资源不存在 / 越权访问 | **200** |
+| 429 | 触发限流 | **200** |
+| 500 | 服务器内部错误 | **200** |
+
+> 注意：除了 Security 层直接返回的 401/403，其余业务错误 HTTP 状态仍是 200，
+> 调用方必须判断响应体里的 `code`。
+
+### 1.4 分页
+
+```json
+{
+  "records": [],
+  "total": 100,
+  "page": 1,
+  "size": 20
+}
+```
+
+- `page` 从 1 开始。
+- `size` 会被服务端夹在 1–100，防止一次拉穿数据库。
+- 并不是所有列表都分页，见各接口说明。
+
+### 1.5 枚举
+
+**订单状态 `OrderStatus`**
+
+| 值 | 含义 |
+|---|---|
+| `PENDING_PAYMENT` | 待支付 |
+| `PAID` | 已支付 |
+| `SHIPPED` | 已发货 |
+| `COMPLETED` | 已完成 |
+| `CANCELLED` | 已取消（终态） |
+| `REFUNDING` | 退款中 |
+| `REFUNDED` | 已退款（终态） |
+
+**店铺状态 `Merchant.status`**
+
+`PENDING` / `ACTIVE` / `REJECTED` / `DISABLED`
+
+**用户券状态**
+
+`UNUSED` / `USED` / `EXPIRED`
+
+**聊天**
+
+| 字段 | 取值 |
+|---|---|
+| `senderType` | `CUSTOMER` / `MERCHANT` /（预留 `AGENT`） |
+| `contentType` | `TEXT` / `IMAGE` / `PRODUCT` / `ORDER` |
+
+### 1.6 权限标记
+
+| 标记 | 含义 |
+|---|---|
+| 公开 | 无需登录 |
+| 登录 | 任意已登录用户 |
+| 顾客 | 已登录且不是 `ADMIN`（商家账号也可以作为顾客） |
+| 商家 | `MERCHANT` 且店铺 `ACTIVE` |
+| 管理员 | `ADMIN` |
+
+---
+
+## 2. 公共数据结构
+
+### 2.1 认证与用户
+
+**LoginResponse**
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `token` | string | JWT |
+| `userId` | number | 用户 ID |
+| `username` | string | 用户名 |
+| `nickname` | string | 昵称 |
+| `avatar` | string | 头像 URL，空串表示未设置 |
+| `role` | string | `CUSTOMER` / `MERCHANT` / `ADMIN` |
+| `merchantId` | number/null | 商家账号有值 |
+| `merchantName` | string | 店铺名 |
+| `merchantStatus` | string | 店铺状态 |
+
+**ProfileView**
+
+`id, username, nickname, phone, avatar, role, merchantId, merchantName, merchantStatus`
+
+`GET /api/auth/me` 返回的是 `CurrentUser`：`id, username, role, merchantId`。
+
+### 2.2 地址
+
+`Address`：`id, userId, receiver, phone, province, city, district, detail, isDefault(1/0), createdAt, updatedAt`
+
+`AddressRequest`：
+
+```json
+{
+  "receiver": "张三",
+  "phone": "13800000000",
+  "province": "广东省",
+  "city": "深圳市",
+  "district": "南山区",
+  "detail": "科技园 1 号",
+  "isDefault": true
+}
+```
+
+### 2.3 分类
+
+`Category`：`id, parentId, name, sort, status(1 启用/0 停用), createdAt, updatedAt`
+
+`CategoryNode`：`id, parentId, name, sort, status, children[]`
+
+`CategoryRequest`：`parentId`（null/0 表示顶层）、`name`、`sort`、`enabled`
+
+### 2.4 商品与 SKU
+
+**Product**
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | number | 商品 ID |
+| `merchantId` | number | 所属店铺 |
+| `categoryId` | number | 分类 |
+| `name` / `subtitle` | string | 名称 / 副标题 |
+| `mainImage` | string | 主图 URL |
+| `price` | number | 汇总价（在售 SKU 最低价） |
+| `stock` | number | 汇总库存（在售 SKU 库存之和） |
+| `sales` | number | 销量 |
+| `hasSpecs` | number | 1 多规格 / 0 单规格 |
+| `detail` | string | 富文本/详情 |
+| `status` | number | 1 上架 / 0 下架 |
+| `specs` | array/null | 仅详情返回：`ProductSpec[]` |
+| `skus` | array/null | 仅详情返回：`ProductSku[]`（库存为 Redis 实时值） |
+
+**ProductSpec**：`id, productId, name, sort, createdAt, updatedAt, values[]`
+**ProductSpecValue**：`id, specId, value, sort, createdAt, updatedAt`
+**ProductSku**：`id, productId, specValueIds(升序逗号串，空串=默认 SKU), specText, price, stock, sales, image, status(1 在售/0 停用), createdAt, updatedAt`
+**ProductSkuView**：`{ specs: ProductSpec[], skus: ProductSku[] }`（SKU 库存为 Redis 实时值）
+
+**ProductRequest**（管理端/商家端共用）：
+
+```json
+{
+  "categoryId": 1,
+  "name": "商品名",
+  "subtitle": "副标题",
+  "mainImage": "https://...",
+  "price": 66.00,
+  "stock": 10,
+  "detail": "详情",
+  "onSale": true
+}
+```
+
+**SkuSaveRequest**（整组覆盖）：
+
+```json
+{
+  "specs": [
+    { "id": null, "name": "颜色", "values": [{ "id": -1, "value": "黑色" }] }
+  ],
+  "skus": [
+    { "specValueIds": [-1], "price": 66.00, "stock": 10, "image": "" }
+  ]
+}
+```
+
+- 已有规格/值传真实 id；新建规格传 `null`，新建规格值传**负数临时 id**。
+- 已存在 SKU 的 `stock` 会被忽略；库存调整走单独接口。
+- 无规格商品：`specs: []`、`skus: [{ "specValueIds": [], ... }]`。
+
+**AdjustSkuStockRequest**：`{ "stock": 20, "expectedStock": 10 }`（CAS，原库存不一致则拒绝）
+
+**StockView**：
+
+```json
+{
+  "productId": 1,
+  "stock": 10,
+  "available": true,
+  "skus": [{ "skuId": 2, "stock": 5, "available": true }]
+}
+```
+
+### 2.5 购物车
+
+**CartView**：`{ items: CartItemView[], selectedTotal: number }`
+
+**CartItemView**：
+
+`id, productId, skuId, productName, productImage, specText, price, stock, quantity, subtotal, selected, onSale, available, merchantId, merchantName, merchantActive`
+
+- `selectedTotal` 只计算「已勾选且可购买」的行。
+- `available=false` 表示商品/规格下架、店铺停用或库存不足。
+
+### 2.6 订单
+
+**Order**
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` / `orderNo` | number/string | 订单 ID / 订单号 |
+| `userId` / `merchantId` | number | 买家 / 店铺 |
+| `merchantName` | string | 店铺名快照（部分接口回填） |
+| `totalAmount` | number | 实付 |
+| `originalAmount` | number | 优惠前商品总额 |
+| `discountAmount` | number | 优惠金额 |
+| `userCouponId` / `couponName` | number/string | 使用的券及名称快照 |
+| `status` | string | 见订单状态枚举 |
+| `receiver` / `phone` / `address` | string | 收货信息快照 |
+| `trackingNo` | string | 物流单号 |
+| `statusBeforeRefund` | string/null | 退款前状态 |
+| `paidAt/shippedAt/completedAt/cancelledAt/createdAt/updatedAt` | datetime | 时间 |
+
+**OrderItem**：`id, orderId, productId, skuId, productName, productImage, specText, unitPrice, quantity, subtotal, createdAt, reviewed(可选)`
+
+**OrderView**：`{ order: Order, statusLabel: string, items: OrderItem[], itemCount: number }`
+
+**CheckoutView**：
+
+```json
+{
+  "orders": [OrderView],
+  "order": Order,
+  "statusLabel": "待支付",
+  "items": [OrderItem],
+  "itemCount": 2
+}
+```
+
+- `orders` 是本次按店拆出的全部子订单。
+- 顶层 `order/statusLabel/items/itemCount` 镜像第一个子订单，兼容旧调用方。
+
+**CreateOrderRequest**：
+
+```json
+{
+  "addressId": 1,
+  "token": "一次性提交令牌",
+  "items": [
+    { "productId": 1, "skuId": 2, "quantity": 1 }
+  ],
+  "coupons": [
+    { "merchantId": 1, "userCouponId": 10 }
+  ]
+}
+```
+
+- `items` 为空表示从购物车勾选行结算；非空表示「立即购买」，不碰购物车。
+- `coupons`：每个店铺最多一张；同一张券不能出现在多个店铺；平台券可分配给任意一个子订单。
+
+### 2.7 评价
+
+**ReviewRequest**：`{ "orderItemId": 1, "rating": 5, "content": "很好" }`
+
+- 仅已完成订单项可评；同一订单项只能评一次；`rating` 1–5。
+
+**ReviewView**（公开评价）：`id, rating, content, userNickname, userAvatar, createdAt`
+**ReviewSummary**：`{ averageRating: number, count: number }`
+**MyReviewView**：`id, orderItemId, productId, productName, productImage, merchantId, merchantName, rating, content, status(1 展示/0 隐藏), createdAt`
+**AdminReviewView**：`id, userId, userNickname, merchantId, merchantName, productId, productName, rating, content, status, createdAt`
+**ReviewVisibleRequest**：`{ "visible": false }`
+
+### 2.8 优惠券
+
+**Coupon**（模板，管理/商家接口返回）：
+
+`id, merchantId(NULL=平台券), name, thresholdAmount, discountAmount, totalCount, claimedCount, validFrom, validTo, status(1 启用/0 停用), createdAt, updatedAt`
+
+**CouponView**（领券中心）：
+
+`id, merchantId, merchantName, name, thresholdAmount, discountAmount, totalCount, claimedCount, remainingCount, validFrom, validTo, claimed`
+
+**UserCouponView**（我的券）：
+
+`id, couponId, merchantId, merchantName, couponName, thresholdAmount, discountAmount, validFrom, validTo, status, usedOrderId, createdAt`
+
+**CouponRequest**：
+
+```json
+{
+  "name": "满100减20",
+  "thresholdAmount": 100.00,
+  "discountAmount": 20.00,
+  "totalCount": 100,
+  "validFrom": "2026-10-01T00:00:00",
+  "validTo": "2026-12-31T23:59:59",
+  "enabled": true,
+  "merchantId": null
+}
+```
+
+- `merchantId=null` 建平台券；非空建店铺券（仅管理员可指定店铺）。
+- 券一旦有领取记录，归属/金额/有效期不可修改。
+
+### 2.9 商户与店铺
+
+**MerchantView**：`id, name, logo, description, contactName, contactPhone, status, rejectReason, ownerUserId, createdAt`
+
+**AdminMerchantView** = `MerchantView` + `ownerUsername`
+
+**MerchantRequest**：
+
+```json
+{
+  "name": "小张数码店",
+  "logo": "https://...",
+  "description": "店铺简介",
+  "contactName": "张老板",
+  "contactPhone": "13800000000"
+}
+```
+
+- 店铺名全平台唯一；一个用户只能有一家店。
+- 默认店铺 id=1「平台自营」由管理员处理消息，`ownerUserId=null`。
+
+**MerchantRejectRequest**：`{ "reason": "资料不完整" }`
+
+### 2.10 聊天
+
+**ConversationView**：
+
+| 字段 | 说明 |
+|---|---|
+| `id, merchantId, customerId` | 会话与双方 ID |
+| `merchantName, merchantLogo` | 店铺信息 |
+| `customerName, customerAvatar` | 顾客信息 |
+| `lastMessageId, lastMessagePreview, lastMessageAt` | 最后一条消息 |
+| `unread` | **当前身份**在这条会话里的未读数 |
+| `peerOnline` | 顾客侧表示店铺是否在线（管理员连接算平台自营店在线） |
+| `createdAt` | 会话创建时间 |
+
+**ChatMessageView**：
+
+`id, conversationId, senderUserId, senderType, contentType, content, card, createdAt`
+
+- `TEXT`：`content` 是文本。
+- `IMAGE`：`content` 是图片 URL（必须是系统 `chat/` 前缀）。
+- `PRODUCT`：`card` 为商品快照。
+- `ORDER`：`card` 为订单快照。
+
+**商品卡片**
+
+```json
+{
+  "productId": 1,
+  "name": "商品名",
+  "image": "https://...",
+  "price": 66.00,
+  "merchantId": 1,
+  "status": 1
+}
+```
+
+**订单卡片**
+
+```json
+{
+  "orderId": 1,
+  "orderNo": "202610201900001",
+  "status": "PENDING_PAYMENT",
+  "statusLabel": "待支付",
+  "totalAmount": 66.00,
+  "firstItemName": "商品名",
+  "firstItemImage": "https://..."
+}
+```
+
+**ChatMessagePage**：`{ records: ChatMessageView[], hasMore: boolean, peerLastReadMessageId: number/null }`
+
+**ChatUnreadView**：`{ customerUnread: number, merchantUnread: number }`（全局未读总数）
+
+**StartConversationRequest**：
+
+```json
+{ "merchantId": 1, "productId": 2, "orderId": null }
+```
+
+- `productId` / `orderId` 二选一，仅**新建会话**时自动发一张卡片。
+- 平台自营店（id=1）允许发起，由管理员回复。
+
+**SendChatMessageRequest**：
+
+```json
+{ "type": "TEXT", "text": "你好" }
+{ "type": "IMAGE", "imageUrl": "http://localhost:9000/.../chat/x.png" }
+{ "type": "PRODUCT", "productId": 1 }
+{ "type": "ORDER", "orderId": 2 }
+```
+
+- `type` 决定使用哪个字段；卡片内容由服务端按 ID 查库生成，客户端不能伪造。
+- 文本去空白后非空、≤2000 字。
+
+**ChatReadRequest**：`{ "lastMessageId": 123 }`
+**ChatStreamTicketView**：`{ "ticket": "uuid", "expiresInSeconds": 60 }`
+
+---
+
+## 3. 健康检查
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | `/api/health` | 公开 | 返回 `{status:"UP", time}` |
+
+---
+
+## 4. 认证
+
+| 方法 | 路径 | 权限 | 请求体 | 返回 |
+|---|---|---|---|---|
+| POST | `/api/auth/register` | 公开 | `{username, password, nickname?}` | `LoginResponse` |
+| POST | `/api/auth/login` | 公开 | `{username, password}` | `LoginResponse` |
+| GET | `/api/auth/me` | 登录 | — | `CurrentUser` |
+
+- 注册：用户名 3–32 位；密码 6–64 位；昵称 ≤32；**注册出来的角色固定是 CUSTOMER**。
+- 限流：注册 5 次/分钟/IP；登录 10 次/分钟/IP。
+- 商家身份只能通过入驻审核获得，不能注册时指定。
+
+---
+
+## 5. 用户中心
+
+| 方法 | 路径 | 权限 | 请求 | 返回 |
+|---|---|---|---|---|
+| GET | `/api/user/profile` | 登录 | — | `ProfileView` |
+| PUT | `/api/user/profile` | 登录 | `{nickname, phone?}` | `ProfileView` |
+| PUT | `/api/user/password` | 登录 | `{oldPassword, newPassword}` | `null` |
+| POST | `/api/user/avatar` | 登录 | multipart `file` | `ProfileView` |
+
+- 改密码成功后服务端不吊销 JWT，前端应主动退出登录。
+- 头像：jpg/jpeg/png/gif/webp，≤2MB，存 MinIO `avatars/`；限流 10 次/分钟/用户。
+
+---
+
+## 6. 收货地址
+
+| 方法 | 路径 | 权限 | 请求 | 返回 |
+|---|---|---|---|---|
+| GET | `/api/addresses` | 登录 | — | `Address[]` |
+| POST | `/api/addresses` | 登录 | `AddressRequest` | `Address` |
+| PUT | `/api/addresses/{id}` | 登录 | `AddressRequest` | `Address` |
+| DELETE | `/api/addresses/{id}` | 登录 | — | `null` |
+| PUT | `/api/addresses/{id}/default` | 登录 | — | `null` |
+
+- 只能操作自己的地址；越权/不存在统一 404。
+- `isDefault=true` 时会把同用户其它地址的默认标记清掉；设默认接口幂等。
+
+---
+
+## 7. 分类（公开）
+
+| 方法 | 路径 | 权限 | 参数 | 返回 |
+|---|---|---|---|---|
+| GET | `/api/categories` | 公开 | — | `CategoryNode[]`（树，仅启用分类） |
+
+---
+
+## 8. 商品（公开）
+
+| 方法 | 路径 | 权限 | 参数 | 返回 |
+|---|---|---|---|---|
+| GET | `/api/products` | 公开 | `page=1, size=20, categoryId?, keyword?, merchantId?` | `PageResponse<Product>` |
+| GET | `/api/products/{id}` | 公开 | — | `Product`（含 specs/skus） |
+| GET | `/api/products/{id}/stock` | 公开 | — | `StockView` |
+| GET | `/api/products/{productId}/reviews` | 公开 | `page=1, size=5` | `PageResponse<ReviewView>` |
+| GET | `/api/products/{productId}/reviews/summary` | 公开 | — | `ReviewSummary` |
+
+- 只返回上架商品、且店铺为 `ACTIVE`。
+- 详情命中缓存后仍会校验店铺状态；店铺停用后商品立即不可见。
+- `keyword` 同时匹配商品名与副标题；`merchantId` 用于店铺主页。
+- 库存接口读 Redis 实时计数，不查库。
+
+---
+
+## 9. 购物车
+
+| 方法 | 路径 | 权限 | 请求 | 返回 |
+|---|---|---|---|---|
+| GET | `/api/cart` | 登录 | — | `CartView` |
+| POST | `/api/cart/items` | 登录 | `{productId, skuId, quantity}` | `CartView` |
+| PUT | `/api/cart/items/{id}` | 登录 | `{quantity, selected}` | `CartView` |
+| DELETE | `/api/cart/items/{id}` | 登录 | — | `CartView` |
+
+- 同一 `skuId` 重复加购会累加数量（数据库唯一键）。
+- 加购会校验商品上架、SKU 在售、店铺 `ACTIVE`、库存充足。
+- 购物车行不存店铺 ID，由商品派生；商品归属变化不会留下脏行。
+- 所有写操作返回整份购物车，前端直接替换本地状态即可。
+
+---
+
+## 10. 订单、支付与售后
+
+| 方法 | 路径 | 权限 | 参数/请求 | 返回 |
+|---|---|---|---|---|
+| GET | `/api/orders/token` | 登录 | — | `string`（一次性提交令牌） |
+| POST | `/api/orders` | 登录 | `CreateOrderRequest` | `CheckoutView` |
+| GET | `/api/orders` | 登录 | `page=1, size=10, previewLimit=3, status?` | `PageResponse<OrderView>` |
+| GET | `/api/orders/{id}` | 登录 | — | `OrderView` |
+| POST | `/api/orders/{id}/pay` | 登录 | — | `OrderView` |
+| POST | `/api/orders/{id}/cancel` | 登录 | — | `OrderView` |
+| POST | `/api/orders/{id}/confirm` | 登录 | — | `OrderView` |
+| POST | `/api/orders/{id}/refund` | 登录 | — | `OrderView` |
+
+- 只能操作自己的订单，越权一律 404。
+- 下单限流 10 次/分钟/用户。
+- **跨店拆单**：一次下单按店铺生成多个子订单，各自支付、取消、确认收货、退款。
+- `status` 支持逗号分隔的多个枚举，如 `PAID,SHIPPED`。
+- `previewLimit=0` 返回全部明细。
+- 支付是模拟支付：直接改状态为 `PAID` 并写支付流水。
+- 取消会回滚库存；使用了未过期优惠券会自动退回。
+- 申请退款要求状态为 `PAID` / `SHIPPED` / `COMPLETED`，进入 `REFUNDING` 等审核。
+- 下单失败会回补 Redis 预扣库存；令牌一次性消费，防重复提交。
+
+---
+
+## 11. 收藏
+
+| 方法 | 路径 | 权限 | 参数 | 返回 |
+|---|---|---|---|---|
+| GET | `/api/favorites` | 登录 | `page=1, size=12` | `PageResponse<FavoriteView>` |
+| GET | `/api/favorites/{productId}/status` | 登录 | — | `boolean` |
+| POST | `/api/favorites/{productId}` | 登录 | — | `null` |
+| DELETE | `/api/favorites/{productId}` | 登录 | — | `null` |
+
+**FavoriteView**：`id, productId, name, subtitle, mainImage, price, status, createdAt, merchantId, merchantName`
+
+- 收藏/取消均幂等；商品不存在返回 404。
+
+---
+
+## 12. 浏览足迹
+
+| 方法 | 路径 | 权限 | 参数 | 返回 |
+|---|---|---|---|---|
+| POST | `/api/footprints/{productId}` | 登录 | — | `null` |
+| GET | `/api/footprints` | 登录 | `page=1, size=12` | `PageResponse<FootprintView>` |
+| DELETE | `/api/footprints` | 登录 | — | `null` |
+
+**FootprintView**：`id, productId, name, subtitle, mainImage, price, status, viewedAt, merchantId, merchantName`
+
+- 同一商品只保留一行，重复浏览只更新时间。
+- 每个用户最多保留最近 100 条。
+
+---
+
+## 13. 评价
+
+| 方法 | 路径 | 权限 | 请求/参数 | 返回 |
+|---|---|---|---|---|
+| POST | `/api/reviews` | 登录 | `ReviewRequest` | `null` |
+| GET | `/api/reviews/mine` | 登录 | `page=1, size=10` | `PageResponse<MyReviewView>` |
+
+- 提交限流 5 次/分钟/用户。
+- 仅已完成订单项可评；同一订单项不可重复评价。
+- 提交后立即展示；管理员/商家可隐藏，但不会删除。
+
+---
+
+## 14. 优惠券（顾客）
+
+| 方法 | 路径 | 权限 | 参数/请求 | 返回 |
+|---|---|---|---|---|
+| GET | `/api/coupons` | 公开 | — | `CouponView[]` |
+| POST | `/api/coupons/{couponId}/claim` | 登录 | — | `null` |
+| GET | `/api/coupons/mine` | 登录 | `page=1, size=10, status?` | `PageResponse<UserCouponView>` |
+| GET | `/api/coupons/mine/available` | 登录 | `amount, merchantId?` | `UserCouponView[]` |
+
+- 领券中心匿名可看；登录后 `claimed` 标记有效。
+- 店铺券只在店铺 `ACTIVE` 时展示/可领；平台券不受店铺影响。
+- 重复领取 400；领完拒绝；过期券不展示。
+- `available` 按金额筛选，并返回平台券 + 指定店铺的店铺券。
+- 领取限流 10 次/分钟/用户。
+
+---
+
+## 15. 商户入驻与公开店铺
+
+| 方法 | 路径 | 权限 | 请求/参数 | 返回 |
+|---|---|---|---|---|
+| POST | `/api/merchant-apply` | 登录 | `MerchantRequest` | `MerchantView` |
+| GET | `/api/merchant-apply` | 登录 | — | `MerchantView` / `null` |
+| POST | `/api/merchant-apply/logo` | 登录 | multipart `file` | `string`（URL） |
+| GET | `/api/shops/{id}` | 公开 | — | `MerchantView` |
+
+- 入驻：`PENDING` → 平台 `approve` → `ACTIVE`，用户角色变为 `MERCHANT`。
+- 被驳回后可以修改资料重新提交；`PENDING`/`ACTIVE` 时不能重复申请。
+- Logo 上传专门开放给申请人（此时还没有 MERCHANT 角色）：≤2MB，`merchants/` 前缀。
+- 公开店铺接口只返回 `ACTIVE` 店铺。
+
+---
+
+## 16. 商家后台
+
+> 以下接口均需要 `MERCHANT` 角色；`merchantId` 从登录身份推导，不信任请求参数。
+> 跨店访问一律 404。
+
+### 16.1 店铺资料
+
+| 方法 | 路径 | 请求/参数 | 返回 |
+|---|---|---|---|
+| GET | `/api/merchant/profile` | — | `MerchantView` |
+| PUT | `/api/merchant/profile` | `MerchantRequest` | `MerchantView` |
+
+### 16.2 商品与 SKU
+
+| 方法 | 路径 | 请求/参数 | 返回 |
+|---|---|---|---|
+| GET | `/api/merchant/products` | `page=1, size=20, categoryId?, keyword?` | `PageResponse<Product>` |
+| GET | `/api/merchant/products/{id}` | — | `Product` |
+| POST | `/api/merchant/products` | `ProductRequest` | `Product` |
+| PUT | `/api/merchant/products/{id}` | `ProductRequest` | `Product` |
+| GET | `/api/merchant/products/{id}/skus` | — | `ProductSkuView` |
+| PUT | `/api/merchant/products/{id}/skus` | `SkuSaveRequest` | `ProductSkuView` |
+| PUT | `/api/merchant/products/{productId}/skus/{skuId}/stock` | `AdjustSkuStockRequest` | `ProductSku` |
+
+- 商品归属不能跨店修改；只能看/改本店商品。
+- SKU 保存是整组覆盖；已有 SKU 库存保持不变，补货走库存调整接口。
+- 库存调整带 `expectedStock`，并发改过会拒绝。
+
+### 16.3 订单
+
+| 方法 | 路径 | 请求/参数 | 返回 |
+|---|---|---|---|
+| GET | `/api/merchant/orders` | `page=1, size=10, status?` | `PageResponse<Order>` |
+| GET | `/api/merchant/orders/{id}` | — | `OrderView` |
+| POST | `/api/merchant/orders/{id}/ship` | `{trackingNo}` | `OrderView` |
+| POST | `/api/merchant/orders/{id}/refund/approve` | — | `OrderView` |
+| POST | `/api/merchant/orders/{id}/refund/reject` | — | `OrderView` |
+
+- 只能操作本店订单；别家订单 404。
+- 发货要求订单状态为 `PAID`；退款审核要求 `REFUNDING`。
+
+### 16.4 店铺券
+
+| 方法 | 路径 | 请求/参数 | 返回 |
+|---|---|---|---|
+| GET | `/api/merchant/coupons` | `page=1, size=10, status?, keyword?` | `PageResponse<Coupon>` |
+| POST | `/api/merchant/coupons` | `CouponRequest`（`merchantId` 会被强制为本店） | `Coupon` |
+| PUT | `/api/merchant/coupons/{id}` | `CouponRequest` | `Coupon` |
+
+### 16.5 评价
+
+| 方法 | 路径 | 请求/参数 | 返回 |
+|---|---|---|---|
+| GET | `/api/merchant/reviews` | `page=1, size=10, visible?, keyword?` | `PageResponse<AdminReviewView>` |
+| PUT | `/api/merchant/reviews/{id}/visible` | `{visible}` | `null` |
+
+### 16.6 文件上传
+
+| 方法 | 路径 | 请求 | 返回 |
+|---|---|---|---|
+| POST | `/api/merchant/files/upload` | multipart `file` | `string`（URL） |
+
+- 商品图：jpg/jpeg/png/gif/webp，≤5MB，`products/` 前缀。
+- 限流 20 次/分钟/用户。
+
+### 16.7 商家消息
+
+| 方法 | 路径 | 请求/参数 | 返回 |
+|---|---|---|---|
+| GET | `/api/merchant/chat/conversations` | `page=1, size=30` | `PageResponse<ConversationView>` |
+| GET | `/api/merchant/chat/conversations/{id}` | — | `ConversationView` |
+| GET | `/api/merchant/chat/conversations/{id}/messages` | `beforeId?, afterId?, size=30` | `ChatMessagePage` |
+| POST | `/api/merchant/chat/conversations/{id}/messages` | `SendChatMessageRequest` | `ChatMessageView` |
+| POST | `/api/merchant/chat/conversations/{id}/read` | `{lastMessageId}` | `number`（全局未读） |
+| GET | `/api/merchant/chat/unread-count` | — | `ChatUnreadView` |
+
+- **没有商家创建会话的接口**：商家只能回复，不能主动私信。
+- 发送限流 30 次/分钟/用户。
+
+---
+
+## 17. 管理后台
+
+> 以下接口均需要 `ADMIN` 角色。
+> 默认店铺 id=1「平台自营」由管理员管理；平台消息也由管理员接收。
+
+### 17.1 分类
+
+| 方法 | 路径 | 请求 | 返回 |
+|---|---|---|---|
+| GET | `/api/admin/categories` | — | `CategoryNode[]`（含停用） |
+| POST | `/api/admin/categories` | `CategoryRequest` | `Category` |
+| PUT | `/api/admin/categories/{id}` | `CategoryRequest` | `Category` |
+| DELETE | `/api/admin/categories/{id}` | — | `null` |
+
+- 有子分类或已绑定商品时不能删除。
+
+### 17.2 商户审核
+
+| 方法 | 路径 | 请求/参数 | 返回 |
+|---|---|---|---|
+| GET | `/api/admin/merchants` | `page=1, size=10, status?, keyword?` | `PageResponse<AdminMerchantView>` |
+| POST | `/api/admin/merchants/{id}/approve` | — | `null` |
+| POST | `/api/admin/merchants/{id}/reject` | `{reason}` | `null` |
+| POST | `/api/admin/merchants/{id}/disable` | — | `null` |
+| POST | `/api/admin/merchants/{id}/enable` | — | `null` |
+
+- 只有 `PENDING` 能通过/驳回；默认店铺不能审核/禁用/转让。
+- 审核/禁用后对应的授权缓存立即失效。
+
+### 17.3 商品与 SKU
+
+| 方法 | 路径 | 请求/参数 | 返回 |
+|---|---|---|---|
+| GET | `/api/admin/products` | `page=1, size=20, categoryId?, keyword?, merchantId?` | `PageResponse<Product>` |
+| POST | `/api/admin/products` | `ProductRequest` + query `merchantId=1` | `Product` |
+| PUT | `/api/admin/products/{id}` | `ProductRequest` | `Product` |
+| DELETE | `/api/admin/products/{id}` | — | `null` |
+| GET | `/api/admin/products/{id}/skus` | — | `ProductSkuView` |
+| PUT | `/api/admin/products/{id}/skus` | `SkuSaveRequest` | `ProductSkuView` |
+| PUT | `/api/admin/products/{productId}/skus/{skuId}/stock` | `AdjustSkuStockRequest` | `ProductSku` |
+| POST | `/api/admin/products/rebuild-bloom` | — | `number`（重建数量） |
+
+- 管理端可查看/管理全部店铺商品，并可按 `merchantId` 筛选。
+- 新建商品默认归属平台自营（merchantId=1），也可显式指定。
+- `rebuild-bloom` 用于修复手工 SQL/导入脚本写入、未进入布隆过滤器的商品。
+
+### 17.4 订单
+
+| 方法 | 路径 | 请求/参数 | 返回 |
+|---|---|---|---|
+| GET | `/api/admin/orders` | `page=1, size=10, status?, merchantId?` | `PageResponse<Order>` |
+| GET | `/api/admin/orders/{id}` | — | `OrderView` |
+| POST | `/api/admin/orders/{id}/ship` | `{trackingNo}` | `OrderView` |
+| POST | `/api/admin/orders/{id}/refund/approve` | — | `OrderView` |
+| POST | `/api/admin/orders/{id}/refund/reject` | — | `OrderView` |
+| POST | `/api/admin/orders/cancel-expired` | `minutes=30` | `number`（取消数量） |
+
+- 平台保留全平台订单的查看、发货、退款审核权限。
+- `cancel-expired` 当前是手动触发；传 `minutes` 表示取消创建超过该分钟数且未支付的订单。
+
+### 17.5 优惠券
+
+| 方法 | 路径 | 请求/参数 | 返回 |
+|---|---|---|---|
+| GET | `/api/admin/coupons` | `page=1, size=10, enabled?, keyword?, merchantId?` | `PageResponse<Coupon>` |
+| POST | `/api/admin/coupons` | `CouponRequest` | `Coupon` |
+| PUT | `/api/admin/coupons/{id}` | `CouponRequest` | `Coupon` |
+
+- 可建平台券（`merchantId=null`）或指定店铺券。
+- 不提供删除；停用后不再可领，已领的券仍可用。
+
+### 17.6 评价
+
+| 方法 | 路径 | 请求/参数 | 返回 |
+|---|---|---|---|
+| GET | `/api/admin/reviews` | `page=1, size=10, visible?, keyword?, merchantId?` | `PageResponse<AdminReviewView>` |
+| PUT | `/api/admin/reviews/{id}/visible` | `{visible}` | `null` |
+
+### 17.7 文件上传
+
+| 方法 | 路径 | 请求 | 返回 |
+|---|---|---|---|
+| POST | `/api/admin/files/upload` | multipart `file` | `string`（URL） |
+
+- 商品图，规则同商家上传。
+
+### 17.8 平台消息（平台自营店）
+
+| 方法 | 路径 | 请求/参数 | 返回 |
+|---|---|---|---|
+| GET | `/api/admin/chat/conversations` | `page=1, size=30` | `PageResponse<ConversationView>` |
+| GET | `/api/admin/chat/conversations/{id}` | — | `ConversationView` |
+| GET | `/api/admin/chat/conversations/{id}/messages` | `beforeId?, afterId?, size=30` | `ChatMessagePage` |
+| POST | `/api/admin/chat/conversations/{id}/messages` | `SendChatMessageRequest` | `ChatMessageView` |
+| POST | `/api/admin/chat/conversations/{id}/read` | `{lastMessageId}` | `number`（全局未读） |
+| GET | `/api/admin/chat/unread-count` | — | `ChatUnreadView` |
+
+- 只暴露 `merchant_id=1` 的会话；普通商家会话一律 404。
+- 所有正常状态的管理员共同接收平台自营店消息；管理员 SSE 连接算平台自营店在线。
+- 管理员不能调用顾客侧的**会话/消息接口**（`/api/chat/conversations/**`）；
+  `unread-count`、`stream-ticket`、`stream`、`files/upload` 仍可正常使用。
+
+---
+
+## 18. 顾客聊天
+
+| 方法 | 路径 | 权限 | 请求/参数 | 返回 |
+|---|---|---|---|---|
+| POST | `/api/chat/conversations` | 顾客 | `StartConversationRequest` | `ConversationView` |
+| GET | `/api/chat/conversations` | 顾客 | `page=1, size=30` | `PageResponse<ConversationView>` |
+| GET | `/api/chat/conversations/{id}` | 顾客 | — | `ConversationView` |
+| GET | `/api/chat/conversations/{id}/messages` | 顾客 | `beforeId?, afterId?, size=30` | `ChatMessagePage` |
+| POST | `/api/chat/conversations/{id}/messages` | 顾客 | `SendChatMessageRequest` | `ChatMessageView` |
+| POST | `/api/chat/conversations/{id}/read` | 顾客 | `{lastMessageId}` | `number`（全局未读） |
+| GET | `/api/chat/unread-count` | 登录 | — | `ChatUnreadView` |
+| POST | `/api/chat/stream-ticket` | 登录 | — | `ChatStreamTicketView` |
+| GET | `/api/chat/stream` | 票据 | query `ticket` | `text/event-stream` |
+| POST | `/api/chat/files/upload` | 登录 | multipart `file` | `string`（URL） |
+
+规则与约束：
+
+- 每家店 × 每个顾客只有一条会话，重复发起返回同一条。
+- 新建会话可带 `productId` 或 `orderId`，自动发一张对应卡片；重复点「联系卖家」不会重复发。
+- 卡片归属校验：商品/订单必须属于该店铺；订单还必须属于该顾客。
+- 商家离线仍可发送（留言），界面显示离线状态。
+- 店铺停用后：可读历史，发送返回 400。
+- 图片必须来自本系统 `chat/` 前缀，外链 400；图片 ≤5MB。
+- 房间参与者以外的人访问会话一律 404。
+- 限流：创建会话 10 次/分钟、发消息 30 次/分钟、票据 20 次/分钟、图片上传 20 次/分钟。
+
+### 18.1 SSE 连接流程
+
+1. `POST /api/chat/stream-ticket`（带 JWT）拿到 `ticket`，有效期 60 秒，**一次性消费**。
+2. `GET /api/chat/stream?ticket=...` 建立 SSE。EventSource 不能带 Authorization，所以用票据。
+3. 前端断线后必须 `close()`、重新取票、指数退避重连；旧的 ticket 已失效。
+4. 服务端每 25 秒发一次注释心跳 `: ping`。
+
+连接建立后立即收到：
+
+```text
+event: connected
+data: {"userId":1,"customerUnread":0,"merchantUnread":0}
+```
+
+### 18.2 SSE 事件
+
+| event | data | 说明 |
+|---|---|---|
+| `connected` | `{userId, customerUnread, merchantUnread}` | 连接建立，带全局未读 |
+| `message` | `{scope, message, conversation, unread}` | 新消息；`scope` 为接收方身份，`unread` 为接收方全局未读 |
+| `read` | `{conversationId, readerType, lastReadMessageId}` | 对端已读回执 |
+| `presence` | `{merchantId, online}` | 店铺在线状态变化；管理员连接算平台自营店在线 |
+
+> SSE 连接表存在单实例内存中；多实例部署需要 Redis Pub/Sub 或粘性会话。
+
+---
+
+## 19. 限流汇总
+
+| 场景 | 接口 | 限制 | 维度 |
+|---|---|---|---|
+| 注册 | `POST /api/auth/register` | 5 次/60s | IP |
+| 登录 | `POST /api/auth/login` | 10 次/60s | IP |
+| 头像上传 | `POST /api/user/avatar` | 10 次/60s | 用户 |
+| 下单 | `POST /api/orders` | 10 次/60s | 用户 |
+| 提交评价 | `POST /api/reviews` | 5 次/60s | 用户 |
+| 领券 | `POST /api/coupons/{id}/claim` | 10 次/60s | 用户 |
+| 通用上传 | admin/merchant/merchant-apply 上传 | 20 次/60s | 用户 |
+| 创建会话 | `POST /api/chat/conversations` | 10 次/60s | 用户 |
+| 发聊天消息 | `POST .../messages` | 30 次/60s | 用户 |
+| SSE 票据 | `POST /api/chat/stream-ticket` | 20 次/60s | 用户 |
+| 聊天图片 | `POST /api/chat/files/upload` | 20 次/60s | 用户 |
+
+触发限流返回 `{"code":429,"message":"请求过于频繁，请稍后再试","data":null}`（HTTP 200）。
+
+---
+
+## 20. 上传约束
+
+| 用途 | 接口 | 大小 | 存储前缀 | 允许格式 |
+|---|---|---|---|---|
+| 商品图 | `/api/admin/files/upload`、`/api/merchant/files/upload` | ≤5MB | `products/` | jpg/jpeg/png/gif/webp |
+| 头像 | `/api/user/avatar` | ≤2MB | `avatars/` | 同上 |
+| 店铺 Logo | `/api/merchant-apply/logo`、商家资料上传 | ≤2MB | `merchants/` | 同上 |
+| 聊天图片 | `/api/chat/files/upload` | ≤5MB | `chat/` | 同上 |
+
+- 上传成功返回可直接访问的 MinIO 公网 URL。
+- 聊天消息只接受 `chat/` 前缀的图片 URL，拒绝外部链接。
+
+---
+
+## 21. 典型调用示例
+
+**登录**
+
+```bash
+curl -X POST http://localhost:8080/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"testuser","password":"123456"}'
+```
+
+**带 token 查询我的订单**
+
+```bash
+curl "http://localhost:8080/api/orders?page=1&size=10" \
+  -H "Authorization: Bearer <token>"
+```
+
+**从商品页发起会话**
+
+```bash
+curl -X POST http://localhost:8080/api/chat/conversations \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"merchantId":2,"productId":1677}'
+```
+
+**商家回复**
+
+```bash
+curl -X POST http://localhost:8080/api/merchant/chat/conversations/1/messages \
+  -H "Authorization: Bearer <merchant-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"TEXT","text":"在的"}'
+```
