@@ -986,6 +986,68 @@ SSE 推送、已读回执、在线状态（管理员连接即视为平台自营�
 **迁移（V19）**：建 `conversations` 与 `messages`；会话表带唯一键
 `uk_customer_merchant`、双方未读/已读指针；消息表索引 `(conversation_id, id)`。
 
+### 3.18 客服智能体「买小购」接入（M6，V20）
+
+**拓扑**：`浏览器 → Java（/api/agent/**）→ gRPC 8003 → rag_helper Agent 服务`。
+浏览器只跟 Java 说话；agent 只在内网、只允许 Java 调用。
+契约权威在 `rag_helper/proto/agent.proto`，本仓库的 `src/main/proto/agent.proto`
+是原样镜像，**不能单方面修改**。
+
+**Maven/protobuf**：原生 `grpc-java 1.68.2` + `protobuf 3.25.5`，用
+`protobuf-maven-plugin` 生成 `agent.v1.*`。**Boot 4 的依赖管理会把部分 grpc 模块
+拉到 1.83.1**，与 netty 1.68.2 混用会在运行时抛 `NoSuchMethodError`（表现为
+`INTERNAL Panic! This is a bug!`），所以子 POM 里用 `grpc-bom` 显式锁死整套版本。
+
+**传输**：`POST /api/agent/converse` 返回 `SseEmitter`（`text/event-stream`），
+前端用 `fetch` + `ReadableStream` 消费。这里不用 EventSource：
+每次 Converse 的事件流只属于本次调用，POST 又能直接带 Authorization，
+不需要聊天系统那套全局 SSE 连接 + 票据。
+
+**会话归属（双侧安全边界）**：
+- **agent 侧**：`chat_message` 每条消息带 `user_id` / `tenant_id`；`chat_session`
+  （`session_id` 唯一）记录会话 owner。Converse / Stop / GetHistory 先
+  `ensure_session_owner`，owner 冲突返回 PERMISSION_DENIED；ListSessions、GetHistory
+  都按 `x-user-id` 过滤；老消息没有 user_id 时，首次认领会补齐。
+- **Java 侧**：`agent_sessions(user_id, session_id)`（V20）继续记录归属。
+  新会话由 Java 生成 UUID 先落库，再调 Converse；Stop / History / 带 sessionId 的
+  Converse 先校验 `session_id + user_id`，越权统一 404。
+- `GET /api/agent/sessions` 调 agent 的 ListSessions（已按用户过滤），**再用 Java 归属表
+  过滤一次**，双保险；前端据此展示历史会话、支持跨设备续聊。
+- 历史里的执行流：`HistoryMessage` 增加 `repeated Trace trace = 5`（proto 加字段，
+  向后兼容），agent 从 `chat_message.trace` 读回，Java 映射成 `traces[]`，
+  前端折叠成一行、展开看全流程。
+
+**gRPC 客户端**（`AgentGrpcClient`）：
+- `NettyChannelBuilder` 明文内网，keepAlive 300s / timeout 20s / withoutCalls(false)
+- 每次调用新建 metadata：`authorization: Bearer <服务端密钥>` + `x-user-id`
+  （x-user-id 来自 JWT 的 `CurrentUser.id()`，不接受客户端传值）
+- Converse deadline 默认 240s；Stop/GetHistory 15s；**不开启自动重试**
+- 密钥来自 `.env` 的 `AGENT_GRPC_KEY`，缺失时应用照常启动、调用时返回明确错误
+
+**SSE 事件**：`start / trace / delta / usage / final / error / done`。
+`trace` 是统一执行流（`kind/agent/detail`），前端渲染成灰色小字；
+`final` 带 `answer/images/webOnly`；`usage` 可能出现在 final 之后，
+所以**收到 final 后继续读到 EOF**，最后补 `done{reason}` 再 complete。
+每 20 秒发一次 SSE comment 心跳，SseEmitter 发送加锁。
+
+**停止与取消**：`CancellableContext.cancel` 只能断 HTTP/2 流，Python worker
+阻塞在队列上不会自动停；客户端断开 / 超时 / 用户点停止时，必须用
+`run_id` 调 gRPC `Stop`（best-effort，可能返回 false）。
+
+**线程池**：每条流独占线程（core 8 / max 32 / SynchronousQueue / AbortPolicy），
+满了直接返回 429「客服繁忙」；Stop 与心跳放独立小池，避免被长流拖住。
+
+**异步分派**：SseEmitter 完成时会走 ASYNC dispatch，SecurityConfig 必须放行
+`DispatcherType.ASYNC/ERROR`，否则原始请求已鉴权、收尾时却被 403
+（报错 `response is already committed`）。
+
+**错误映射**：`UNAVAILABLE → AGENT_UNAVAILABLE`、`DEADLINE_EXCEEDED → AGENT_TIMEOUT`、
+`UNAUTHENTICATED/PERMISSION_DENIED → AGENT_AUTH_FAILED`、
+`RESOURCE_EXHAUSTED → AGENT_BUSY`、其它 → `AGENT_ERROR`。
+Python 的 ErrorEvent 只给用户通用文案，原始 message 记日志。
+
+**迁移（V20）**：建 `agent_sessions`；唯一键 `session_id`，索引 `user_id`。
+
 ---
 
 ## 4. 前端（`frontend/`）
@@ -1012,6 +1074,7 @@ frontend/
 │   │   ├── shop.ts         # 公开店铺信息
 │   │   ├── merchant.ts     # 商家后台：资料 / 商品 / 订单 / 店铺券 / 评价
 │   │   ├── chat.ts         # 聊天：会话 / 消息 / SSE 票据 / 图片上传
+│   │   ├── agent.ts        # 买小购：POST SSE 流 / 停止 / 历史
 │   │   └── admin.ts        # 管理端：分类 / 商户 / 商品 / SKU / 上传 / 订单 / 券 / 评价
 │   ├── stores/user.ts      # 登录态（localStorage 的响应式包装）
 │   ├── stores/chat.ts      # 未读角标 + EventSource 生命周期（登录连接、登出断开）
@@ -1304,7 +1367,8 @@ frontend/
 **状态与实时**：`stores/chat.ts` 负责登录后取票据建 EventSource、断线指数退避重连、
 维护未读角标、分发事件。页面通过 `onEvent` 订阅新消息 / 已读 / 在线状态；
 消息按 id 去重，当前会话收到对端消息立即调用已读接口。
-`App.vue` watch 登录态调用 `connect()` / `disconnect()`，管理员不连接。
+`App.vue` watch 登录态调用 `connect()` / `disconnect()`；管理员也连接，
+用于接收平台自营店消息。
 
 **已读回执**：自己的气泡下方显示「已读 / 未读」，由 `peerLastReadMessageId` 与 SSE
 `read` 事件驱动。
@@ -1313,7 +1377,7 @@ frontend/
 
 - 商品详情店铺卡片「联系卖家」（带 productId，新会话自动发商品卡）
 - 店铺主页「联系商家」
-- 订单详情状态区「联系卖家」（带 orderId，自动发订单卡；merchantId=1 不显示）
+- 订单详情状态区「联系卖家」（带 orderId，自动发订单卡；管理员浏览时不显示）
 - 顶栏「消息」+ 未读角标、用户抽屉「我的消息」
 - 商家后台菜单「消息」+ 未读角标
 - 管理后台菜单「平台消息」（`/admin/messages`，同一套 `ChatCenter`，`admin` 模式走
@@ -1330,11 +1394,20 @@ frontend/
 - 轮询 30 秒（后台标签页跳过）+ 加购、购物车增删改、领券后立即同步；
   三项都用 `el-badge`，值为 0 时 `hidden`，不显示红点。
 
-**客服智能体占位**（M6 前端先行）：顾客、商家、管理后台三个消息中心的会话列表顶部
-固定一张「买小购」卡片，所有登录用户都能看到；点击进入固定路由
+**买小购客服**（M6）：顾客、商家、管理后台三个消息中心的会话列表顶部固定一张
+「买小购」卡片，所有登录用户都能看到；点击进入
 `/user/messages/agent`、`/merchant/messages/agent` 或 `/admin/messages/agent`。
-`AgentChatPanel.vue` 只做前端占位：按角色给欢迎语和建议问题，输入框禁用，
-**不调用任何后端接口**。M6 接入时把它替换为真实会话与 SSE 数据即可。
+
+- `api/agent.ts` 用 `fetch` POST `/api/agent/converse`，按 SSE 帧解析
+  `start/trace/delta/usage/final/error/done`；不走 axios（15s 超时）也不走 EventSource。
+- `AgentChatPanel.vue` 是真实对话：sessionId 按用户存 localStorage，打开时先拉
+  `/api/agent/sessions`（跨设备历史会话），优先恢复最后使用的会话，否则取最近一条；
+  发送后展示执行流、整段答案与图片、usage；支持「历史」切换、「停止」「新会话」。
+- **执行流默认折叠成一行**：进行中显示转圈图标 + 最新一步；结束后显示
+  「执行过程 · N 步」；点击展开全部步骤（最新一步高亮）。历史消息同样折叠，
+  展开后恢复该轮完整执行流（`HistoryMessage.trace` 透传）。
+- 当前流未结束时禁用发送；中文输入法用 `isComposing` 防误发送。
+- 客服服务不可用时显示 SSE `error` 事件里的通用文案，不自动重试。
 
 ---
 
@@ -1371,7 +1444,7 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 **测试跑在独立的库和 Redis database 上**（`its_mygo_test` / db 1），跟开发环境彻底分开 ——
 为什么非分不可、怎么配的，见 HANDOFF §5.20。
 
-覆盖重点（当前 **180** 条；CI 上跳过 3 条依赖 MinIO 的，跑 177）：
+覆盖重点（当前 **189** 条；CI 上跳过 3 条依赖 MinIO 的，跑 186）：
 
 | 测试类 | 覆盖 |
 |---|---|
@@ -1399,6 +1472,8 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 | **`OrderSplitTest`** | 跨店结算生成 N 个子订单且金额正确；商家只能看/操作本店订单；平台券重复选择被拒；店铺券不能跨店；某店库存失败时 Redis 预扣回补 |
 | **`MerchantReviewTest`** | 商家只看本店评价、只能隐藏本店评价；平台可按商户筛选 |
 | **`ChatControllerTest`** | 会话找或建幂等、商品卡片只发一次；自己的店被拒；发送 / 未读 / 已读 / 已读回执；文本、长度、外链图片、未知类型校验；商品/订单卡片归属与快照冻结；跨用户/跨商家 404；停用店铺禁止发送但保留历史；`beforeId` 翻页与 `afterId` 补齐；SSE 票据过期/一次性/管理员可连接；**平台自营店由管理员接收、回复并标记已读，管理员不能访问普通商家会话** |
+| **`AgentControllerTest`** | Converse 返回 start/trace/final/done SSE 并落 `agent_sessions`；A/B 跨用户会话在 converse/stop/history 全部 404；会话列表按 Java 归属表二次过滤；Stop 透传 runId；未配置密钥返回明确错误；空消息/空 sessionId 400 |
+| **`AgentEventMapperTest`** | start/trace/delta/final（含图片）/usage 映射；Python ErrorEvent 映射为通用文案；done/error 辅助方法；空 Event 返回 null |
 | **`SkuCartTest`** | 同商品两个规格各占一行、重复加购只累加；小计按**那一款**的价（不是商品最低价）；跨商品的 skuId 被当「不存在」挡住；SKU 被删后那行标成不可购买；停售款加不进去 |
 | **`SkuOrderTest`** | 订单项带 `specText` 快照且单价取那一款；**规格改名后历史订单不变**；**取消只回补买过的那一款**、另一款纹丝不动；立即购买只扣选中的 SKU；买停售款被拒 |
 | **`SkuStockConcurrencyTest`** | 10 人抢 5 件的单一 SKU（恰好 5 成功、Redis 与库都对得上）；**同商品两款互不串扰**（黑 3 件售罄不影响白 10 件） |

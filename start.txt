@@ -1,7 +1,7 @@
 # 一次买够 · 本地启动清单
 #
 # 说明：本文件是「按顺序复制执行」的命令清单，不是一键脚本。
-# 后端和前端需要各开一个终端（都会一直占着终端）。
+# 后端、前端、客服智能体需要各开一个终端（都会一直占着终端）。
 # 前置：Docker Desktop 已启动。
 
 # ─────────────────────────────────────────────
@@ -48,6 +48,22 @@ npm run dev
 
 
 # ─────────────────────────────────────────────
+# 2.5 客服智能体「买小购」（终端 3，占用 8003）
+# ─────────────────────────────────────────────
+# 让消息页的「买小购」可对话。依赖 Mongo / Milvus / Neo4j 等容器，
+# 这些容器不在本项目 Compose 里，需要时先确认它们都在跑。
+cd /d/PycharmProjects/rag_helper
+.venv/Scripts/python.exe -m app.agent.api.grpc_service
+
+# 本项目 .env 必须有（密钥取自 rag_helper/admin-key.txt 的第一行，64 位）：
+# AGENT_GRPC_TARGET=127.0.0.1:8003
+# AGENT_GRPC_KEY=<64 位密钥>
+# AGENT_GRPC_DEADLINE_SECONDS=240
+#
+# 改完 .env 要重启后端；密钥绝不能提交进 Git。
+
+
+# ─────────────────────────────────────────────
 # 3. 打开页面
 # ─────────────────────────────────────────────
 # 商城：      http://localhost:5173
@@ -90,3 +106,7 @@ npm run dev
 #
 # ⑤ 后端测试（用独立库 its_mygo_test 和 Redis db 1，不影响开发数据）
 #    ./mvnw test
+#
+# ⑥ 客服对话报「客服智能体暂时不可用」
+#    → 第 2.5 步的 gRPC 服务没起，或 .env 的 AGENT_GRPC_KEY 不对（应为 admin-key.txt 第一行）
+#    → netstat -ano | grep ":8003" | grep LISTENING

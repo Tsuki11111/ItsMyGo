@@ -36,10 +36,17 @@
 平台券 + 店铺券、评价管理。**在线聊天与私信留言已完成（2026-10-19）**：
 顾客 ↔ 商家按店会话、SSE 实时推送、未读角标、已读回执、在线状态、文本 / 图片 /
 商品卡片 / 订单卡片，支持离线留言；**平台自营店的会话由平台管理员在
-`/admin/messages` 统一接收和回复**。后端 **自动化测试 180 条**。
+`/admin/messages` 统一接收和回复**。**M6 客服智能体「买小购」已接入（2026-10-20）**：
+消息页固定卡片可真实对话，Java 经 gRPC 调 rag_helper，SSE 回传答案、执行流、图片与用量；
+支持停止、历史恢复、会话归属校验；**多用户会话已双向隔离**（agent 按 user_id 过滤，
+Java 再按 `agent_sessions` 二次校验），消息页可切换历史会话、跨设备续聊。
+后端 **自动化测试 189 条**。
 
-**交接前先看 `git status`** —— 聊天系统与之前的 Logo 上传、领券中心入口调整
-可能还有未提交改动（见 §6 最新一条），提交后再开始新一轮工作。
+**下一步：M7 查订单环回** —— 把 Java 的真实订单查询接口暴露给 agent（替换它的 mock）。
+M6 联调需要先启动 rag_helper 的 gRPC 服务（8003），并在 `.env` 配好 `AGENT_GRPC_KEY`；
+密钥只放后端，不能入库。
+
+**交接前先看 `git status`** —— 本轮改动可能尚未提交，见 §6 最新一条。
 
 前端技术栈：Vite 8 + Vue 3.5 + TypeScript 5.9 + Element Plus 2.14 + Pinia + Vue Router。
 配色定稿为「浅粉做面 + 深粉做点」，见 [docs/color-preview.html](docs/color-preview.html)；
@@ -133,7 +140,7 @@ src/main/java/com/tsuk1/itsmygo/
 ### 3.3 数据库
 
 - 开发库 `its_mygo`、测试库 `its_mygo_test`（都在共用的 `mysql` 容器里，为什么要分开见 §5.20）
-- 迁移脚本在 `src/main/resources/db/migration/`，**当前 schema 版本 v19**
+- 迁移脚本在 `src/main/resources/db/migration/`，**当前 schema 版本 v20**
 - 已建表：`merchants`（V16，默认商户 id=1 平台自营）、`users`（V1，V3 加 `role`，
   V12 加 `avatar`，**V16 加 `merchant_id`**）、`addresses`（V2）、`categories`（V4）、
   `products`（V5，V9 加 `has_specs`，**V17 加 `merchant_id`**）、
@@ -143,7 +150,8 @@ src/main/java/com/tsuk1/itsmygo/
   `product_specs` / `product_spec_values` / `product_skus`（V9）、
   `user_favorites` / `user_footprints`（V13）、`reviews`（V14，**V17 加 `merchant_id`**）、
   `coupons` / `user_coupons`（V15，**V18 加可空 `merchant_id`**）、
-  `conversations` / `messages`（**V19，在线聊天**）
+  `conversations` / `messages`（**V19，在线聊天**）、
+  `agent_sessions`（**V20，买小购会话归属**）
   （另有 Flyway 自建的 `flyway_schema_history`，是迁移记录表，**不要动**）
 - **V9 给存量商品回填了默认 SKU**（无规格的那条），老数据不用手工处理；
   但**新直插 `products` 的地方（手工 SQL、导入脚本）必须自己补 SKU** —— 见 §5.21
@@ -865,9 +873,106 @@ Redis Pub/Sub 或粘性会话。本期明确单机，不要顺手加 MQ。
 另外 Windows Git Bash 下 curl 直接传中文会变 GBK（§5.17），
 接口联调优先用 ASCII 或由前端发送。
 
+### 5.26 ★ 客服智能体接入的六个坑（2026-10-20 踩到 / 补齐）
+
+**① Boot 4 的依赖管理会拆散 grpc 版本。** 只给 `grpc-netty-shaded` 写 1.68.2，
+Boot 仍会把 `grpc-core/api/util` 管到 1.83.1，运行时报
+`INTERNAL Panic! This is a bug!`，日志里是
+`NoSuchMethodError: KeepAliveManager$ClientKeepAlivePinger.<init>`。
+解决：子 POM 里 `<dependencyManagement>` 导入 `grpc-bom:${grpc.version}` 锁死整套版本。
+protobuf 也保持 3.25.5 与 protoc 一致。
+
+**② SseEmitter 完成时会走 ASYNC dispatch。** 原始请求已鉴权，但异步分派没有 JWT，
+`/api/agent/converse` 会报 403，且因为响应已提交变成
+`Unable to handle the Spring Security Exception because the response is already committed`。
+SecurityConfig 必须放行 `DispatcherType.ASYNC/ERROR`。
+
+**③ 取消 gRPC Context 停不掉 Python worker。** Python 的 Converse 阻塞在队列上，
+不检查 context；用户停止/断线/超时必须用 `run_id` 调 `Stop`（best-effort）。
+`CancellableContext` 只用于尽快断开 HTTP/2 流。
+
+**④ rag_helper/admin-key.txt 不是只有密钥。** 第一行是 64 位密钥，后面是使用说明；
+把整个文件 `tr -d '\n'` 塞进 `.env` 会导致 gRPC metadata
+`Illegal header value`。只取第一行，密钥长度必须是 64。
+
+**⑤ 多用户隔离必须双侧做。** agent 的 `chat_message` 每条带 `user_id`，
+`chat_session`（session_id 唯一）记录 owner；ListSessions/GetHistory 按 `x-user-id`
+过滤，Converse/Stop/GetHistory 先校验归属。Java 侧 `agent_sessions` 再挡一层，
+`/api/agent/sessions` 用两边结果取交集。只在 Java 挡、或只在 agent 挡都不够：
+前者挡不住密钥泄露后的直接 gRPC 调用，后者挡不住旧数据的会话 id 猜测。
+密钥仍然只能进 `.env`。
+
+**⑥ final 之后还可能来 usage。** 收到 final 不能立刻 break，要继续读到 EOF，
+再发 `done{reason}`；否则前端拿不到用量，且 Stop 逻辑可能误判本轮未结束。
+
 ---
 
 ## 6. 历史记录
+
+### 2026-10-20 · 执行流折叠展示 + 历史执行流
+
+**范围**：买小购的执行过程从“全部灰字铺开”改为默认一行、点击展开；
+历史会话也能展开该轮的完整执行流。
+
+**前端**：执行中显示转圈图标 + 最新一步（实时更新）；结束后显示
+「执行过程 · N 步」；点击展开全部步骤，最新一步粉色高亮。
+每条 assistant 消息独立记录展开状态；历史消息同样折叠。
+
+**契约**：`proto/agent.proto` 的 `HistoryMessage` 增加 `repeated Trace trace = 5`
+（加字段，向后兼容）；agent 的 GetHistory 从 `chat_message.trace` 读回，
+Java 映射为 `traces[]`。重新生成 Python stub 时要修
+`agent_pb2_grpc.py` 的导入为 `from app.agent.api.proto_gen import agent_pb2`，
+否则 `ModuleNotFoundError: agent_pb2`。
+
+**验证**：浏览器实测流式中“转圈 + 最新步骤”、结束后“执行过程 · 14 步”、
+点击展开全部步骤；刷新后历史消息折叠行存在且可展开。Java 189 条测试全绿，
+前端 type-check/build 通过。
+
+### 2026-10-20 · 多用户客服会话治理（双仓库）
+
+**范围**：让买小购的会话真正按用户隔离，并支持跨设备的历史会话列表。
+
+**rag_helper**：
+- `chat_message` 增写 `user_id` / `tenant_id`；新增 `chat_session` 集合
+  （`session_id` 唯一，记录 owner、last_active_at）。
+- `ensure_session_owner`：Converse / Stop / GetHistory 统一校验；
+  owner 冲突返回 PERMISSION_DENIED；老消息缺 user_id 时首次认领补齐。
+- `get_recent_messages` / `list_sessions` 支持 `user_id` 过滤；
+  gRPC ListSessions/GetHistory 按 metadata 的 `x-user-id` 过滤。
+
+**ItsMyGo**：
+- `AgentGateway.sessions` + `GET /api/agent/sessions`；
+  agent 结果再按 `agent_sessions` 过滤一次。
+- 前端消息页加「历史」下拉，展示标题/条数，可切换会话；
+  打开面板时优先恢复 localStorage 的会话，否则取最近一条；不再依赖单机 localStorage。
+
+**测试**：rag_helper 历史模块自测新增“多用户会话归属”；ItsMyGo 新增
+`sessionsOnlyReturnOwnedOnes`。ItsMyGo 全量 189 条全绿，前端 type-check/build 通过。
+
+**联调**：merchantA 两个会话在历史下拉中可见并可切换；customer 账号的会话列表为空，
+看不到 merchantA 的会话；customer 发首条消息后列表出现自己的会话。
+
+### 2026-10-20 · M6 接入客服智能体「买小购」
+
+**范围**：消息页的「买小购」从占位卡片变成真实客服：产品问答、执行流可见、
+图片、用量、停止、历史恢复；Java 经 gRPC 调 rag_helper 8003，SSE 回浏览器。
+
+**后端**：新增 `src/main/proto/agent.proto`（镜像契约）、grpc/protobuf 依赖与生成插件；
+`AgentGrpcClient`、`AgentChatService`、`AgentController`（`/api/agent/converse|stop|history`）、
+`AgentEventMapper`、`AgentSseSink`、线程池；V20 `agent_sessions` 做会话归属；
+新会话由 Java 先生成 UUID 落库；SSE over POST；停止用 runId 调 Stop。
+
+**前端**：`api/agent.ts` 用 fetch + ReadableStream 解析 SSE；
+`AgentChatPanel.vue` 支持流式答案、灰色执行流、图片、usage、停止、新会话、
+按用户 localStorage 恢复历史；卡片文案改为「商品咨询 · 执行过程可见」。
+
+**测试 180 → 188**：新增 `AgentControllerTest` 5 条、`AgentEventMapperTest` 3 条。
+全量 188 条全绿；前端 type-check/build 通过。
+**联调**：启动 rag_helper gRPC 8003，`.env` 配 64 位 `AGENT_GRPC_KEY`；
+浏览器实测：流式答案 + trace + usage、停止、刷新恢复历史、跨用户 404、
+停掉 agent 显示 `AGENT_UNAVAILABLE`、恢复后正常。
+
+**边界**：M6 不接真实订单（agent 的 order-query 仍是 mock），M7 再做 Java 订单查询接口。
 
 ### 2026-10-20 · 客服智能体更名为「买小购」
 
@@ -876,7 +981,7 @@ Redis Pub/Sub 或粘性会话。本期明确单机，不要顺手加 MQ。
 
 ### 2026-10-20 · 后端 API 接口文档
 
-**范围**：新增 `docs/api.md`，覆盖 `controller/` 下全部接口（119 个），
+**范围**：新增 `docs/api.md`，覆盖 `controller/` 下全部接口（当时 119 个，M6 后 122 个），
 包含统一响应、认证与角色、分页、枚举、公共 DTO、各域接口清单、聊天 SSE 事件、
 限流汇总与上传约束。
 

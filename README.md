@@ -83,7 +83,8 @@ Spring Boot 单体 + Vue 3 前后端分离，经 **gRPC 接入 RAG 客服智能�
 | **M5.5 用户中心增强** | ✅ **完成（2026-10-18）** —— 收藏、浏览足迹、满减优惠券（领券中心 / 下单抵扣 / 取消退款退券）、商品评价（管理端可隐藏）；结算页支持选券抵扣 |
 | **M5.6 多商户** | ✅ **完成（2026-10-19）** —— 商家入驻/审核、店铺主页、商品归属、商家商品/订单/店铺券/评价后台、跨店拆单分别支付、平台监管；不做佣金/分账/结算 |
 | **M5.7 在线聊天** | ✅ **完成（2026-10-19）** —— 顾客 ↔ 商家按店会话、SSE 实时消息、未读角标、已读回执、在线状态、文本/图片/商品卡/订单卡、离线留言 |
-| M6 客服接入 → M7 查订单环回 | ⬜ 未开始（消息页已有「买小购」前端占位卡片） |
+| **M6 客服接入** | ✅ **完成（2026-10-20）** —— 消息页「买小购」真实客服：gRPC 调 rag_helper、SSE 流式答案与执行流、图片、用量、停止、历史恢复、会话归属校验 |
+| M7 查订单环回 | ⬜ 未开始（agent 的 order-query 仍是 mock） |
 
 **交易闭环已通**：浏览商品 → 加购 → 下单（扣库存）→ 支付 → 发货 → 收货，
 以及取消、超时自动取消、退款（申请 → 审核 → 回滚库存）。
@@ -94,11 +95,18 @@ Spring Boot 单体 + Vue 3 前后端分离，经 **gRPC 接入 RAG 客服智能�
 支持文本、图片、商品卡片、订单卡片，SSE 实时推送与未读角标、已读回执、商家在线状态，
 商家离线时可留言；平台自营店的会话由管理员在 `/admin/messages` 统一回复。
 顶栏「消息 / 领券中心 / 购物车」显示动态数量角标，为 0 时自动隐藏。
+**客服智能体「买小购」**：消息页固定卡片进入对话，Java 经 gRPC 调外部 agent 服务，
+流式返回答案、执行流、配图与用量；执行流默认折叠成一行（转圈 + 当前步骤），
+点击展开完整过程，历史会话同样可展开；支持停止与历史恢复，会话按用户隔离，
+可从「历史」切换跨设备保存的会话。
 
 ## 本地起来看看
 
 两个终端：后端 `./mvnw spring-boot:run`，前端 `cd frontend && npm run dev`，
 然后开 http://localhost:5173（演示账号 `testuser` / `123456`）。
+客服对话还需要启动外部 agent 服务（第三个终端）：
+`cd D:/PycharmProjects/rag_helper && .venv/Scripts/python.exe -m app.agent.api.grpc_service`；
+并把 `rag_helper/admin-key.txt` **第一行**的密钥填进本项目 `.env` 的 `AGENT_GRPC_KEY`。
 完整启动清单（含中间件、管理员提权、常见问题）见 [start.txt](start.txt)。
 **商家**：注册普通账号后访问 `/merchant/apply` 提交入驻，平台管理员在 `/admin/merchants` 审核。
 管理端在登录后顶栏用户面板的「管理后台」或直接访问 `/admin`；
@@ -106,7 +114,7 @@ Spring Boot 单体 + Vue 3 前后端分离，经 **gRPC 接入 RAG 客服智能�
 **提权后重新登录**。种子数据见 [sql/seed-data.sql](sql/seed-data.sql)，详见 [HANDOFF §3.4](HANDOFF.md)。
 
 **CI**：每次 push 自动在干净环境跑测试（[`.github/workflows/test.yml`](.github/workflows/test.yml)）。
-本地 180 条全绿，CI 跳过 3 条依赖 MinIO 的、跑 177 条（MinIO 已停止公开分发镜像，详见 [HANDOFF §5.12](HANDOFF.md)）。
+本地 189 条全绿，CI 跳过 3 条依赖 MinIO 的、跑 186 条（MinIO 已停止公开分发镜像，详见 [HANDOFF §5.12](HANDOFF.md)）。
 **测试跑在独立的库** `its_mygo_test`（Redis 用 db 1），和开发数据互不影响 —— 见 [HANDOFF §5.20](HANDOFF.md)。
 
 各里程碑的可验收产物见 [docs/decisions-ecommerce.md](docs/decisions-ecommerce.md) §4。

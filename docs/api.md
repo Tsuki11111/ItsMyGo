@@ -871,7 +871,114 @@ data: {"userId":1,"customerUnread":0,"merchantUnread":0}
 
 ---
 
-## 19. 限流汇总
+## 19. 客服智能体「买小购」
+
+> Java 经 gRPC 调用 rag_helper 的 Agent 服务（内网 8003）；浏览器只跟 Java 说话。
+> 客服对话使用 **POST + SSE 流式响应**，不是 EventSource ——
+> 每次对话的事件流只属于这次调用，POST 可以直接带 Authorization。
+
+### 19.1 接口
+
+| 方法 | 路径 | 权限 | 请求/参数 | 返回 |
+|---|---|---|---|---|
+| POST | `/api/agent/converse` | 登录 | `{sessionId?, message}` | `text/event-stream` |
+| POST | `/api/agent/stop` | 登录 | `{sessionId, runId}` | `boolean` |
+| GET | `/api/agent/history` | 登录 | `sessionId, limit=20` | `AgentHistoryView` |
+| GET | `/api/agent/sessions` | 登录 | `limit=20` | `AgentSessionView[]` |
+
+- `sessionId` 为空表示新会话；Java 生成 UUID 并记录归属，在 `start` 事件里返回。
+- `message` 去空白后非空、≤2000 字。
+- 会话归属在 Java 侧校验：Stop / History / 带 sessionId 的 Converse，
+  只要 `session_id + user_id` 不匹配就返回 404。
+- `/api/agent/sessions` 返回当前用户的历史会话（跨设备可用），按最近活跃倒序；
+  agent 与 Java 两层都按用户过滤，**不会返回别人的会话**。只有产生过消息的会话才会出现。
+- 同一会话正在回复时再次发起对话，返回 429。
+- 限流：Conversation 10 次/分钟/用户。
+- Agent 服务不可用时，应用照常运行，对话流里返回 `AGENT_UNAVAILABLE`。
+
+**AgentSessionView**
+
+```json
+{
+  "sessionId": "64fef1ae81ef4f8fa91b6a4807cf885e",
+  "title": "联想拯救者r9000p进水了怎么办？",
+  "count": 4,
+  "lastAt": "2026-10-20T12:47:05+00:00"
+}
+```
+
+- `title`：该会话第一条 user 消息（超 30 字截断）。
+- `lastAt`：最近活跃时间（agent 侧 ObjectId 时间，UTC）。
+
+**AgentHistoryView**
+
+```json
+{
+  "messages": [
+    {
+      "role": "user",
+      "text": "打印机怎么装墨盒？",
+      "images": [],
+      "ts": "2026-10-20 20:23:29",
+      "traces": []
+    },
+    {
+      "role": "assistant",
+      "text": "……",
+      "images": [{ "url": "https://...", "caption": "图注" }],
+      "ts": "2026-10-20 20:23:32",
+      "traces": [
+        { "kind": "delegate", "agent": "product-kb", "detail": "检索产品手册" },
+        { "kind": "reply", "agent": "", "detail": "生成回复（N 字符）" }
+      ]
+    }
+  ]
+}
+```
+
+- `traces` 是该轮执行流；老消息没有 trace，返回空数组。
+- 前端历史消息默认折叠成一行「执行过程 · N 步」，点击展开全部步骤。
+
+### 19.2 Converse SSE 事件
+
+`POST /api/agent/converse` 的响应为 `text/event-stream`，帧格式与普通 SSE 一致：
+
+```text
+event: trace
+data: {"kind":"delegate","agent":"product-kb","detail":"检索产品手册"}
+```
+
+| event | data |
+|---|---|
+| `start` | `{sessionId, runId}` |
+| `trace` | `{kind, agent, detail}`（`kind`：delegate/tool/result/reply/node） |
+| `delta` | `{delta}`（一期通常不出现，前端仍兼容） |
+| `usage` | `{calls, failed, totalTokens, cost, elapsedMs, unpricedCalls}` |
+| `final` | `{answer, images:[{url,caption}], webOnly}` |
+| `error` | `{code, message, retryable}` |
+| `done` | `{reason: "final" / "stopped" / "error"}` |
+
+错误码：
+
+| code | 含义 | 可重试 |
+|---|---|---|
+| `AGENT_UNAVAILABLE` | 客服服务不可用 | 是 |
+| `AGENT_TIMEOUT` | 响应超时 | 是 |
+| `AGENT_AUTH_FAILED` | 客服服务鉴权失败 | 否 |
+| `AGENT_BUSY` | 客服繁忙 | 是 |
+| `AGENT_ERROR` | 其它客服错误 | 是 |
+
+说明：
+
+- 服务端每 20 秒发一次 SSE comment 心跳（`: ping`）。
+- 收到 `final` 后仍可能继续收到 `usage`，最后以 `done` 结束。
+- 用户点停止 / 客户端断开时，Java 会用 `runId` 调 gRPC `Stop`。
+- 该流**不自动重连、不自动重试**；失败由用户重新发送。
+- 反代（Nginx）需 `proxy_buffering off; proxy_read_timeout 300s;`。
+
+---
+
+## 20. 限流汇总
 
 | 场景 | 接口 | 限制 | 维度 |
 |---|---|---|---|
@@ -886,12 +993,13 @@ data: {"userId":1,"customerUnread":0,"merchantUnread":0}
 | 发聊天消息 | `POST .../messages` | 30 次/60s | 用户 |
 | SSE 票据 | `POST /api/chat/stream-ticket` | 20 次/60s | 用户 |
 | 聊天图片 | `POST /api/chat/files/upload` | 20 次/60s | 用户 |
+| 客服对话 | `POST /api/agent/converse` | 10 次/60s | 用户 |
 
 触发限流返回 `{"code":429,"message":"请求过于频繁，请稍后再试","data":null}`（HTTP 200）。
 
 ---
 
-## 20. 上传约束
+## 21. 上传约束
 
 | 用途 | 接口 | 大小 | 存储前缀 | 允许格式 |
 |---|---|---|---|---|
@@ -905,7 +1013,7 @@ data: {"userId":1,"customerUnread":0,"merchantUnread":0}
 
 ---
 
-## 21. 典型调用示例
+## 22. 典型调用示例
 
 **登录**
 
@@ -938,4 +1046,13 @@ curl -X POST http://localhost:8080/api/merchant/chat/conversations/1/messages \
   -H "Authorization: Bearer <merchant-token>" \
   -H "Content-Type: application/json" \
   -d '{"type":"TEXT","text":"在的"}'
+```
+
+**与买小购对话（SSE，-N 关闭缓冲）**
+
+```bash
+curl -N -X POST http://localhost:8080/api/agent/converse \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"hello, what can you do?"}'
 ```
