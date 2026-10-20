@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import ChatWindow from '@/components/chat/ChatWindow.vue'
 import ConversationList from '@/components/chat/ConversationList.vue'
+import AgentChatPanel from '@/components/chat/AgentChatPanel.vue'
 import {
   fetchAdminConversation,
   fetchAdminConversations,
@@ -74,6 +75,7 @@ const conversations = ref<ConversationView[]>([])
 const total = ref(0)
 const loadingList = ref(false)
 const activeId = ref<number | null>(null)
+const agentActive = ref(false)
 const active = ref<ConversationView | null>(null)
 const messages = ref<ChatMessage[]>([])
 const loadingMessages = ref(false)
@@ -92,6 +94,13 @@ const routeId = computed(() => {
   if (!value) return null
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : null
+})
+
+/** 客服智能体用固定路由 /messages/agent，不是真实会话 */
+const routeAgent = computed(() => {
+  const raw = route.params.conversationId
+  const value = Array.isArray(raw) ? raw[0] : raw
+  return value === 'agent'
 })
 
 const currentUserId = computed(() => userStore.user?.userId ?? 0)
@@ -135,6 +144,20 @@ function loadMore() {
 function selectConversation(id: number) {
   if (id === activeId.value) return
   router.push(`${basePath}/${id}`)
+}
+
+function selectAgent() {
+  if (agentActive.value) return
+  router.push(`${basePath}/agent`)
+}
+
+function clearActive() {
+  activeId.value = null
+  active.value = null
+  messages.value = []
+  hasMore.value = false
+  peerLastReadMessageId.value = null
+  lastReadSent = 0
 }
 
 function backToList() {
@@ -289,14 +312,15 @@ function handleEvent(event: ChatSocketEvent) {
   }
 }
 
-watch(routeId, (id) => {
+watch([routeId, routeAgent], ([id, isAgent]) => {
+  if (isAgent) {
+    agentActive.value = true
+    clearActive()
+    return
+  }
+  agentActive.value = false
   if (id == null) {
-    activeId.value = null
-    active.value = null
-    messages.value = []
-    hasMore.value = false
-    peerLastReadMessageId.value = null
-    lastReadSent = 0
+    clearActive()
     return
   }
   void openConversation(id)
@@ -314,18 +338,27 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="chat-center" :class="{ 'has-active': activeId !== null }">
+  <div class="chat-center" :class="{ 'has-active': activeId !== null || agentActive }">
     <ConversationList
       :items="conversations"
       :active-id="activeId"
       :mode="mode"
       :loading="loadingList"
       :total="total"
+      :agent-active="agentActive"
       @select="selectConversation"
+      @select-agent="selectAgent"
       @load-more="loadMore"
     />
 
+    <AgentChatPanel
+      v-if="agentActive"
+      :mode="mode"
+      @back="backToList"
+    />
+
     <ChatWindow
+      v-else
       ref="chatWindowRef"
       :conversation="active"
       :messages="messages"

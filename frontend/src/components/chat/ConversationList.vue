@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Service } from '@element-plus/icons-vue'
 import ProductImage from '@/components/ProductImage.vue'
 import type { ChatScope, ConversationView } from '@/api/types'
 
@@ -8,9 +9,14 @@ const props = defineProps<{
   mode: ChatScope
   loading: boolean
   total: number
+  agentActive?: boolean
 }>()
 
-const emit = defineEmits<{ select: [id: number]; loadMore: [] }>()
+const emit = defineEmits<{
+  select: [id: number]
+  loadMore: []
+  selectAgent: []
+}>()
 
 function peerName(item: ConversationView): string {
   return props.mode === 'CUSTOMER' ? item.merchantName : item.customerName
@@ -45,9 +51,30 @@ function formatTime(value: string | null): string {
     </div>
 
     <div v-loading="loading" class="list-body">
+      <!-- 永久置顶：客服智能体占位入口，所有用户都能看到 -->
+      <button
+        type="button"
+        class="conversation agent-card"
+        :class="{ active: agentActive }"
+        @click="emit('selectAgent')"
+      >
+        <span class="avatar agent-avatar">
+          <el-icon><Service /></el-icon>
+        </span>
+        <span class="main">
+          <span class="row">
+            <span class="name">买小购</span>
+            <span class="agent-tag">AI</span>
+          </span>
+          <span class="row">
+            <span class="preview">智能客服 · 即将接入</span>
+          </span>
+        </span>
+      </button>
+
       <el-empty
         v-if="!loading && items.length === 0"
-        description="还没有会话"
+        description="还没有与商家的会话"
         :image-size="70"
       />
 
@@ -153,6 +180,25 @@ function formatTime(value: string | null): string {
   border-radius: 10px;
   overflow: hidden;
   background: var(--c-pink-tint);
+}
+
+.agent-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  color: #fff;
+  background: linear-gradient(135deg, var(--c-pink), #f39ab9);
+}
+
+.agent-tag {
+  flex: none;
+  padding: 1px 6px;
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--c-pink);
+  background: var(--c-pink-tint);
+  border-radius: 8px;
 }
 
 .online-dot {
