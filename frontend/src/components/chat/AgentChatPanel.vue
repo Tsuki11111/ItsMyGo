@@ -457,14 +457,17 @@ onBeforeUnmount(() => {
 
             <div v-if="message.images.length" class="images">
               <figure v-for="(image, index) in message.images" :key="index" class="image-item">
-                <el-image
-                  :src="image.url"
-                  :preview-src-list="message.images.map((item) => item.url)"
-                  :initial-index="index"
-                  preview-teleported
-                  fit="cover"
-                  class="answer-image"
-                />
+                <div class="image-wrap">
+                  <el-image
+                    :src="image.url"
+                    :preview-src-list="message.images.map((item) => item.url)"
+                    :initial-index="index"
+                    preview-teleported
+                    fit="contain"
+                    class="answer-image"
+                  />
+                  <span class="image-index">图 {{ index + 1 }}</span>
+                </div>
                 <figcaption v-if="image.caption">{{ image.caption }}</figcaption>
               </figure>
             </div>
@@ -708,15 +711,18 @@ onBeforeUnmount(() => {
 
 .bubble {
   max-width: 78%;
+  min-width: 0;
   padding: 9px 12px;
   font-size: 14px;
   line-height: 1.65;
   color: var(--c-text);
   background: var(--c-pink-soft);
   border-radius: 12px;
+  overflow-wrap: anywhere;
 }
 
 .agent-bubble {
+  max-width: 88%;
   background: #fff;
   border: 1px solid var(--c-border);
 }
@@ -825,6 +831,7 @@ onBeforeUnmount(() => {
 .trace-box {
   margin-bottom: 8px;
   padding-bottom: 6px;
+  overflow: hidden;
   border-bottom: 1px dashed var(--c-border);
 }
 
@@ -833,6 +840,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 6px;
   width: 100%;
+  min-width: 0;
   padding: 0;
   font-family: inherit;
   font-size: 11px;
@@ -863,12 +871,17 @@ onBeforeUnmount(() => {
 }
 
 .trace-list {
+  max-height: 200px;
   margin-top: 6px;
+  padding-right: 4px;
   padding-left: 2px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .trace-line {
   display: flex;
+  align-items: flex-start;
   gap: 6px;
   margin: 3px 0;
   font-size: 11px;
@@ -888,30 +901,53 @@ onBeforeUnmount(() => {
 
 .trace-detail {
   min-width: 0;
+  overflow-wrap: anywhere;
   word-break: break-word;
 }
 
 .images {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  align-items: start;
+  margin-top: 12px;
 }
 
 .image-item {
+  min-width: 0;
   margin: 0;
-  max-width: 200px;
+}
+
+.image-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.image-index {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  padding: 2px 7px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: 10px;
 }
 
 .image-item figcaption {
-  margin-top: 3px;
+  margin-top: 6px;
   font-size: 11px;
+  line-height: 1.5;
   color: var(--c-text-3);
 }
 
 .answer-image {
-  width: 180px;
-  height: 130px;
+  display: block;
+  width: 100%;
+  height: 280px;
+  background: #fff;
+  border: 1px solid var(--c-border);
   border-radius: 8px;
   cursor: zoom-in;
 }

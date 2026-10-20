@@ -379,8 +379,8 @@ onBeforeUnmount(() => {
 .chat-center {
   display: grid;
   grid-template-columns: 300px 1fr;
-  height: min(720px, calc(100vh - 170px));
-  min-height: 520px;
+  height: min(860px, calc(100vh - 130px));
+  min-height: 600px;
   overflow: hidden;
   background: #fff;
   border-radius: var(--radius-card);
