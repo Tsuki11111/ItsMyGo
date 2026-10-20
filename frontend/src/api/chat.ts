@@ -81,3 +81,31 @@ export function sendMerchantMessage(id: number, payload: ChatSendPayload): Promi
 export function markMerchantConversationRead(id: number, lastMessageId: number): Promise<number> {
   return post<number>(`/merchant/chat/conversations/${id}/read`, { lastMessageId })
 }
+
+// ── 平台自营店：管理员以商家身份处理 ──
+
+export function fetchAdminConversations(
+  page = 1,
+  size = 30,
+): Promise<PageResponse<ConversationView>> {
+  return get<PageResponse<ConversationView>>('/admin/chat/conversations', { page, size })
+}
+
+export function fetchAdminConversation(id: number): Promise<ConversationView> {
+  return get<ConversationView>(`/admin/chat/conversations/${id}`)
+}
+
+export function fetchAdminMessages(
+  id: number,
+  params: { beforeId?: number; afterId?: number; size?: number } = {},
+): Promise<ChatMessagePage> {
+  return get<ChatMessagePage>(`/admin/chat/conversations/${id}/messages`, { ...params })
+}
+
+export function sendAdminMessage(id: number, payload: ChatSendPayload): Promise<ChatMessage> {
+  return post<ChatMessage>(`/admin/chat/conversations/${id}/messages`, payload)
+}
+
+export function markAdminConversationRead(id: number, lastMessageId: number): Promise<number> {
+  return post<number>(`/admin/chat/conversations/${id}/read`, { lastMessageId })
+}

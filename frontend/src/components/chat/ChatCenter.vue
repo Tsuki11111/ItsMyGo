@@ -5,14 +5,19 @@ import { ElMessage } from 'element-plus'
 import ChatWindow from '@/components/chat/ChatWindow.vue'
 import ConversationList from '@/components/chat/ConversationList.vue'
 import {
+  fetchAdminConversation,
+  fetchAdminConversations,
+  fetchAdminMessages,
   fetchConversation,
   fetchConversations,
   fetchMerchantConversation,
   fetchMerchantConversations,
   fetchMerchantMessages,
   fetchMessages,
+  markAdminConversationRead,
   markConversationRead,
   markMerchantConversationRead,
+  sendAdminMessage,
   sendMerchantMessage,
   sendMessage,
 } from '@/api/chat'
@@ -27,7 +32,7 @@ import type {
 import { useChatStore, type ChatSocketEvent } from '@/stores/chat'
 import { useUserStore } from '@/stores/user'
 
-const props = defineProps<{ mode: ChatScope }>()
+const props = defineProps<{ mode: ChatScope; admin?: boolean }>()
 
 const route = useRoute()
 const router = useRouter()
@@ -37,23 +42,33 @@ const userStore = useUserStore()
 const PAGE_SIZE = 30
 const CONVERSATION_PAGE_SIZE = 50
 
-const api = props.mode === 'CUSTOMER'
+const api = props.admin
   ? {
-      list: fetchConversations,
-      detail: fetchConversation,
-      messages: fetchMessages,
-      send: sendMessage,
-      read: markConversationRead,
+      list: fetchAdminConversations,
+      detail: fetchAdminConversation,
+      messages: fetchAdminMessages,
+      send: sendAdminMessage,
+      read: markAdminConversationRead,
     }
-  : {
-      list: fetchMerchantConversations,
-      detail: fetchMerchantConversation,
-      messages: fetchMerchantMessages,
-      send: sendMerchantMessage,
-      read: markMerchantConversationRead,
-    }
+  : props.mode === 'CUSTOMER'
+    ? {
+        list: fetchConversations,
+        detail: fetchConversation,
+        messages: fetchMessages,
+        send: sendMessage,
+        read: markConversationRead,
+      }
+    : {
+        list: fetchMerchantConversations,
+        detail: fetchMerchantConversation,
+        messages: fetchMerchantMessages,
+        send: sendMerchantMessage,
+        read: markMerchantConversationRead,
+      }
 
-const basePath = props.mode === 'CUSTOMER' ? '/user/messages' : '/merchant/messages'
+const basePath = props.admin
+  ? '/admin/messages'
+  : props.mode === 'CUSTOMER' ? '/user/messages' : '/merchant/messages'
 
 const conversations = ref<ConversationView[]>([])
 const total = ref(0)

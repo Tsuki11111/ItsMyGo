@@ -199,7 +199,7 @@ class ChatControllerTest extends ApiTestBase {
     }
 
     @Test
-    void cannotChatWithOwnOrPlatformShopAndAdminIsRejected() throws Exception {
+    void cannotChatWithOwnShopAndAdminCannotUseCustomerEndpoints() throws Exception {
         MerchantSession merchant = merchantSession("cm" + System.nanoTime(), "聊天B店" + System.nanoTime());
 
         mockMvc.perform(post("/api/chat/conversations")
@@ -209,17 +209,87 @@ class ChatControllerTest extends ApiTestBase {
                                 startPayload(merchant.merchantId(), null, null))))
                 .andExpect(jsonPath("$.code").value(400));
 
-        String customer = customerToken("cc" + System.nanoTime());
-        mockMvc.perform(post("/api/chat/conversations")
-                        .header("Authorization", bearer(customer))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(startPayload(1L, null, null))))
-                .andExpect(jsonPath("$.code").value(400));
-
         String admin = adminToken("adm" + System.nanoTime());
         mockMvc.perform(get("/api/chat/conversations")
                         .header("Authorization", bearer(admin)))
                 .andExpect(jsonPath("$.code").value(403));
+    }
+
+    @Test
+    void platformSelfRunChatIsHandledByAdmins() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        String customer = customerToken("cc" + System.nanoTime());
+        long conversationId = startConversation(customer, 1L, null, null);
+
+        String sent = sendText(customer, conversationId, "平台自营有人吗");
+        long customerMessageId = objectMapper.readTree(sent).path("data").path("id").asLong();
+
+        mockMvc.perform(get("/api/admin/chat/unread-count")
+                        .header("Authorization", bearer(admin)))
+                .andExpect(jsonPath("$.data.merchantUnread").value(1));
+        mockMvc.perform(get("/api/admin/chat/conversations")
+                        .header("Authorization", bearer(admin)))
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.records[0].id").value(conversationId))
+                .andExpect(jsonPath("$.data.records[0].unread").value(1));
+
+        String reply = mockMvc.perform(post("/api/admin/chat/conversations/"
+                        + conversationId + "/messages")
+                        .header("Authorization", bearer(admin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"type": "TEXT", "text": "平台客服在线"}
+                                """))
+                .andExpect(jsonPath("$.code").value(200))
+                .andReturn().getResponse().getContentAsString();
+        long replyId = objectMapper.readTree(reply).path("data").path("id").asLong();
+        assertThat(objectMapper.readTree(reply).path("data").path("senderType").asText())
+                .isEqualTo("MERCHANT");
+
+        assertThat(customerUnread(customer)).isEqualTo(1);
+        mockMvc.perform(get("/api/chat/conversations/" + conversationId + "/messages")
+                        .header("Authorization", bearer(customer)))
+                .andExpect(jsonPath("$.data.records.length()").value(2))
+                .andExpect(jsonPath("$.data.records[1].id").value(replyId));
+
+        mockMvc.perform(post("/api/admin/chat/conversations/" + conversationId + "/read")
+                        .header("Authorization", bearer(admin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"lastMessageId": %d}
+                                """.formatted(customerMessageId)))
+                .andExpect(jsonPath("$.code").value(200));
+        mockMvc.perform(get("/api/chat/conversations/" + conversationId + "/messages")
+                        .header("Authorization", bearer(customer)))
+                .andExpect(jsonPath("$.data.peerLastReadMessageId").value(customerMessageId));
+
+        // 顾客不能调用管理员消息接口
+        mockMvc.perform(get("/api/admin/chat/conversations")
+                        .header("Authorization", bearer(customer)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void adminChatOnlyExposesPlatformSelfRunConversations() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        MerchantSession merchant = merchantSession("cm" + System.nanoTime(), "聊天L店" + System.nanoTime());
+        String customer = customerToken("cc" + System.nanoTime());
+        long conversationId = startConversation(customer, merchant.merchantId(), null, null);
+        sendText(customer, conversationId, "普通店铺消息");
+
+        mockMvc.perform(get("/api/admin/chat/conversations")
+                        .header("Authorization", bearer(admin)))
+                .andExpect(jsonPath("$.data.total").value(0));
+        mockMvc.perform(get("/api/admin/chat/conversations/" + conversationId)
+                        .header("Authorization", bearer(admin)))
+                .andExpect(jsonPath("$.code").value(404));
+        mockMvc.perform(post("/api/admin/chat/conversations/" + conversationId + "/messages")
+                        .header("Authorization", bearer(admin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"type": "TEXT", "text": "越权回复"}
+                                """))
+                .andExpect(jsonPath("$.code").value(404));
     }
 
     @Test
@@ -432,7 +502,8 @@ class ChatControllerTest extends ApiTestBase {
         String admin = adminToken("adm" + System.nanoTime());
         mockMvc.perform(post("/api/chat/stream-ticket")
                         .header("Authorization", bearer(admin)))
-                .andExpect(jsonPath("$.code").value(403));
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.ticket").isNotEmpty());
     }
 
     @Test

@@ -36,10 +36,11 @@ public class ChatStreamRegistry {
         emitter.onTimeout(() -> remove(connection));
         emitter.onError(error -> remove(connection));
 
-        if (isMerchant(user)) {
-            AtomicInteger count = merchantOnline.computeIfAbsent(user.merchantId(), key -> new AtomicInteger());
+        if (presenceMerchantId(user) != null) {
+            Long merchantId = presenceMerchantId(user);
+            AtomicInteger count = merchantOnline.computeIfAbsent(merchantId, key -> new AtomicInteger());
             if (count.incrementAndGet() == 1) {
-                broadcast(ChatEvent.PRESENCE, new ChatEvent.Presence(user.merchantId(), true));
+                broadcast(ChatEvent.PRESENCE, new ChatEvent.Presence(merchantId, true));
             }
         }
         return emitter;
@@ -90,18 +91,26 @@ public class ChatStreamRegistry {
             }
         }
 
-        if (isMerchant(connection.user)) {
-            AtomicInteger count = merchantOnline.get(connection.user.merchantId());
+        if (presenceMerchantId(connection.user) != null) {
+            Long merchantId = presenceMerchantId(connection.user);
+            AtomicInteger count = merchantOnline.get(merchantId);
             if (count != null && count.decrementAndGet() <= 0) {
-                merchantOnline.remove(connection.user.merchantId(), count);
-                broadcast(ChatEvent.PRESENCE, new ChatEvent.Presence(connection.user.merchantId(), false));
+                merchantOnline.remove(merchantId, count);
+                broadcast(ChatEvent.PRESENCE, new ChatEvent.Presence(merchantId, false));
             }
         }
     }
 
-    private boolean isMerchant(CurrentUser user) {
-        return user.isMerchant() && user.merchantId() != null
-                && user.merchantId() != Merchant.PLATFORM_MERCHANT_ID;
+    /** 商家在线状态：普通商家看自己的店，管理员统一算作平台自营店在线 */
+    private Long presenceMerchantId(CurrentUser user) {
+        if (user.isAdmin()) {
+            return Merchant.PLATFORM_MERCHANT_ID;
+        }
+        if (user.isMerchant() && user.merchantId() != null
+                && user.merchantId() != Merchant.PLATFORM_MERCHANT_ID) {
+            return user.merchantId();
+        }
+        return null;
     }
 
     private final class Connection {

@@ -106,7 +106,6 @@ public class ChatController {
     @RateLimit(scene = "chat-ticket", limit = 20, windowSeconds = 60, byUser = true)
     @PostMapping("/stream-ticket")
     public Result<ChatStreamTicketView> ticket(@AuthenticationPrincipal CurrentUser user) {
-        requireNotAdmin(user);
         return Result.ok(ticketService.issue(user.id()));
     }
 
@@ -124,7 +123,6 @@ public class ChatController {
         if (identity == null) {
             throw new BizException(ResultCode.UNAUTHORIZED, "登录状态已失效");
         }
-        requireNotAdmin(identity);
 
         SseEmitter emitter = registry.register(identity);
         ChatUnreadView unread = chatService.unread(identity);
@@ -135,15 +133,7 @@ public class ChatController {
 
     @RateLimit(scene = "chat-upload", limit = 20, windowSeconds = 60, byUser = true)
     @PostMapping("/files/upload")
-    public Result<String> upload(@AuthenticationPrincipal CurrentUser user,
-                                 @RequestParam("file") MultipartFile file) {
-        requireNotAdmin(user);
+    public Result<String> upload(@RequestParam("file") MultipartFile file) {
         return Result.ok(storageService.uploadChatImage(file));
-    }
-
-    private void requireNotAdmin(CurrentUser user) {
-        if (user == null || user.isAdmin()) {
-            throw new BizException(ResultCode.FORBIDDEN, "管理员不参与聊天");
-        }
     }
 }

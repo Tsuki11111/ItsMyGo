@@ -3,6 +3,7 @@ package com.tsuk1.itsmygo.service.impl;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.tsuk1.itsmygo.common.ResultCode;
+import com.tsuk1.itsmygo.common.Roles;
 import com.tsuk1.itsmygo.common.chat.ChatEvent;
 import com.tsuk1.itsmygo.common.chat.ChatStreamRegistry;
 import com.tsuk1.itsmygo.common.exception.BizException;
@@ -97,8 +98,9 @@ public class ChatServiceImpl implements ChatService {
         if (merchant == null || !Merchant.ACTIVE.equals(merchant.getStatus())) {
             throw new BizException(ResultCode.NOT_FOUND, "店铺不存在或已停用");
         }
-        if (merchant.getOwnerUserId() == null) {
-            throw new BizException(ResultCode.BAD_REQUEST, "平台自营店暂不支持在线咨询");
+        if (merchant.getOwnerUserId() == null
+                && merchant.getId() != Merchant.PLATFORM_MERCHANT_ID) {
+            throw new BizException(ResultCode.BAD_REQUEST, "店铺暂未绑定商家账号");
         }
         if (user.merchantId() != null && user.merchantId().equals(merchant.getId())) {
             throw new BizException(ResultCode.BAD_REQUEST, "不能联系自己的店铺");
@@ -175,6 +177,11 @@ public class ChatServiceImpl implements ChatService {
 
     @Override
     public ChatUnreadView unread(CurrentUser user) {
+        if (user.isAdmin()) {
+            // 平台自营店的商家侧未读由管理员共同承担
+            return new ChatUnreadView(0,
+                    conversationMapper.sumMerchantUnread(Merchant.PLATFORM_MERCHANT_ID));
+        }
         requireNotAdmin(user);
         long customerUnread = conversationMapper.sumCustomerUnread(user.id());
         long merchantUnread = user.isMerchant()
@@ -223,6 +230,52 @@ public class ChatServiceImpl implements ChatService {
     public long merchantRead(CurrentUser user, Long conversationId, Long lastMessageId) {
         requireMerchant(user);
         Conversation conversation = requireMerchantConversation(conversationId, user.merchantId());
+        return markRead(conversation, Conversation.SIDE_MERCHANT, lastMessageId);
+    }
+
+    // ── 平台自营店：管理员以商家身份处理会话 ──
+
+    @Override
+    public PageResponse<ConversationView> adminConversations(CurrentUser user, int page, int size) {
+        requireAdmin(user);
+        Page<Conversation> result = conversationMapper.selectPage(page(page, size),
+                Wrappers.<Conversation>lambdaQuery()
+                        .eq(Conversation::getMerchantId, Merchant.PLATFORM_MERCHANT_ID)
+                        .isNotNull(Conversation::getLastMessageId)
+                        .orderByDesc(Conversation::getLastMessageAt)
+                        .orderByDesc(Conversation::getId));
+        return toConversationPage(result, Conversation.SIDE_MERCHANT);
+    }
+
+    @Override
+    public ConversationView adminConversation(CurrentUser user, Long conversationId) {
+        requireAdmin(user);
+        Conversation conversation = requirePlatformConversation(conversationId);
+        return detailView(conversation, Conversation.SIDE_MERCHANT);
+    }
+
+    @Override
+    public ChatMessagePage adminMessages(CurrentUser user, Long conversationId,
+                                         Long beforeId, Long afterId, int size) {
+        requireAdmin(user);
+        Conversation conversation = requirePlatformConversation(conversationId);
+        return messagePage(conversation, Conversation.SIDE_MERCHANT, beforeId, afterId, size);
+    }
+
+    @Override
+    @Transactional
+    public ChatMessageView adminSend(CurrentUser user, Long conversationId,
+                                     SendChatMessageRequest request) {
+        requireAdmin(user);
+        Conversation conversation = requirePlatformConversation(conversationId);
+        return send(conversation, Conversation.SIDE_MERCHANT, user.id(), request);
+    }
+
+    @Override
+    @Transactional
+    public long adminRead(CurrentUser user, Long conversationId, Long lastMessageId) {
+        requireAdmin(user);
+        Conversation conversation = requirePlatformConversation(conversationId);
         return markRead(conversation, Conversation.SIDE_MERCHANT, lastMessageId);
     }
 
@@ -300,13 +353,18 @@ public class ChatServiceImpl implements ChatService {
                 : conversationMapper.sumMerchantUnread(fresh.getMerchantId());
 
         Merchant merchant = merchantMapper.selectById(conversation.getMerchantId());
-        Long peerUserId = side.equals(Conversation.SIDE_CUSTOMER)
-                ? (merchant == null ? null : merchant.getOwnerUserId())
-                : conversation.getCustomerUserId();
-        if (peerUserId != null) {
+        List<Long> peerUserIds = Conversation.SIDE_CUSTOMER.equals(side)
+                ? merchantRecipients(merchant)
+                : List.of(conversation.getCustomerUserId());
+        if (!peerUserIds.isEmpty()) {
             String readerType = side;
-            afterCommit(() -> registry.sendToUser(peerUserId, ChatEvent.READ,
-                    new ChatEvent.Read(conversation.getId(), readerType, effective)));
+            Long conversationId = conversation.getId();
+            afterCommit(() -> {
+                for (Long peerUserId : peerUserIds) {
+                    registry.sendToUser(peerUserId, ChatEvent.READ,
+                            new ChatEvent.Read(conversationId, readerType, effective));
+                }
+            });
         }
         return unread;
     }
@@ -354,12 +412,15 @@ public class ChatServiceImpl implements ChatService {
                     new ChatEvent.Message(Conversation.SIDE_CUSTOMER, view, customerView,
                             conversationMapper.sumCustomerUnread(customer.getId())));
         }
-        if (merchant != null && merchant.getOwnerUserId() != null) {
+        List<Long> recipients = merchantRecipients(merchant);
+        if (merchant != null && !recipients.isEmpty()) {
             ConversationView merchantView = toConversationView(conversation,
                     Conversation.SIDE_MERCHANT, false, merchant, customer);
-            registry.sendToUser(merchant.getOwnerUserId(), ChatEvent.MESSAGE,
-                    new ChatEvent.Message(Conversation.SIDE_MERCHANT, view, merchantView,
-                            conversationMapper.sumMerchantUnread(merchant.getId())));
+            long unread = conversationMapper.sumMerchantUnread(merchant.getId());
+            for (Long recipient : recipients) {
+                registry.sendToUser(recipient, ChatEvent.MESSAGE,
+                        new ChatEvent.Message(Conversation.SIDE_MERCHANT, view, merchantView, unread));
+            }
         }
     }
 
@@ -491,7 +552,7 @@ public class ChatServiceImpl implements ChatService {
 
     private void requireNotAdmin(CurrentUser user) {
         if (user == null || user.isAdmin()) {
-            throw new BizException(ResultCode.FORBIDDEN, "管理员不参与聊天");
+            throw new BizException(ResultCode.FORBIDDEN, "管理员请从管理后台处理平台消息");
         }
     }
 
@@ -499,6 +560,40 @@ public class ChatServiceImpl implements ChatService {
         if (user == null || !user.isMerchant()) {
             throw new BizException(ResultCode.FORBIDDEN, "没有商家权限");
         }
+    }
+
+    private void requireAdmin(CurrentUser user) {
+        if (user == null || !user.isAdmin()) {
+            throw new BizException(ResultCode.FORBIDDEN, "没有管理员权限");
+        }
+    }
+
+    private Conversation requirePlatformConversation(Long conversationId) {
+        Conversation conversation = conversationMapper.selectById(conversationId);
+        if (conversation == null
+                || !Objects.equals(conversation.getMerchantId(), Merchant.PLATFORM_MERCHANT_ID)) {
+            throw new BizException(ResultCode.NOT_FOUND, "会话不存在");
+        }
+        return conversation;
+    }
+
+    /**
+     * 商家侧消息接收人：普通店铺是店主；平台自营店没有 owner，由全部管理员共同处理。
+     */
+    private List<Long> merchantRecipients(Merchant merchant) {
+        if (merchant == null) {
+            return List.of();
+        }
+        if (merchant.getOwnerUserId() != null) {
+            return List.of(merchant.getOwnerUserId());
+        }
+        if (Objects.equals(merchant.getId(), Merchant.PLATFORM_MERCHANT_ID)) {
+            return userMapper.selectList(Wrappers.<User>lambdaQuery()
+                            .eq(User::getRole, Roles.ADMIN)
+                            .eq(User::getStatus, 1))
+                    .stream().map(User::getId).toList();
+        }
+        return List.of();
     }
 
     private Map<Long, Merchant> loadMerchants(List<Long> ids) {

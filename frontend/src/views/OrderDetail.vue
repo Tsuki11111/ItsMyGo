@@ -186,7 +186,7 @@ onMounted(load)
         </div>
         <div class="status-actions">
           <button
-            v-if="order.merchantId !== 1"
+            v-if="!userStore.isAdmin"
             type="button"
             class="action-btn"
             :disabled="startingChat"

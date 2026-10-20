@@ -63,6 +63,7 @@ const router = createRouter({
       meta: { requiresAdmin: true },
       children: [
         { path: 'categories', name: 'admin-categories', component: () => import('@/views/admin/Categories.vue') },
+        { path: 'messages/:conversationId?', name: 'admin-messages', component: () => import('@/views/admin/Messages.vue') },
         { path: 'products', name: 'admin-products', component: () => import('@/views/admin/Products.vue') },
         { path: 'orders', name: 'admin-orders', component: () => import('@/views/admin/Orders.vue') },
         { path: 'coupons', name: 'admin-coupons', component: () => import('@/views/admin/Coupons.vue') },

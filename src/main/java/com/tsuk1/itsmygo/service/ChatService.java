@@ -37,4 +37,17 @@ public interface ChatService {
     ChatMessageView merchantSend(CurrentUser user, Long conversationId, SendChatMessageRequest request);
 
     long merchantRead(CurrentUser user, Long conversationId, Long lastMessageId);
+
+    // ── 平台自营店：管理员以商家身份处理会话 ──
+
+    PageResponse<ConversationView> adminConversations(CurrentUser user, int page, int size);
+
+    ConversationView adminConversation(CurrentUser user, Long conversationId);
+
+    ChatMessagePage adminMessages(CurrentUser user, Long conversationId,
+                                  Long beforeId, Long afterId, int size);
+
+    ChatMessageView adminSend(CurrentUser user, Long conversationId, SendChatMessageRequest request);
+
+    long adminRead(CurrentUser user, Long conversationId, Long lastMessageId);
 }

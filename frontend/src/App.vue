@@ -72,8 +72,8 @@ watch(
       </div>
       <nav class="actions">
         <RouterLink
-          v-if="userStore.isLoggedIn && !userStore.isAdmin"
-          to="/user/messages"
+          v-if="userStore.isLoggedIn"
+          :to="userStore.isAdmin ? '/admin/messages' : '/user/messages'"
           class="link message-link"
         >
           <el-badge
@@ -107,12 +107,12 @@ watch(
                   <el-icon><Tickets /></el-icon>我的订单
                 </RouterLink>
                 <RouterLink
-                  v-if="!userStore.isAdmin"
-                  to="/user/messages"
+                  :to="userStore.isAdmin ? '/admin/messages' : '/user/messages'"
                   class="panel-item"
                   @click="panelOpen = false"
                 >
-                  <el-icon><ChatDotRound /></el-icon>我的消息
+                  <el-icon><ChatDotRound /></el-icon>
+                  {{ userStore.isAdmin ? '平台消息' : '我的消息' }}
                 </RouterLink>
                 <RouterLink to="/user/favorites" class="panel-item" @click="panelOpen = false">
                   <el-icon><Star /></el-icon>我的收藏

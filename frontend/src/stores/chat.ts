@@ -62,7 +62,8 @@ export const useChatStore = defineStore('chat', () => {
 
   function canConnect(): boolean {
     const user = useUserStore()
-    return Boolean(getToken() && user.isLoggedIn && !user.isAdmin)
+    // 管理员也要连：平台自营店的商家侧消息由管理员接收
+    return Boolean(getToken() && user.isLoggedIn)
   }
 
   async function connect() {

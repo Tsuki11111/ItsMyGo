@@ -100,7 +100,7 @@ onMounted(load)
         </div>
         <el-tag type="success" size="small">营业中</el-tag>
         <el-button
-          v-if="shop.ownerUserId"
+          v-if="!userStore.isAdmin"
           type="primary"
           plain
           size="small"

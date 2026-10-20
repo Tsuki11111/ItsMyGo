@@ -354,7 +354,7 @@ onMounted(load)
             </div>
             <div class="shop-actions">
               <button
-                v-if="shop.ownerUserId"
+                v-if="!userStore.isAdmin"
                 type="button"
                 class="contact-btn"
                 :disabled="startingChat"
