@@ -16,7 +16,7 @@
 ## 关联仓库：rag_helper（客服智能体）
 
 **本项目的智能客服不在这个仓库里**，在外部目录 **`D:\PycharmProjects\rag_helper`** ——
-Python 项目，RAG 客服智能体「掌柜智库」，gRPC 服务端跑在 **8003**。
+Python 项目，RAG 客服智能体「买小购」，gRPC 服务端跑在 **8003**。
 
 **涉及客服 / agent / gRPC 的改动，动手前先读那边**：
 
