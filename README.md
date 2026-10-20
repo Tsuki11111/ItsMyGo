@@ -92,7 +92,7 @@ Spring Boot 单体 + Vue 3 前后端分离，经 **gRPC 接入 RAG 客服智能�
 **管理端**具备商户审核、分类维护、商品管理、发货与退款审核、平台券/店铺券、评价管理。
 **在线聊天**：商品详情 / 店铺主页 / 订单详情可「联系卖家」，按店建立会话；
 支持文本、图片、商品卡片、订单卡片，SSE 实时推送与未读角标、已读回执、商家在线状态，
-商家离线时可留言。
+商家离线时可留言；平台自营店的会话由管理员在 `/admin/messages` 统一回复。
 
 ## 本地起来看看
 
@@ -105,7 +105,7 @@ Spring Boot 单体 + Vue 3 前后端分离，经 **gRPC 接入 RAG 客服智能�
 **提权后重新登录**。种子数据见 [sql/seed-data.sql](sql/seed-data.sql)，详见 [HANDOFF §3.4](HANDOFF.md)。
 
 **CI**：每次 push 自动在干净环境跑测试（[`.github/workflows/test.yml`](.github/workflows/test.yml)）。
-本地 178 条全绿，CI 跳过 3 条依赖 MinIO 的、跑 175 条（MinIO 已停止公开分发镜像，详见 [HANDOFF §5.12](HANDOFF.md)）。
+本地 180 条全绿，CI 跳过 3 条依赖 MinIO 的、跑 177 条（MinIO 已停止公开分发镜像，详见 [HANDOFF §5.12](HANDOFF.md)）。
 **测试跑在独立的库** `its_mygo_test`（Redis 用 db 1），和开发数据互不影响 —— 见 [HANDOFF §5.20](HANDOFF.md)。
 
 各里程碑的可验收产物见 [docs/decisions-ecommerce.md](docs/decisions-ecommerce.md) §4。
