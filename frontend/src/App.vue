@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Location, Lock, Setting, Shop, Star, SwitchButton, Ticket, Tickets, User, ChatDotRound } from '@element-plus/icons-vue'
+import { Location, Lock, Setting, Shop, ShoppingCart, Star, SwitchButton, Ticket, Tickets, User, ChatDotRound } from '@element-plus/icons-vue'
 import ProductImage from '@/components/ProductImage.vue'
+import { useBadgeStore } from '@/stores/badge'
 import { useChatStore } from '@/stores/chat'
 import { useUserStore } from '@/stores/user'
 
@@ -11,6 +12,7 @@ const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 const chatStore = useChatStore()
+const badgeStore = useBadgeStore()
 
 /** 管理端 / 商家端有自己的外壳，不共用顾客顶栏和内容宽度 */
 const isBareRoute = computed(() => {
@@ -46,15 +48,23 @@ function onLogout() {
   ElMessage.success('已退出登录')
 }
 
-// 登录后建立 SSE；登出时断开。管理员不参与聊天，store 内部会跳过。
+// 登录后建立 SSE；登出时断开。管理员也要连：平台自营店的消息由管理员接收。
 watch(
   () => userStore.isLoggedIn,
   (loggedIn) => {
-    if (loggedIn) void chatStore.connect()
-    else chatStore.disconnect()
+    if (loggedIn) {
+      void chatStore.connect()
+      void badgeStore.refreshAll()
+    } else {
+      chatStore.disconnect()
+      badgeStore.resetAuth()
+    }
   },
   { immediate: true },
 )
+
+onMounted(() => badgeStore.startPolling())
+onBeforeUnmount(() => badgeStore.stopPolling())
 </script>
 
 <template>
@@ -74,8 +84,9 @@ watch(
         <RouterLink
           v-if="userStore.isLoggedIn"
           :to="userStore.isAdmin ? '/admin/messages' : '/user/messages'"
-          class="link message-link"
+          class="link badge-link"
         >
+          <el-icon><ChatDotRound /></el-icon>
           <el-badge
             :value="chatStore.unreadTotal"
             :max="99"
@@ -84,8 +95,26 @@ watch(
             <span>消息</span>
           </el-badge>
         </RouterLink>
-        <RouterLink to="/coupons" class="link">领券中心</RouterLink>
-        <RouterLink to="/cart" class="link">购物车</RouterLink>
+        <RouterLink to="/coupons" class="link badge-link">
+          <el-icon><Ticket /></el-icon>
+          <el-badge
+            :value="badgeStore.claimableCoupons"
+            :max="99"
+            :hidden="badgeStore.claimableCoupons === 0"
+          >
+            <span>领券中心</span>
+          </el-badge>
+        </RouterLink>
+        <RouterLink to="/cart" class="link badge-link">
+          <el-icon><ShoppingCart /></el-icon>
+          <el-badge
+            :value="badgeStore.cartCount"
+            :max="99"
+            :hidden="badgeStore.cartCount === 0"
+          >
+            <span>购物车</span>
+          </el-badge>
+        </RouterLink>
 
         <template v-if="userStore.isLoggedIn">
           <!-- 用户区：鼠标移上去向下滑出功能面板 -->
@@ -217,12 +246,19 @@ watch(
   color: var(--c-pink);
 }
 
-.message-link {
+.badge-link {
   display: inline-flex;
   align-items: center;
+  gap: 4px;
+  flex: none;
+  white-space: nowrap;
 }
 
-.message-link :deep(.el-badge__content) {
+.badge-link :deep(.el-icon) {
+  font-size: 15px;
+}
+
+.badge-link :deep(.el-badge__content) {
   font-size: 10px;
 }
 

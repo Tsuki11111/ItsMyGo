@@ -10,12 +10,14 @@ import { fetchAddresses } from '@/api/address'
 import { createOrder, fetchOrderToken } from '@/api/order'
 import { fetchAvailableCoupons } from '@/api/coupon'
 import { fetchShop } from '@/api/shop'
+import { useBadgeStore } from '@/stores/badge'
 import { useUserStore } from '@/stores/user'
 import type { Address, CartItemView, Product, ProductSku, UserCouponView } from '@/api/types'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+const badgeStore = useBadgeStore()
 
 const product = ref<Product | null>(null)
 /** 购物车结算时，要下单的那几行（只取**勾选且可买**的） */
@@ -259,6 +261,10 @@ async function submitOrder() {
         }],
       }),
     })
+    if (fromCart.value) {
+      // 下单只清空勾选行，未勾选的商品还在购物车里 —— 以服务端为准
+      void badgeStore.refreshCart()
+    }
 
     ElMessage.success(view.orders.length > 1
       ? `已生成 ${view.orders.length} 个店铺订单，请分别支付`

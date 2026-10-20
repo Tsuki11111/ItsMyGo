@@ -11,12 +11,14 @@ import { addToCart } from '@/api/cart'
 import { addFavorite, fetchFavoriteStatus, removeFavorite } from '@/api/favorite'
 import { recordFootprint } from '@/api/footprint'
 import { fetchProductReviews, fetchReviewSummary } from '@/api/review'
+import { useBadgeStore } from '@/stores/badge'
 import { useUserStore } from '@/stores/user'
 import type { MerchantView, Product, ProductSku, ReviewSummary, ReviewView } from '@/api/types'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+const badgeStore = useBadgeStore()
 
 const product = ref<Product | null>(null)
 /** 规格定义。无规格商品是空数组 */
@@ -245,7 +247,8 @@ async function onAdd() {
 
   adding.value = true
   try {
-    await addToCart(product.value.id, sku.id, quantity.value)
+    const view = await addToCart(product.value.id, sku.id, quantity.value)
+    badgeStore.syncCart(view)
     ElMessage.success(`已加入购物车 ${quantity.value} 件`)
   } catch {
     // 库存不足 / 未登录过期等，拦截器已提示；重新拉一次库存，让页面上的数字回到真相

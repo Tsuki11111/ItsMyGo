@@ -3,12 +3,14 @@ import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { claimCoupon, fetchCouponCenter } from '@/api/coupon'
+import { useBadgeStore } from '@/stores/badge'
 import { useUserStore } from '@/stores/user'
 import type { CouponView } from '@/api/types'
 
 const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
+const badgeStore = useBadgeStore()
 
 const coupons = ref<CouponView[]>([])
 const loading = ref(false)
@@ -17,6 +19,7 @@ async function load() {
   loading.value = true
   try {
     coupons.value = await fetchCouponCenter()
+    badgeStore.syncCoupons(coupons.value)
   } finally {
     loading.value = false
   }
@@ -31,6 +34,7 @@ async function claim(item: CouponView) {
   await claimCoupon(item.id)
   item.claimed = true
   item.remainingCount = Math.max(item.remainingCount - 1, 0)
+  badgeStore.syncCoupons(coupons.value)
   ElMessage.success('领取成功')
 }
 

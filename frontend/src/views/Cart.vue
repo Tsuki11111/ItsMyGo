@@ -4,12 +4,14 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ProductImage from '@/components/ProductImage.vue'
 import { fetchCart, removeCartItem, updateCartItem } from '@/api/cart'
+import { useBadgeStore } from '@/stores/badge'
 import { useUserStore } from '@/stores/user'
 import type { CartItemView, CartView } from '@/api/types'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+const badgeStore = useBadgeStore()
 
 const cart = ref<CartView | null>(null)
 const loading = ref(true)
@@ -76,6 +78,7 @@ async function load() {
   loading.value = true
   try {
     cart.value = await fetchCart()
+    badgeStore.syncCart(cart.value)
   } finally {
     loading.value = false
   }
@@ -87,6 +90,7 @@ async function mutate(item: CartItemView, action: () => Promise<CartView>) {
   pendingId.value = item.id
   try {
     cart.value = await action()
+    badgeStore.syncCart(cart.value)
   } catch {
     // 库存不足 / 商品下架等，拦截器已提示；重新拉一次让页面回到真相
     await load()
@@ -125,7 +129,10 @@ async function toggleRows(candidates: CartItemView[], selected: boolean) {
     for (const item of targets) {
       latest = await updateCartItem(item.id, item.quantity, selected)
     }
-    if (latest) cart.value = latest
+    if (latest) {
+      cart.value = latest
+      badgeStore.syncCart(latest)
+    }
   } catch {
     await load()
   } finally {
