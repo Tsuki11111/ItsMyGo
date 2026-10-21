@@ -9,6 +9,7 @@ import com.tsuk1.itsmygo.common.agent.AgentEventMapper;
 import com.tsuk1.itsmygo.common.agent.AgentGateway;
 import com.tsuk1.itsmygo.common.agent.AgentProperties;
 import com.tsuk1.itsmygo.common.agent.AgentSseSink;
+import com.tsuk1.itsmygo.common.agent.AgentToolTicketService;
 import com.tsuk1.itsmygo.common.exception.BizException;
 import com.tsuk1.itsmygo.dto.agent.AgentConverseRequest;
 import com.tsuk1.itsmygo.dto.agent.AgentHistoryMessage;
@@ -51,6 +52,7 @@ public class AgentChatServiceImpl implements AgentChatService {
     private final AgentGateway gateway;
     private final AgentProperties properties;
     private final AgentSessionMapper sessionMapper;
+    private final AgentToolTicketService toolTicketService;
     private final ExecutorService agentExecutor;
     private final ScheduledExecutorService auxExecutor;
     private final ObjectMapper objectMapper;
@@ -58,12 +60,14 @@ public class AgentChatServiceImpl implements AgentChatService {
 
     public AgentChatServiceImpl(AgentGateway gateway, AgentProperties properties,
                                 AgentSessionMapper sessionMapper,
+                                AgentToolTicketService toolTicketService,
                                 @Qualifier("agentExecutor") ExecutorService agentExecutor,
                                 @Qualifier("agentAuxExecutor") ScheduledExecutorService auxExecutor,
                                 ObjectMapper objectMapper) {
         this.gateway = gateway;
         this.properties = properties;
         this.sessionMapper = sessionMapper;
+        this.toolTicketService = toolTicketService;
         this.agentExecutor = agentExecutor;
         this.auxExecutor = auxExecutor;
         this.objectMapper = objectMapper;
@@ -88,6 +92,10 @@ public class AgentChatServiceImpl implements AgentChatService {
         if (activeStreams.putIfAbsent(sessionId, Boolean.TRUE) != null) {
             throw new BizException(ResultCode.TOO_MANY_REQUESTS, "该会话正在回复中，请稍候");
         }
+
+        // 本轮工具票据：agent 的 order-query 工具回调 /internal/agent/** 时带回。
+        // 只放 metadata，不下发浏览器，也不进模型上下文。
+        String toolTicket = toolTicketService.issue(user.id(), sessionId);
 
         SseEmitter emitter = new SseEmitter(properties.deadlineSeconds() * 1000L + 30_000);
         AgentSseSink sink = new AgentSseSink(emitter, objectMapper, auxExecutor);
@@ -123,7 +131,7 @@ public class AgentChatServiceImpl implements AgentChatService {
 
         sink.start();
         try {
-            agentExecutor.execute(() -> stream(user, fixedSessionId, message, sink, context,
+            agentExecutor.execute(() -> stream(user, fixedSessionId, message, toolTicket, sink, context,
                     runIdRef, finalSeen, errorSeen, cleanup));
         } catch (RejectedExecutionException e) {
             cleanup.run();
@@ -132,12 +140,14 @@ public class AgentChatServiceImpl implements AgentChatService {
         return emitter;
     }
 
-    private void stream(CurrentUser user, String sessionId, String message, AgentSseSink sink,
-                        Context.CancellableContext context, AtomicReference<String> runIdRef,
+    private void stream(CurrentUser user, String sessionId, String message, String toolTicket,
+                        AgentSseSink sink, Context.CancellableContext context,
+                        AtomicReference<String> runIdRef,
                         AtomicBoolean finalSeen, AtomicBoolean errorSeen, Runnable cleanup) {
         try {
             Iterator<Event> events = context.call(() -> gateway.converse(
-                    user.id(), sessionId, message, Duration.ofSeconds(properties.deadlineSeconds())));
+                    user.id(), sessionId, message,
+                    Duration.ofSeconds(properties.deadlineSeconds()), toolTicket));
 
             while (!sink.isClosed() && events.hasNext()) {
                 Event event = events.next();

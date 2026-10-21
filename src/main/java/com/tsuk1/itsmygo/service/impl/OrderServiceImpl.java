@@ -470,6 +470,19 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
+    public List<OrderView> findForAgent(Long userId, String orderNo, String status, int limit) {
+        int safeLimit = Math.min(Math.max(limit, 1), 10);
+        if (StringUtils.hasText(orderNo)) {
+            // 订单号 + userId 一起查：别人的订单一律当不存在，不泄露存在性
+            Order order = orderMapper.selectOne(Wrappers.<Order>lambdaQuery()
+                    .eq(Order::getOrderNo, orderNo.trim())
+                    .eq(Order::getUserId, userId));
+            return order == null ? List.of() : List.of(view(order));
+        }
+        return pageForCustomer(userId, 1, safeLimit, 0, status).records();
+    }
+
+    @Override
     @Transactional
     public OrderView pay(Long userId, Long orderId) {
         Order order = requireOwned(userId, orderId);

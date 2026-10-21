@@ -33,6 +33,9 @@ public class AgentGrpcClient implements AgentGateway {
             Metadata.Key.of("authorization", ASCII_STRING_MARSHALLER);
     private static final Metadata.Key<String> USER_ID =
             Metadata.Key.of("x-user-id", ASCII_STRING_MARSHALLER);
+    /** 本轮工具票据：agent 回调 Java 内部工具接口时带回，Java 据此解析 userId */
+    private static final Metadata.Key<String> TOOL_TICKET =
+            Metadata.Key.of("x-agent-tool-ticket", ASCII_STRING_MARSHALLER);
 
     private static final Duration SHORT_RPC_DEADLINE = Duration.ofSeconds(15);
 
@@ -57,8 +60,9 @@ public class AgentGrpcClient implements AgentGateway {
     }
 
     @Override
-    public Iterator<Event> converse(long userId, String sessionId, String message, Duration deadline) {
-        AgentServiceGrpc.AgentServiceBlockingStub stub = stub(userId)
+    public Iterator<Event> converse(long userId, String sessionId, String message, Duration deadline,
+                                    String toolTicket) {
+        AgentServiceGrpc.AgentServiceBlockingStub stub = stub(userId, toolTicket)
                 .withDeadlineAfter(deadline.toMillis(), TimeUnit.MILLISECONDS);
         ConverseRequest request = ConverseRequest.newBuilder()
                 .setSessionId(sessionId == null ? "" : sessionId)
@@ -97,10 +101,17 @@ public class AgentGrpcClient implements AgentGateway {
     }
 
     private AgentServiceGrpc.AgentServiceBlockingStub stub(long userId) {
+        return stub(userId, null);
+    }
+
+    private AgentServiceGrpc.AgentServiceBlockingStub stub(long userId, String toolTicket) {
         Metadata metadata = new Metadata();
         // 客户端同名 metadata 不会被转发：这是 Java 新构造的 Metadata，由 Java 独占
         metadata.put(AUTHORIZATION, "Bearer " + properties.key());
         metadata.put(USER_ID, String.valueOf(userId));
+        if (StringUtils.hasText(toolTicket)) {
+            metadata.put(TOOL_TICKET, toolTicket);
+        }
         return AgentServiceGrpc.newBlockingStub(channel)
                 .withInterceptors(MetadataUtils.newAttachHeadersInterceptor(metadata));
     }

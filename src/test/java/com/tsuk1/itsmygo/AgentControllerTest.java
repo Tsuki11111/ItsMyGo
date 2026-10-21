@@ -8,6 +8,7 @@ import agent.v1.SessionStart;
 import agent.v1.Trace;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.tsuk1.itsmygo.common.agent.AgentGateway;
+import com.tsuk1.itsmygo.common.agent.AgentToolTicketService;
 import com.tsuk1.itsmygo.entity.AgentSession;
 import com.tsuk1.itsmygo.entity.User;
 import com.tsuk1.itsmygo.mapper.AgentSessionMapper;
@@ -44,6 +45,12 @@ class AgentControllerTest extends ApiTestBase {
     @Autowired
     private AgentSessionMapper agentSessionMapper;
 
+    @Autowired
+    private AgentToolTicketService toolTicketService;
+
+    private final java.util.concurrent.atomic.AtomicReference<String> capturedTicket =
+            new java.util.concurrent.atomic.AtomicReference<>();
+
     private long userId(String username) {
         User user = userMapper.selectOne(Wrappers.<User>lambdaQuery()
                 .eq(User::getUsername, username));
@@ -53,7 +60,7 @@ class AgentControllerTest extends ApiTestBase {
     @Test
     void converseStreamsSseAndRecordsSessionOwnership() throws Exception {
         when(agentGateway.configured()).thenReturn(true);
-        when(agentGateway.converse(anyLong(), anyString(), anyString(), any()))
+        when(agentGateway.converse(anyLong(), anyString(), anyString(), any(), anyString()))
                 .thenAnswer(invocation -> {
                     String sessionId = invocation.getArgument(1);
                     return List.of(
@@ -221,6 +228,38 @@ class AgentControllerTest extends ApiTestBase {
                                 """))
                 .andExpect(jsonPath("$.code").value(500))
                 .andExpect(jsonPath("$.message").value(containsString("未配置")));
+    }
+
+    @Test
+    void converseIssuesToolTicketBoundToUser() throws Exception {
+        when(agentGateway.configured()).thenReturn(true);
+        capturedTicket.set(null);
+        when(agentGateway.converse(anyLong(), anyString(), anyString(), any(), anyString()))
+                .thenAnswer(invocation -> {
+                    capturedTicket.set(invocation.getArgument(4));
+                    return List.of(Event.newBuilder()
+                            .setFinal(FinalEvent.newBuilder().setAnswer("ok").setWebOnly(false)).build())
+                            .iterator();
+                });
+
+        String username = "tk" + System.nanoTime();
+        String token = customerToken(username);
+        long uid = userId(username);
+
+        MvcResult result = mockMvc.perform(post("/api/agent/converse")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"message":"订单到哪了"}
+                                """))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+        mockMvc.perform(asyncDispatch(result)).andExpect(status().isOk());
+
+        assertThat(capturedTicket.get()).isNotBlank();
+        AgentToolTicketService.Identity identity = toolTicketService.resolve(capturedTicket.get());
+        assertThat(identity).isNotNull();
+        assertThat(identity.userId()).isEqualTo(uid);
     }
 
     @Test

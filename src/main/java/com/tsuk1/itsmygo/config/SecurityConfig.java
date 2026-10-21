@@ -50,6 +50,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/coupons").permitAll()
                         // SSE 流用一次性票据鉴权（EventSource 带不了 Authorization），其余聊天接口仍需登录
                         .requestMatchers(HttpMethod.GET, "/api/chat/stream").permitAll()
+                        // agent 工具回调：只走内网，凭 X-Agent-Ticket 鉴权（票据由 Java 在 Converse 时签发，
+                        // 只经 gRPC metadata 下发给 agent，浏览器拿不到）
+                        .requestMatchers("/internal/agent/**").permitAll()
                         // 商家后台（角色由 AuthIdentityService 按数据库实时计算）
                         .requestMatchers("/api/merchant/**").hasRole("MERCHANT")
                         // 管理端一律要求管理员

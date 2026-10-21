@@ -16,7 +16,12 @@ public interface AgentGateway {
 
     boolean configured();
 
-    Iterator<Event> converse(long userId, String sessionId, String message, Duration deadline);
+    /**
+     * @param toolTicket 本轮工具调用票据（由 Java 签发，经 metadata 下发给 agent；
+     *                   agent 回调 /internal/agent/** 时带回，见 AgentToolTicketService）
+     */
+    Iterator<Event> converse(long userId, String sessionId, String message, Duration deadline,
+                             String toolTicket);
 
     boolean stop(long userId, String sessionId, String runId);
 

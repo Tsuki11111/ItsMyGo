@@ -7,6 +7,8 @@ import com.tsuk1.itsmygo.dto.PageResponse;
 import com.tsuk1.itsmygo.dto.ShipRequest;
 import com.tsuk1.itsmygo.entity.Order;
 
+import java.util.List;
+
 public interface OrderService {
 
     /**
@@ -37,6 +39,12 @@ public interface OrderService {
                                             String status);
 
     OrderView detailForCustomer(Long userId, Long orderId);
+
+    /**
+     * agent 工具查询：按订单号或最近订单，**只返回当前用户自己的**。
+     * 订单号不属于该用户时返回空列表 —— 不泄露订单是否存在。
+     */
+    List<OrderView> findForAgent(Long userId, String orderNo, String status, int limit);
 
     /** 模拟支付 */
     OrderView pay(Long userId, Long orderId);
