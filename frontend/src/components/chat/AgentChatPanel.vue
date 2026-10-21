@@ -560,7 +560,9 @@ onBeforeUnmount(() => {
 .agent-panel {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   min-height: 0;
+  overflow: hidden;
   background: #fafafa;
 }
 
@@ -653,7 +655,9 @@ onBeforeUnmount(() => {
 
 .messages {
   flex: 1;
+  min-width: 0;
   min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   padding: 16px 14px;
 }
@@ -728,6 +732,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: flex-start;
   gap: 8px;
+  min-width: 0;
   margin-bottom: 12px;
 }
 
@@ -868,6 +873,8 @@ onBeforeUnmount(() => {
 }
 
 .trace-box {
+  min-width: 0;
+  max-width: 100%;
   margin-bottom: 8px;
   padding-bottom: 6px;
   overflow: hidden;
@@ -911,9 +918,12 @@ onBeforeUnmount(() => {
 
 .trace-list {
   max-height: 200px;
+  min-width: 0;
+  max-width: 100%;
   margin-top: 6px;
   padding-right: 4px;
   padding-left: 2px;
+  overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -922,6 +932,8 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: flex-start;
   gap: 6px;
+  min-width: 0;
+  max-width: 100%;
   margin: 3px 0;
   font-size: 11px;
   line-height: 1.5;
@@ -940,6 +952,7 @@ onBeforeUnmount(() => {
 
 .trace-detail {
   min-width: 0;
+  max-width: 100%;
   overflow-wrap: anywhere;
   word-break: break-word;
 }

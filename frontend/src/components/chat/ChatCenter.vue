@@ -378,7 +378,8 @@ onBeforeUnmount(() => {
 <style scoped>
 .chat-center {
   display: grid;
-  grid-template-columns: 300px 1fr;
+  /* minmax(0, 1fr)：避免长执行流按 min-content 把 1fr 轨道撑宽，进而顶出窗口 */
+  grid-template-columns: 300px minmax(0, 1fr);
   height: min(860px, calc(100vh - 130px));
   min-height: 600px;
   overflow: hidden;
@@ -389,7 +390,7 @@ onBeforeUnmount(() => {
 
 @media (max-width: 820px) {
   .chat-center {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     height: calc(100vh - 140px);
     min-height: 480px;
   }
