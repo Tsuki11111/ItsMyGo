@@ -4,6 +4,7 @@ import com.tsuk1.itsmygo.common.Result;
 import com.tsuk1.itsmygo.common.ratelimit.RateLimit;
 import com.tsuk1.itsmygo.dto.CheckoutView;
 import com.tsuk1.itsmygo.dto.CreateOrderRequest;
+import com.tsuk1.itsmygo.dto.LogisticsView;
 import com.tsuk1.itsmygo.dto.OrderView;
 import com.tsuk1.itsmygo.dto.PageResponse;
 import com.tsuk1.itsmygo.entity.Order;
@@ -66,6 +67,13 @@ public class OrderController {
     @GetMapping("/{id}")
     public Result<OrderView> detail(@AuthenticationPrincipal CurrentUser user, @PathVariable Long id) {
         return Result.ok(orderService.detailForCustomer(user.id(), id));
+    }
+
+    /** 虚拟物流：未发货时 data 为 null */
+    @GetMapping("/{id}/logistics")
+    public Result<LogisticsView> logistics(@AuthenticationPrincipal CurrentUser user,
+                                           @PathVariable Long id) {
+        return Result.ok(orderService.logisticsForCustomer(user.id(), id));
     }
 
     /** 模拟支付：真实项目这里会调支付网关并等异步回调 */

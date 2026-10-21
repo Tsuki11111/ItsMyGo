@@ -20,6 +20,7 @@ import com.tsuk1.itsmygo.mapper.PaymentMapper;
 import com.tsuk1.itsmygo.mapper.ProductMapper;
 import com.tsuk1.itsmygo.mapper.ReviewMapper;
 import com.tsuk1.itsmygo.mapper.UserCouponMapper;
+import com.tsuk1.itsmygo.service.ShipmentService;
 import com.tsuk1.itsmygo.service.StockService;
 import com.tsuk1.itsmygo.service.impl.OrderServiceImpl;
 import org.junit.jupiter.api.Test;
@@ -602,7 +603,8 @@ class OrderControllerTest extends ApiTestBase {
         // 只把 orderItemMapper 换成计数版，其余依赖用容器里的真货
         OrderServiceImpl service = new OrderServiceImpl(orderMapper, countingMapper, cartItemMapper,
                 productMapper, productSkuMapper, addressMapper, paymentMapper, stockService,
-                redisTemplate, reviewMapper, userCouponMapper, merchantMapper);
+                redisTemplate, reviewMapper, userCouponMapper, merchantMapper,
+                Mockito.mock(ShipmentService.class));
 
         PageResponse<OrderView> result = service.pageForCustomer(
                 currentUserId(token), 1, 10, 3);

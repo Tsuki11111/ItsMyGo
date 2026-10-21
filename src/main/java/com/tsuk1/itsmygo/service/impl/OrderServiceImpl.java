@@ -6,6 +6,7 @@ import com.tsuk1.itsmygo.common.ResultCode;
 import com.tsuk1.itsmygo.common.exception.BizException;
 import com.tsuk1.itsmygo.dto.CheckoutView;
 import com.tsuk1.itsmygo.dto.CreateOrderRequest;
+import com.tsuk1.itsmygo.dto.LogisticsView;
 import com.tsuk1.itsmygo.dto.OrderView;
 import com.tsuk1.itsmygo.dto.PageResponse;
 import com.tsuk1.itsmygo.dto.ShipRequest;
@@ -30,6 +31,7 @@ import com.tsuk1.itsmygo.mapper.ProductSkuMapper;
 import com.tsuk1.itsmygo.mapper.ReviewMapper;
 import com.tsuk1.itsmygo.mapper.UserCouponMapper;
 import com.tsuk1.itsmygo.service.OrderService;
+import com.tsuk1.itsmygo.service.ShipmentService;
 import com.tsuk1.itsmygo.service.StockService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -80,13 +82,15 @@ public class OrderServiceImpl implements OrderService {
     private final ReviewMapper reviewMapper;
     private final UserCouponMapper userCouponMapper;
     private final MerchantMapper merchantMapper;
+    private final ShipmentService shipmentService;
 
     public OrderServiceImpl(OrderMapper orderMapper, OrderItemMapper orderItemMapper,
                             CartItemMapper cartItemMapper, ProductMapper productMapper,
                             ProductSkuMapper skuMapper, AddressMapper addressMapper,
                             PaymentMapper paymentMapper, StockService stockService,
                             StringRedisTemplate redisTemplate, ReviewMapper reviewMapper,
-                            UserCouponMapper userCouponMapper, MerchantMapper merchantMapper) {
+                            UserCouponMapper userCouponMapper, MerchantMapper merchantMapper,
+                            ShipmentService shipmentService) {
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
         this.cartItemMapper = cartItemMapper;
@@ -99,6 +103,7 @@ public class OrderServiceImpl implements OrderService {
         this.reviewMapper = reviewMapper;
         this.userCouponMapper = userCouponMapper;
         this.merchantMapper = merchantMapper;
+        this.shipmentService = shipmentService;
     }
 
     /**
@@ -470,6 +475,16 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
+    public LogisticsView logisticsForCustomer(Long userId, Long orderId) {
+        Order order = requireOwned(userId, orderId);
+        // 老订单（V22 之前发货的）没有运单：按历史发货时间懒生成一张
+        if (order.getShippedAt() != null) {
+            shipmentService.createForOrder(order);
+        }
+        return shipmentService.viewForOrder(order);
+    }
+
+    @Override
     public List<OrderView> findForAgent(Long userId, String orderNo, String status, int limit) {
         int safeLimit = Math.min(Math.max(limit, 1), 10);
         if (StringUtils.hasText(orderNo)) {
@@ -551,6 +566,8 @@ public class OrderServiceImpl implements OrderService {
 
         order.setStatusBeforeRefund(null);
         orderMapper.updateById(order);
+        // 退款通过后，物流模拟停止（已送达的保持已送达）
+        shipmentService.cancelForOrder(order.getId());
         return view(order);
     }
 
@@ -704,6 +721,7 @@ public class OrderServiceImpl implements OrderService {
         transition(order, OrderStatus.SHIPPED, order::setShippedAt);
         order.setTrackingNo(request.trackingNo());
         orderMapper.updateById(order);
+        shipmentService.createForOrder(order);
         return view(order);
     }
 

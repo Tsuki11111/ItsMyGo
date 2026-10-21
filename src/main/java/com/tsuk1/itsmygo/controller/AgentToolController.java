@@ -17,6 +17,7 @@ import com.tsuk1.itsmygo.dto.agent.AgentRefundDraftRequest;
 import com.tsuk1.itsmygo.service.AgentActionService;
 import com.tsuk1.itsmygo.service.AgentCatalogService;
 import com.tsuk1.itsmygo.service.OrderService;
+import com.tsuk1.itsmygo.service.ShipmentService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -43,15 +44,18 @@ public class AgentToolController {
     private final OrderService orderService;
     private final AgentCatalogService catalogService;
     private final AgentActionService actionService;
+    private final ShipmentService shipmentService;
 
     public AgentToolController(AgentToolTicketService ticketService,
                                OrderService orderService,
                                AgentCatalogService catalogService,
-                               AgentActionService actionService) {
+                               AgentActionService actionService,
+                               ShipmentService shipmentService) {
         this.ticketService = ticketService;
         this.orderService = orderService;
         this.catalogService = catalogService;
         this.actionService = actionService;
+        this.shipmentService = shipmentService;
     }
 
     @PostMapping("/orders/query")
@@ -63,7 +67,16 @@ public class AgentToolController {
         String status = request == null ? null : request.status();
         int limit = request == null || request.limit() == null ? DEFAULT_LIMIT : request.limit();
         List<OrderView> orders = orderService.findForAgent(identity.userId(), orderNo, status, limit);
-        return Result.ok(orders.stream().map(AgentOrderView::from).toList());
+        return Result.ok(orders.stream()
+                .map(order -> {
+                    // 老订单没有运单：按历史发货时间懒生成
+                    if (order.order().getShippedAt() != null) {
+                        shipmentService.createForOrder(order.order());
+                    }
+                    return AgentOrderView.from(order,
+                            shipmentService.viewForOrder(order.order()));
+                })
+                .toList());
     }
 
     @PostMapping("/catalog/products")

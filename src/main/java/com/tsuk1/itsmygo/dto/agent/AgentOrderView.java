@@ -1,5 +1,6 @@
 package com.tsuk1.itsmygo.dto.agent;
 
+import com.tsuk1.itsmygo.dto.LogisticsView;
 import com.tsuk1.itsmygo.dto.OrderView;
 import com.tsuk1.itsmygo.entity.Order;
 import com.tsuk1.itsmygo.entity.OrderItem;
@@ -22,6 +23,7 @@ public record AgentOrderView(
         String createdAt,
         String paidAt,
         String shippedAt,
+        Logistics logistics,
         List<Item> items) {
 
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -29,7 +31,16 @@ public record AgentOrderView(
     public record Item(String productName, String specText, Integer quantity, String unitPrice) {
     }
 
+    /** 物流摘要。地址 / 电话不进 agent 上下文。 */
+    public record Logistics(String status, String statusLabel, String eta,
+                            String carrier, String courierName, int progress) {
+    }
+
     public static AgentOrderView from(OrderView view) {
+        return from(view, null);
+    }
+
+    public static AgentOrderView from(OrderView view, LogisticsView logisticsView) {
         Order order = view.order();
         List<Item> items = (view.items() == null ? List.<OrderItem>of() : view.items()).stream()
                 .map(item -> new Item(
@@ -38,16 +49,26 @@ public record AgentOrderView(
                         item.getQuantity(),
                         item.getUnitPrice() == null ? "" : item.getUnitPrice().toPlainString()))
                 .toList();
+        String trackingNo = logisticsView != null && !logisticsView.trackingNo().isEmpty()
+                ? logisticsView.trackingNo() : nullToEmpty(order.getTrackingNo());
+        Logistics logistics = logisticsView == null ? null : new Logistics(
+                logisticsView.status(),
+                logisticsView.statusLabel(),
+                logisticsView.eta(),
+                logisticsView.carrier(),
+                logisticsView.courierName(),
+                logisticsView.progress());
         return new AgentOrderView(
                 nullToEmpty(order.getOrderNo()),
                 nullToEmpty(order.getStatus()),
                 nullToEmpty(view.statusLabel()),
                 nullToEmpty(order.getMerchantName()),
                 order.getTotalAmount() == null ? "" : order.getTotalAmount().toPlainString(),
-                nullToEmpty(order.getTrackingNo()),
+                trackingNo,
                 format(order.getCreatedAt()),
                 format(order.getPaidAt()),
                 format(order.getShippedAt()),
+                logistics,
                 items);
     }
 

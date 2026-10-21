@@ -49,6 +49,9 @@ itsmygo:
     actions:
       enabled: ${AGENT_ACTIONS_ENABLED:true}
       expiry-seconds: ${AGENT_ACTION_EXPIRY_SECONDS:600}
+  # 虚拟物流：ETA = 最终送达时间；默认 120 分钟后送达（本地演示用，可调成 2 分钟看完整轨迹）
+  logistics:
+    delivery-minutes: ${LOGISTICS_DELIVERY_MINUTES:120}
 
 # MyBatis-Plus 的 SQL 是运行时生成的，不开日志根本看不见
 logging:

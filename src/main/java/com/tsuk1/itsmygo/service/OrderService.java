@@ -2,6 +2,7 @@ package com.tsuk1.itsmygo.service;
 
 import com.tsuk1.itsmygo.dto.CheckoutView;
 import com.tsuk1.itsmygo.dto.CreateOrderRequest;
+import com.tsuk1.itsmygo.dto.LogisticsView;
 import com.tsuk1.itsmygo.dto.OrderView;
 import com.tsuk1.itsmygo.dto.PageResponse;
 import com.tsuk1.itsmygo.dto.ShipRequest;
@@ -39,6 +40,9 @@ public interface OrderService {
                                             String status);
 
     OrderView detailForCustomer(Long userId, Long orderId);
+
+    /** 订单物流；未发货时返回 null */
+    LogisticsView logisticsForCustomer(Long userId, Long orderId);
 
     /**
      * agent 工具查询：按订单号或最近订单，**只返回当前用户自己的**。
