@@ -43,12 +43,14 @@ Java 再按 `agent_sessions` 二次校验），消息页可切换历史会话、
 **M7 真实订单查询已接通（2026-10-21）**：order-query 不再返回 mock，agent 通过 Java
 内部接口 `/internal/agent/orders/query` 查当前用户的真实订单；每次 Converse 由 Java
 签发 10 分钟票据（gRPC metadata 下发，不进模型上下文），Java 只认票据里的 userId。
-后端 **自动化测试 194 条**。
+**M9/M10 智能下单与退款申请已完成（2026-10-21）**：agent 能搜索商品、准备订单草稿、
+准备退款草稿；聊天里渲染确认卡片，用户确认后 Java 才执行。下单复用现有拆单 / 库存 /
+提交令牌，退款复用 `applyRefund`；支付仍在订单页。后端 **自动化测试 200 条**。
 
-**下一步：M8 催办动作（催发货 / 催退款）** —— 走「提案 → Java 校验执行」的写操作模型；
-下单 / 退款申请属于高危动作，要加用户确认门，排在 M9 / M10。
-M6/M7 联调需要先启动 rag_helper 的 gRPC 服务（8003）和 Java 后端（8080），
-并在 `.env` 配好 `AGENT_GRPC_KEY`；密钥只放后端，不能入库。
+**下一步：M8 催办动作本轮按用户要求跳过** —— 通用动作层（`agent_actions` + 确认门）
+已经就绪，后续接催发货 / 催退款只需加两种动作类型；也可以继续做商家侧动作。
+联调需要先启动 rag_helper gRPC（8003）和 Java 后端（8080），并在 `.env` 配好
+`AGENT_GRPC_KEY`；智能动作还可用 `AGENT_ACTIONS_ENABLED=false` 一键停。
 
 **交接前先看 `git status`** —— 本轮改动可能尚未提交，见 §6 最新一条。
 
@@ -69,8 +71,9 @@ M6/M7 联调需要先启动 rag_helper 的 gRPC 服务（8003）和 Java 后端�
 用户中心后续、顾客端订单操作、多商户改造都已完成，本轮不再拆新页面
 （佣金 / 分账 / 商家结算、商家子账号、关注店铺明确不做）。
 
-1. **M8 催办动作 → M9 下单 → M10 退款申请** — M6 / M7 已完成；写操作统一走
-   「agent 提案 → Java 校验 → 用户确认（高危）→ 执行」。先读外部仓库
+1. **M8 催办动作（本轮按用户要求跳过）** — M6 / M7 / M9 / M10 已完成；通用动作层
+   （`agent_actions` + 确认门）已就绪，后续接催发货 / 催退款只需加两种动作类型。
+   写操作统一走「agent 提案 → Java 校验 → 用户确认 → 执行」。先读外部仓库
    `D:\PycharmProjects\rag_helper` 的 `evolution-plan.md` §5/§6 与 `proto/agent.proto`，
    对接契约以那边为准
 
@@ -146,7 +149,7 @@ src/main/java/com/tsuk1/itsmygo/
 ### 3.3 数据库
 
 - 开发库 `its_mygo`、测试库 `its_mygo_test`（都在共用的 `mysql` 容器里，为什么要分开见 §5.20）
-- 迁移脚本在 `src/main/resources/db/migration/`，**当前 schema 版本 v20**
+- 迁移脚本在 `src/main/resources/db/migration/`，**当前 schema 版本 v21**
 - 已建表：`merchants`（V16，默认商户 id=1 平台自营）、`users`（V1，V3 加 `role`，
   V12 加 `avatar`，**V16 加 `merchant_id`**）、`addresses`（V2）、`categories`（V4）、
   `products`（V5，V9 加 `has_specs`，**V17 加 `merchant_id`**）、
@@ -157,7 +160,7 @@ src/main/java/com/tsuk1/itsmygo/
   `user_favorites` / `user_footprints`（V13）、`reviews`（V14，**V17 加 `merchant_id`**）、
   `coupons` / `user_coupons`（V15，**V18 加可空 `merchant_id`**）、
   `conversations` / `messages`（**V19，在线聊天**）、
-  `agent_sessions`（**V20，买小购会话归属**）
+  `agent_sessions`（**V20，买小购会话归属**）、`agent_actions`（**V21，待确认动作**）
   （另有 Flyway 自建的 `flyway_schema_history`，是迁移记录表，**不要动**）
 - **V9 给存量商品回填了默认 SKU**（无规格的那条），老数据不用手工处理；
   但**新直插 `products` 的地方（手工 SQL、导入脚本）必须自己补 SKU** —— 见 §5.21
@@ -931,9 +934,62 @@ HTTP 失败、401、业务错误都返回可读字符串，让主 agent 能正�
 **⑤ `AgentOrderView` 不要顺手加 PII。** agent 只需要订单号 / 状态 / 店铺 / 金额 / 物流，
 收货人、电话、地址一律不进响应；新增字段前先问「模型真的需要吗」。
 
+### 5.28 ★ 智能下单 / 退款动作层的六个坑（2026-10-21 踩到 / 补齐）
+
+**① 令牌 key 必须和 actionNo 一致。** `newAction()` 内部会生成 actionNo；如果在外面
+再生成一个并覆盖，提交令牌存的是旧 key，确认时取不到，报「草稿已过期」。
+正确做法：先 `newAction`，再用 `action.getActionNo()` 拼 Redis key。
+
+**② 确认方法不要整体包 `@Transactional`。** 业务执行失败时要落 `FAILED` 状态；
+如果 CAS、执行、失败回写都在一个大事务里，业务异常会把 FAILED 一起回滚，
+用户看到的是永远卡在 EXECUTING。让 CAS 和业务 Service 各自独立提交。
+
+**③ 准备时的库存检查只是 UX 提示。** 真正的库存真相在 `OrderService.create`
+（Redis 预扣 + DB 条件更新）；准备到确认之间库存可能变，确认失败要给出明确原因。
+
+**④ 过期用 JVM 时钟，保持同一时钟源。** `expires_at` 由应用写入、由应用比较；
+不要一半 JVM、一半数据库 `NOW()`，否则又会出现 §5.14 那种时区问题。
+
+**⑤ 卡片的 source of truth 是 Java。** 前端在 `done` / 历史加载时拉
+`GET /api/agent/actions?sessionId=`，不依赖模型在回复里写 actionNo 或卡片内容；
+模型说「已下单」也骗不了用户。
+
+**⑥ 当前刻意不支持优惠券。** 智能下单走 `coupons = []`，避免准备页和
+`OrderService.create` 的优惠计算出现两套口径。要加时先抽一个共享的试算方法。
+
 ---
 
 ## 6. 历史记录
+
+### 2026-10-21 · M9/M10 智能下单与退款申请
+
+**范围**：agent 能搜索商品、准备订单草稿、准备退款申请草稿；用户在聊天确认卡片
+点击确认后，Java 才执行。M8 催办本轮按用户要求跳过。
+
+**数据库（V21）**：`agent_actions`（action_no 唯一、payload / summary / result、
+expires_at、target_id、状态机）。
+
+**后端**：`AgentActionService` / `AgentActionServiceImpl`（prepare / confirm /
+cancel / list）、`AgentCatalogService`（商品搜索 / 地址）、`AgentToolController`
+增加内部准备接口、`AgentActionController`（浏览器确认，10 次/分钟）、
+`AgentActionProperties`（enabled / expiry），下单复用 `OrderService.create`、
+退款复用 `applyRefund`。下单在 prepare 时领提交令牌存 Redis，确认时消费；
+退款按 `target_id` 幂等。
+
+**前端**：`AgentActionCard.vue` 订单 / 退款两类卡片；`AgentChatPanel.vue` 在
+`done` 与历史加载时拉动作，确认 / 取消就地更新；订单成功给「去支付」链接。
+
+**Python**：`order-query` 子 agent 增加 `search_products` / `list_addresses` /
+`prepare_order` / `prepare_refund`；共享 `its_mygo_client`；主 agent prompt 明确
+「草稿不等于成功、必须让用户确认」。
+
+**验证**：Java 200 条全绿（新增 `AgentActionControllerTest` 6 条）；rag_helper
+回归 52/52（新增订单动作用例）；浏览器实测三张卡片、点击确认后生成新订单并出现
+「去支付」；API 联调走通下单 → 支付 → 退款申请 → 订单变 REFUNDING。
+
+**限制**：智能下单暂不支持优惠券；支付仍需在订单详情页完成。
+
+**下一步**：M8 催办（可复用 `agent_actions`），或商家侧动作。
 
 ### 2026-10-21 · M7 真实订单查询接通（双仓库）
 

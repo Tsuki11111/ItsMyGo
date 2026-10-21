@@ -1,6 +1,6 @@
 # 一次买够 · 后端 API 接口文档
 
-> 适用版本：schema v19（2026-10-20）
+> 适用版本：schema v21（2026-10-21）
 > 服务地址：`http://localhost:8080`（开发环境，前端经 Vite 代理 `/api` 访问）
 > 本文覆盖 `src/main/java/com/tsuk1/itsmygo/controller/` 下全部接口。
 
@@ -985,6 +985,14 @@ agent 服务在对话过程中需要实时数据时，会反向回调 Java 的�
 | 方法 | 路径 | 鉴权 | 请求 | 返回 |
 |---|---|---|---|---|
 | POST | `/internal/agent/orders/query` | `X-Agent-Ticket` | `{orderNo?, status?, limit?}` | `AgentOrderView[]` |
+| POST | `/internal/agent/catalog/products` | `X-Agent-Ticket` | `{keyword, limit?}` | `AgentProductView[]` |
+| GET | `/internal/agent/catalog/addresses` | `X-Agent-Ticket` | — | `AgentAddressView[]` |
+| POST | `/internal/agent/actions/order` | `X-Agent-Ticket` | `{addressId?, items:[{productId,skuId,quantity}]}` | `AgentActionView` |
+| POST | `/internal/agent/actions/refund` | `X-Agent-Ticket` | `{orderNo}` | `AgentActionView` |
+
+- 商品搜索返回商品与 SKU（skuId / specText / price / stock），供 agent 落到具体规格。
+- 地址只返回当前票据用户自己的；动作准备接口只落 `PENDING_CONFIRM` 草稿，**不执行**。
+- 确认必须走 §19.4 的浏览器接口，agent 不能确认。
 
 - 票据由 Java 在每次 `POST /api/agent/converse` 时签发：
   Redis `its-my-go:agent:tool-ticket:{uuid}`，TTL 10 分钟；
@@ -1014,6 +1022,63 @@ agent 服务在对话过程中需要实时数据时，会反向回调 Java 的�
 }
 ```
 
+### 19.4 待确认动作（浏览器确认接口）
+
+| 方法 | 路径 | 权限 | 请求 / 参数 | 返回 |
+|---|---|---|---|---|
+| GET | `/api/agent/actions` | 登录 | `sessionId` | `AgentActionView[]` |
+| POST | `/api/agent/actions/{actionNo}/confirm` | 登录 | — | `AgentActionView` |
+| POST | `/api/agent/actions/{actionNo}/cancel` | 登录 | — | `AgentActionView` |
+
+- 确认接口**只收 actionNo**，业务参数全部来自服务端快照；客户端无法在确认时
+  偷改数量 / 地址 / 金额。
+- 只有动作所属用户能确认 / 取消；别人的动作一律 404。
+- 状态：`PENDING_CONFIRM / EXECUTING / SUCCEEDED / FAILED / CANCELLED / EXPIRED`。
+- 有效期默认 600 秒（`AGENT_ACTION_EXPIRY_SECONDS`）；过期后确认返回 EXPIRED，不执行。
+- 双击确认幂等：条件更新只有一个请求会进入 EXECUTING。
+- 限流：confirm / cancel 10 次/60s/用户；总开关 `AGENT_ACTIONS_ENABLED=false`。
+- 下单成功后的 `result.orders[]` 带 `id / orderNo / status / statusLabel / totalAmount`，
+  前端据此给「去支付」入口；支付仍走 `POST /api/orders/{id}/pay`。
+- 智能下单暂不支持优惠券。
+
+**AgentActionView**
+
+```json
+{
+  "actionNo": "8f6f...",
+  "type": "CREATE_ORDER",
+  "status": "PENDING_CONFIRM",
+  "summary": {
+    "address": { "id": 1582, "receiver": "李雷", "phone": "139...", "address": "北京市..." },
+    "groups": [
+      {
+        "merchantId": 1,
+        "merchantName": "平台自营",
+        "items": [
+          { "productName": "兄弟 HAK 180 烫金机", "specText": "", "quantity": 1,
+            "unitPrice": "1999.00", "subtotal": "1999.00", "image": "" }
+        ],
+        "subtotal": "1999.00",
+        "discount": "0.00",
+        "total": "1999.00"
+      }
+    ],
+    "itemCount": 1,
+    "originalAmount": "1999.00",
+    "discountAmount": "0.00",
+    "totalAmount": "1999.00",
+    "note": "确认后生成待支付订单，支付请在订单详情页完成；智能下单暂不支持优惠券。"
+  },
+  "result": null,
+  "errorMessage": "",
+  "expiresAt": "2026-10-21T13:17:00",
+  "createdAt": "2026-10-21T13:07:00"
+}
+```
+
+退款动作的 `summary` 是 `{orderNo, merchantName, status, statusLabel, totalAmount, items, note}`；
+成功后的 `result` 是 `{orderId, orderNo, status, statusLabel, note}`。
+
 ---
 
 ## 20. 限流汇总
@@ -1032,6 +1097,7 @@ agent 服务在对话过程中需要实时数据时，会反向回调 Java 的�
 | SSE 票据 | `POST /api/chat/stream-ticket` | 20 次/60s | 用户 |
 | 聊天图片 | `POST /api/chat/files/upload` | 20 次/60s | 用户 |
 | 客服对话 | `POST /api/agent/converse` | 10 次/60s | 用户 |
+| 智能动作确认 / 取消 | `POST /api/agent/actions/{actionNo}/confirm\|cancel` | 10 次/60s | 用户 |
 
 触发限流返回 `{"code":429,"message":"请求过于频繁，请稍后再试","data":null}`（HTTP 200）。
 

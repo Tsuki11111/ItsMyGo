@@ -65,6 +65,9 @@ cd /d/PycharmProjects/rag_helper
 # 订单查询（M7）：agent 会回调 Java 的 /internal/agent/**，
 # 所以后端必须先在 8080 跑着；agent 侧地址默认 http://127.0.0.1:8080，
 # 需要改就在 rag_helper/.env 里设 ITS_MYGO_BASE_URL。
+#
+# 智能下单 / 退款（M9/M10）：agent 只准备草稿，用户在聊天卡片确认后 Java 才执行；
+# 一键停用：在 .env 设 AGENT_ACTIONS_ENABLED=false 并重启后端。
 
 
 # ─────────────────────────────────────────────

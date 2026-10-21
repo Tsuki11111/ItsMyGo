@@ -1089,6 +1089,54 @@ Python 的 ErrorEvent 只给用户通用文案，原始 message 记日志。
 浏览器实测「我的订单现在都到哪一步了」→ 执行流出现 delegate order-query →
 tool query_orders → final 输出 5 笔真实订单。
 
+### 3.20 智能下单与退款申请的动作层（M9/M10，V21）
+
+**为什么不能直接执行**：下单、退款是有真实后果的写操作。agent 只负责
+「准备草稿」，用户必须在聊天卡片里确认，Java 才按服务端快照执行。
+这与 evolution-plan §1 的三条红线一致：LLM 不直接写业务库、风控不用 LLM、
+高危动作人工确认 + 审计。
+
+**表 `agent_actions`（V21）**：`action_no`（对外 UUID）、`user_id`、`session_id`、
+`target_id`（退款存订单 id）、`type`、`status`、`payload_json`（执行快照）、
+`summary_json`（卡片展示）、`result_json`、`error_message`、`expires_at`、
+`confirmed_at`、`executed_at`。状态机：`PENDING_CONFIRM → EXECUTING →
+SUCCEEDED / FAILED`，另有 `CANCELLED` / `EXPIRED`。
+
+**准备（agent 调内部接口）**：
+- `POST /internal/agent/actions/order`：校验地址归属、商品上架、SKU 归属、库存；
+  金额由 Java 计算（**智能下单暂不支持优惠券**）；签发一次性提交令牌并存入
+  Redis `its-my-go:agent:action-token:{actionNo}`（TTL = 卡片有效期）；落
+  PENDING_CONFIRM 快照。
+- `POST /internal/agent/actions/refund`：按订单号 + userId 查订单，校验
+  `OrderStatus.refundable()`；同一订单已有未过期草稿时直接返回那一张（幂等）；
+  `target_id` 存订单 id。
+
+**确认（浏览器调）**：
+- `POST /api/agent/actions/{actionNo}/confirm`，只收 actionNo，**不收业务参数**。
+- `startExecution` 用条件更新把 `PENDING_CONFIRM → EXECUTING`，双击只有一个成功。
+- 下单：从 Redis 取走提交令牌，重建 `CreateOrderRequest`，调
+  `OrderService.create`（库存 / 状态机 / 拆单全部复用现有逻辑）。
+- 退款：解析快照里的 orderId，调 `OrderService.applyRefund`。
+- 成功写 `result_json`；业务失败写 `FAILED + error_message`；过期直接 `EXPIRED`；
+  卡在 EXECUTING 超过 5 分钟视为执行中断，标记 FAILED 让用户重来。
+- `cancel` 只能取消 PENDING_CONFIRM；`GET /api/agent/actions?sessionId=` 返回
+  该会话的动作，前端刷新后靠它恢复卡片。
+
+**前端**：`AgentActionCard.vue` 渲染订单 / 退款两类卡片；`AgentChatPanel.vue`
+在 `done` 和加载历史时拉取动作列表，确认 / 取消后就地更新。卡片由 Java 数据驱动，
+不依赖模型在回复里写什么。
+
+**安全性质**：
+- userId：agent 侧来自票据，浏览器侧来自 JWT；确认接口没有 userId 参数
+- 参数：全部来自服务端快照，客户端只传 actionNo
+- 数据：订单查询不含 PII；地址只返回当前用户自己的
+- 频控：confirm / cancel 10 次/分钟/用户；总开关 `itsmygo.agent.actions.enabled`
+- 审计：每次状态流转都落在 `agent_actions`
+
+**测试**：`AgentActionControllerTest` 6 条（下单一次、越权、他人地址、过期、
+退款、无票据），全量 200 条；rag_helper 回归 52/52；浏览器实测三张卡片渲染、
+确认下单后生成新订单并出现「去支付」。
+
 ---
 
 ## 4. 前端（`frontend/`）
