@@ -899,6 +899,9 @@ WHERE used_order_id = ? AND status = 'USED'
 商家接口 `/api/merchant/products/**`（含 SKU / 库存 / 上传）逐项校验商品归属，越权 404；
 平台 `/api/admin/products` 可全量查看并按店铺筛选。分类仍由平台统一维护。
 
+**发货地址**：V23 给 `merchants` 加 `ship_*` 字段，商家 / 平台自营各自设置；
+虚拟物流起点优先取商家坐标，见 §3.22。
+
 **购物车与店铺页**：`cart_items` **不存 merchant_id**，由商品派生，避免归属漂移；
 `CartItemView` 带 merchantId/merchantName/merchantActive，前端按店分组。
 公开店铺 `GET /api/shops/{id}` 只返回 ACTIVE 店铺；`/shop/:id` 展示店铺商品。
@@ -932,6 +935,7 @@ WHERE used_order_id = ? AND status = 'USED'
 **迁移（V16–V18）**：V16 建 `merchants` + 默认商户 + `users.merchant_id`；
 V17 给 `products` / `orders` / `reviews` 加 `merchant_id`（存量回填 1）；
 V18 给 `coupons` / `user_coupons` 加可空 `merchant_id`（存量券保持平台券）。
+V23 给 `merchants` 加发货地址字段（详见 §3.22）。
 
 ### 3.17 在线聊天与私信留言（V19）
 
@@ -1183,6 +1187,78 @@ DashScope embedding 生成向量，内存余弦排序；缓存 TTL 300 秒。关
 **测试**：Java 202 条（新增 `AgentCatalogToolTest` 2 条）；rag_helper 回归 **56/56**
 （新增导购工具、语义索引、商品卡往返、商品卡对账）；浏览器实测语义问题
 「能做名片烫金的设备，预算 3000」→ 推荐 HAK 180，商品卡与历史各 1 张。
+
+### 3.22 虚拟物流与发货地址（M7.5/M7.6，V22/V23）
+
+**目标**：发货后生成一张虚拟运单，物流状态按时间推进；**预计送达时间 = 最终送达时间**，
+到点状态必为 `DELIVERED`，`delivered_at` 写 `eta`。快递公司 / 快递员 / 运单号都是虚拟数据。
+
+**表 `shipments`（V22）**：`order_id` 唯一、`tracking_no`、`carrier`、`courier_name`、
+`courier_phone`、`origin_name/lng/lat`、`status`、`shipped_at`、`eta`、`delivered_at`。
+
+- 发货（`OrderServiceImpl.doShip`）后 `ShipmentService.createForOrder` 生成运单；
+- 快递公司 / 快递员从固定池按 orderId 取；
+- 发货仓优先用商家的发货坐标（V23）：有坐标时 `origin_name = <店铺名>发货仓`，
+  没有坐标时回退固定转运中心池；
+- `eta = shippedAt + itsmygo.logistics.delivery-minutes`（默认 120 分钟；
+  本地演示可设 `LOGISTICS_DELIVERY_MINUTES=2` 看完整轨迹）；
+- 老订单（V22 之前已发货）在首次查询物流时按 `shipped_at` 懒生成运单。
+
+**状态推进**（读取时计算，无需定时任务）：
+
+- 已揽收 → 运输中（25% 时长）→ 派送中（80% 时长）→ 已送达（100%）；
+- 阶段用**秒**计算，避免 2 分钟演示被按分钟取整；
+- `LogisticsView.progress` 0–100，给前端地图插值快递员位置；
+- 退款通过后 `cancelForOrder` 把未送达的运单置为 `CANCELLED`。
+
+**商家 / 平台发货地址（M7.6，V23）**
+
+- `merchants` 增加 `ship_province / ship_city / ship_district / ship_address /
+  ship_lng / ship_lat`；
+- 商家在「商家后台 → 店铺资料 → 发货地址」设置自己的地址；平台在
+  「管理后台 → 商户管理 → 发货地址」代设，**平台自营（id=1）也走同一入口**；
+- 经纬度必须成对；只填地址文字也能保存，但发货仍回退虚拟转运中心；
+- 公开店铺接口 `GET /api/shops/{id}` 复用 `MerchantView`，返回前把 `ship_*`
+  脱敏为空 / `null`，避免把商家仓库位置公开；商家自己与平台后台可见真实值；
+- `createForOrder` 读订单所属商户：有坐标 → `origin_name = <店铺名>发货仓`，
+  `origin_lng/lat` 用商家坐标；无坐标 → 原固定池（杭州 / 上海 / 深圳，按 orderId 取）；
+- 已有运单不回填历史起点 —— 地址只影响**之后**新生成的运单。
+
+**接口**：`GET /api/orders/{id}/logistics`（登录 + 订单归属；未发货返回 `data:null`）；
+`PUT /api/merchant/ship-address`（商家自己）；`PUT /api/admin/merchants/{id}/ship-address`
+（平台代设，含平台自营）。
+`LogisticsView` 含运单 / 快递员 / 状态 / eta / 进度 / 发货仓坐标 / 收货地址 / 四段 timeline。
+收货地址只给订单详情页画地图，**不进入 agent 上下文**。
+
+**agent**：`AgentOrderView` 增加 `logistics` 摘要（status / statusLabel / eta / carrier /
+courierName / progress），Python order-query 工具在订单文本里输出
+「物流：运输中，预计 … 送达（买够速运 / 王师傅）」。
+
+**前端**：订单详情页新增「物流状态」区块：
+
+- `LogisticsPanel.vue`：状态、ETA、快递员、运单号、四段时间线；
+- `LogisticsMap.vue`：腾讯地图 JS API GL（`TMap.Map` / `MultiPolyline` / `MultiMarker`）
+  画发货仓→收货地址的平滑曲线，按 `progress` 插值快递员位置；
+  浏览器端用 `TMap.service.Geocoder` 解析收货地址，失败时按城市中心兜底；
+- `utils/tencentMap.ts`：物流地图与发货地址弹窗共用的加载器 / 地理编码；
+  **加载脚本必须带 `libraries=service`**，否则 `TMap.service` 不存在，
+  Geocoder 会报「不可用」；
+- `ShipAddressDialog.vue`：省市区级联 + 详细地址 + 「解析坐标」；
+  商家资料页与管理端商户列表共用，平台自营行同样有入口；
+  修改地址后未重新解析时，保存会自动清空旧坐标，避免物流起点仍指向旧地址；
+- 腾讯 Key 放 `frontend/.env.local` 的 `VITE_TMAP_KEY`；
+  未配置时显示配置提示，时间线仍可用；
+- 发货后每 30 秒刷新一次，送达 / 取消后停止轮询。
+
+**验证**：Java 207 条全绿（新增 `OrderLogisticsControllerTest` 2 条：
+平台自营地址成为物流起点、商家自设 / 清空地址与顾客越权）；
+浏览器实测管理员平台自营与商家资料页两个入口：保存、回显、未定位提示、
+已定位坐标展示；未改地址直接保存时坐标保留。
+验证当天腾讯 Key 的 Geocoder 日报额度用尽（status 121），
+因此坐标解析走的是失败提示 + 虚拟仓兜底；「有坐标」的起点分支由后端测试覆盖。
+
+**边界**：这是**确定性模拟**，不接承运商 API；真实项目要接快递100 / 快递鸟回调，
+并用承运商轨迹覆盖模拟状态。
 
 ---
 

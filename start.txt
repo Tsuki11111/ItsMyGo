@@ -68,6 +68,15 @@ cd /d/PycharmProjects/rag_helper
 #
 # 智能下单 / 退款（M9/M10）：agent 只准备草稿，用户在聊天卡片确认后 Java 才执行；
 # 一键停用：在 .env 设 AGENT_ACTIONS_ENABLED=false 并重启后端。
+#
+# 虚拟物流（M7.5）：默认 120 分钟送达；想快速看完整轨迹，启动后端时设
+# LOGISTICS_DELIVERY_MINUTES=2。订单详情页地图需要腾讯位置服务 Web 端
+# （JavaScript API GL）Key：在 frontend/.env.local 配 VITE_TMAP_KEY，然后重启前端。
+#
+# 发货地址（M7.6）：商家在「商家后台 → 店铺资料 → 发货地址」设置，平台在
+# 「管理后台 → 商户管理 → 发货地址」代设（平台自营 id=1 同一入口）。
+# 点「解析坐标」需要该 Key 开通 WebServiceAPI 且当日额度未用完；
+# 解析失败或额度用尽仍可保存地址，发货时回退虚拟转运中心。
 
 
 # ─────────────────────────────────────────────

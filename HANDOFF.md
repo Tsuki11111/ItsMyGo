@@ -48,13 +48,20 @@ Java 再按 `agent_sessions` 二次校验），消息页可切换历史会话、
 提交令牌，退款复用 `applyRefund`；支付仍在订单页。
 **M11–M13 AI 导购已完成（2026-10-21）**：新增 product-guide 子 agent；商品搜索支持
 分类 / 价格 / 排序 / 销量 / 评分 / 库存；关键词不足时走语义检索；聊天里渲染商品卡
-（历史可恢复），并按最终回复引用裁剪。后端 **自动化测试 202 条**。
+（历史可恢复），并按最终回复引用裁剪。
+**M7.5 虚拟物流 + M7.6 商家 / 平台发货地址已完成（2026-10-21）**：发货生成虚拟运单，
+状态按时间推进，预计送达 = 实际送达；订单详情页有物流时间线与腾讯地图（需配 `VITE_TMAP_KEY`）；
+发货起点优先用商家配置的发货坐标，未定位时回退虚拟转运中心；商家在店铺资料页、
+平台在 `/admin/merchants` 都能设置（平台自营 id=1 同一入口）。agent 查订单能看到
+物流状态 / ETA。后端 **自动化测试 207 条**。
 
-**下一步：M8 催办动作仍按用户要求跳过** —— 通用动作层（`agent_actions` + 确认门）
-已经就绪，后续接催发货 / 催退款只需加两种动作类型；也可以做 M14 导购增强
-（商品对比 / 加入购物车）或商家侧动作。联调需要先启动 rag_helper gRPC（8003）
-和 Java 后端（8080），并在 `.env` 配好 `AGENT_GRPC_KEY`；智能动作还可用
-`AGENT_ACTIONS_ENABLED=false` 一键停。
+**下一步：M8 催办动作** —— M7.5 物流已就绪；催发货可用订单状态 + `shipments` 状态，
+催退款还需要 `refund_applied_at`（当前 schema 还没有，M8 开工时补 **V24**，V23 已被
+发货地址占用）。
+通用动作层（`agent_actions` + 确认门）已就绪，后续接催发货 / 催退款只需加两种动作类型；
+也可以做 M14 导购增强（商品对比 / 加入购物车）或商家侧动作。联调需要先启动
+rag_helper gRPC（8003）和 Java 后端（8080），并在 `.env` 配好 `AGENT_GRPC_KEY`；
+智能动作还可用 `AGENT_ACTIONS_ENABLED=false` 一键停。
 
 **交接前先看 `git status`** —— 本轮改动可能尚未提交，见 §6 最新一条。
 
@@ -998,9 +1005,109 @@ HTTP 失败、401、业务错误都返回可读字符串，让主 agent 能正�
 **② 语义检索只按 `score > 0` 会把整目录塞给模型。** 余弦分数对不相关商品也可能
 是正数；用相对阈值（最高分 × 0.8，且不低于 0.15）只保留接近的候选。
 
+### 5.31 ★ 虚拟物流的五个坑（2026-10-21 踩到 / 补齐）
+
+**① ETA 必须是“等于”，不是“约等于”。** 本项目约定：到点后状态必为 `DELIVERED`，
+`delivered_at = eta`。不要再生成一个独立的“实际送达”随机值，否则前端两个时间对不上。
+
+**② 阶段用分钟取整会把短演示吃掉。** 2 分钟送达时 `totalMinutes / 4 = 0`，
+`max(1, ...)` 让「运输中」和「派送中」挤在同一分钟。改用**秒**计算，
+2 分钟也能看到完整的四个阶段。
+
+**③ MySQL DATETIME 是秒精度。** 测试里构造的 `eta` 带纳秒，写库后会被舍入，
+`delivered_at` 和内存里的 `eta` 可能差 1 秒。测试时间戳用 `.withNano(0)`。
+
+**④ 腾讯地图 Key 是 Web 端（JavaScript API GL）Key。** 放 `frontend/.env.local`
+的 `VITE_TMAP_KEY`；在腾讯位置服务控制台把域名限制到 localhost / 部署域名。
+`TMap.service.Geocoder` 需要 Key 开通 WebServiceAPI 权限；没开通时地图仍能显示，
+收货地址退回城市中心兜底。没有 Key 时页面显示配置提示，时间线不受影响。
+
+**⑤ 老订单没有运单。** V22 之前发货的订单没有 `shipments` 行；
+`logisticsForCustomer` 和 agent 查询会按 `shipped_at` 懒生成，ETA 可能已过，
+直接显示「已送达」。**不要给未发货订单生成运单**（`shippedAt == null` 时跳过）。
+
+### 5.32 ★ 发货地址与腾讯地理编码的四个坑（2026-10-21 踩到 / 补齐）
+
+**① `TMap.service` 要 `libraries=service`。** 只引 `gljs?v=1.exp&key=...` 时
+`window.TMap` 有 `Map` / `MultiMarker`，但**没有 `service`**，`new TMap.service.Geocoder()`
+直接报「不可用」。加载 URL 必须带 `&libraries=service`；物流地图和发货地址弹窗
+统一走 `frontend/src/utils/tencentMap.ts` 的 `loadTMap()`，不要再各写一份加载器。
+
+**② 腾讯 Key 的 WebService 地理编码有独立日额度。** 额度用完时 `getLocation`
+reject 的是普通对象 `{status:121, message:"此key每日调用量已达到上限"}`，不是 `Error`；
+前端 catch 要读 `e.message`，否则只会显示笼统的「坐标解析失败」。
+额度耗尽不影响保存地址，只是物流回退虚拟仓。
+
+**③ MyBatis-Plus `updateById` 不会把字段更新成 null。** 清空发货坐标必须用
+`LambdaUpdateWrapper.set(Merchant::getShipLng, null)`；用实体 set null 再 `updateById`
+会保留旧坐标，导致地址改了、地图起点还在老地方。
+
+**④ 地址文字与坐标是两回事。** 商家只填了省市区 + 详细地址、没解析坐标时，
+`ship_lng/ship_lat` 为空，发货仍然从虚拟转运中心出发 —— 不要用 `ship_address` 非空
+来判断“已定位”。前端分别展示「已定位」和「未定位，物流使用虚拟转运中心兜底」。
+
+**⑤ 公开店铺接口要脱敏。** `GET /api/shops/{id}` 复用了 `MerchantView`；
+给 `MerchantView` 加发货仓字段后，`publicShop` 必须走 `toView(merchant, false)`
+把 `ship_*` 置空 / null，否则任何人都能看到商家的仓库地址和坐标。
+`MerchantApplyControllerTest` 已加断言防止回归。
+
 ---
 
 ## 6. 历史记录
+
+### 2026-10-21 · M7.6 商家 / 平台发货地址
+
+**范围**：商家和平台自营都能配置发货地址；发货时优先用商家坐标作为虚拟物流起点，
+未定位时回退原虚拟转运中心池。
+
+**数据库（V23）**：`merchants` 增加 `ship_province / ship_city / ship_district /
+ship_address / ship_lng / ship_lat`。
+
+**后端**：`ShipAddressRequest`；`MerchantService.updateShipAddress` 用
+`LambdaUpdateWrapper` 写入（支持清空 null 坐标）；`PUT /api/merchant/ship-address`
+（商家自设）与 `PUT /api/admin/merchants/{id}/ship-address`（平台代设，含 id=1）；
+`ShipmentServiceImpl.createForOrder` 读订单所属商户，有坐标用 `<店铺名>发货仓`，
+否则用原固定池。经纬度范围校验；老订单 merchantId 为空时不查商户。
+
+**前端**：`utils/tencentMap.ts`（统一加载器 + Geocoder，脚本带 `libraries=service`）；
+`ShipAddressDialog.vue`（省市区级联 + 详细地址 + 解析坐标 + 未定位提示）；
+商家资料页新增「发货地址」区块，管理端商户列表新增「发货地」列和「发货地址」按钮
+（平台自营行同样可用）。`LogisticsMap.vue` 改用统一加载器。
+
+**验证**：Java 207 条全绿（新增发货地址起点、商家自设 / 清空 / 越权 2 条）；
+浏览器实测两个入口的保存、回显、未定位提示和已定位区间；未改地址直接保存时坐标保留。
+验证当天腾讯 Geocoder 日报额度用尽（status 121），坐标解析分支以失败提示验证，
+「有坐标 → 商家发货仓」由后端测试覆盖。
+
+**下一步**：M8 催办；`refund_applied_at` 改用 **V24**。
+
+### 2026-10-21 · M7.5 虚拟物流
+
+**范围**：发货生成虚拟运单；物流状态按时间推进，预计送达 = 实际送达；
+订单详情页新增物流时间线与腾讯地图；agent 查订单能看到物流状态 / ETA。
+
+**数据库（V22）**：`shipments`（order_id 唯一、carrier / courier / origin /
+status / shipped_at / eta / delivered_at）。
+
+**后端**：`ShipmentService` / `ShipmentServiceImpl`（固定池生成虚拟快递公司 /
+快递员 / 发货仓；ETA = shippedAt + `itsmygo.logistics.delivery-minutes`；
+阶段按秒推进；到点写 `delivered_at = eta`）；`OrderServiceImpl.doShip` 创建运单、
+`doApproveRefund` 取消未送达运单；`GET /api/orders/{id}/logistics`；
+老订单按 `shipped_at` 懒生成。`AgentOrderView` 增加 `logistics` 摘要，
+Python order-query 工具输出物流状态 / ETA / 快递公司。
+
+**前端**：`LogisticsPanel.vue`（状态、ETA、快递员、四段时间线）+
+`LogisticsMap.vue`（腾讯地图 JS API GL：`TMap.Map` / `MultiPolyline` / `MultiMarker`，
+Geocoder 解析地址 + 平滑曲线 + 按 progress 插值快递员；Geocoder 失败按城市中心兜底）；
+订单详情页 30 秒轮询，送达 / 取消后停止；`frontend/.env.example` 增加
+`VITE_TMAP_KEY`。
+
+**验证**：Java **205 条全绿**（新增 `OrderLogisticsControllerTest` 3 条：
+生成运单、ETA 到点即送达、未发货 / 越权）；浏览器两分钟演示
+「已揽收 → 运输中 → 派送中 → 已送达（与预计送达时间一致）」；
+未配腾讯 Key 时显示配置提示。
+
+**下一步**：M8 催办；催退款还缺 `refund_applied_at`（用 **V24**，V23 已是发货地址）。
 
 ### 2026-10-21 · M11–M13 AI 导购与商品卡
 

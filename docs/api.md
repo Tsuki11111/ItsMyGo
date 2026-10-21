@@ -1,6 +1,6 @@
 # 一次买够 · 后端 API 接口文档
 
-> 适用版本：schema v21（2026-10-21）
+> 适用版本：schema v22（2026-10-21）
 > 服务地址：`http://localhost:8080`（开发环境，前端经 Vite 代理 `/api` 访问）
 > 本文覆盖 `src/main/java/com/tsuk1/itsmygo/controller/` 下全部接口。
 
@@ -339,7 +339,10 @@ Authorization: Bearer <token>
 
 ### 2.9 商户与店铺
 
-**MerchantView**：`id, name, logo, description, contactName, contactPhone, status, rejectReason, ownerUserId, createdAt`
+**MerchantView**：`id, name, logo, description, contactName, contactPhone, shipProvince, shipCity, shipDistrict, shipAddress, shipLng, shipLat, status, rejectReason, ownerUserId, createdAt`
+
+- `GET /api/shops/{id}`（公开店铺）返回的 `ship*` 一律为空 / `null`，不暴露发货仓；
+  只有商家自己（`/api/merchant/profile`）和平台后台能读到真实值。
 
 **AdminMerchantView** = `MerchantView` + `ownerUsername`
 
@@ -359,6 +362,23 @@ Authorization: Bearer <token>
 - 默认店铺 id=1「平台自营」由管理员处理消息，`ownerUserId=null`。
 
 **MerchantRejectRequest**：`{ "reason": "资料不完整" }`
+
+**ShipAddressRequest（发货地址）**：
+
+```json
+{
+  "province": "浙江省",
+  "city": "杭州市",
+  "district": "西湖区",
+  "address": "文三路 138 号",
+  "lng": 120.11393,
+  "lat": 30.27654
+}
+```
+
+- 全部字段可空，传空即清空；`lng` / `lat` 必须成对，缺一视为未定位。
+- 有坐标时虚拟物流从「店铺名 + 发货仓」出发；没有坐标时回退虚拟转运中心。
+- 经度范围 `[-180, 180]`、纬度范围 `[-90, 90]`。
 
 ### 2.10 聊天
 
@@ -540,6 +560,7 @@ Authorization: Bearer <token>
 | POST | `/api/orders` | 登录 | `CreateOrderRequest` | `CheckoutView` |
 | GET | `/api/orders` | 登录 | `page=1, size=10, previewLimit=3, status?` | `PageResponse<OrderView>` |
 | GET | `/api/orders/{id}` | 登录 | — | `OrderView` |
+| GET | `/api/orders/{id}/logistics` | 登录 | — | `LogisticsView \| null`（未发货为 null） |
 | POST | `/api/orders/{id}/pay` | 登录 | — | `OrderView` |
 | POST | `/api/orders/{id}/cancel` | 登录 | — | `OrderView` |
 | POST | `/api/orders/{id}/confirm` | 登录 | — | `OrderView` |
@@ -554,6 +575,40 @@ Authorization: Bearer <token>
 - 取消会回滚库存；使用了未过期优惠券会自动退回。
 - 申请退款要求状态为 `PAID` / `SHIPPED` / `COMPLETED`，进入 `REFUNDING` 等审核。
 - 下单失败会回补 Redis 预扣库存；令牌一次性消费，防重复提交。
+
+**LogisticsView（虚拟物流）**
+
+```json
+{
+  "orderNo": "20261021204818419865",
+  "trackingNo": "SFVIRTUAL002",
+  "carrier": "极速物流",
+  "courierName": "赵师傅",
+  "courierPhone": "13800001233",
+  "status": "IN_TRANSIT",
+  "statusLabel": "运输中",
+  "shippedAt": "2026-10-21 20:48:20",
+  "eta": "2026-10-21 20:50:20",
+  "deliveredAt": "",
+  "progress": 42,
+  "originName": "杭州转运中心",
+  "originLng": 120.15507,
+  "originLat": 30.274084,
+  "destAddress": "浙江省杭州市西湖区文三路 1 号",
+  "timeline": [
+    { "status": "PICKED_UP", "label": "已揽收", "time": "2026-10-21 20:48:20", "done": true },
+    { "status": "IN_TRANSIT", "label": "运输中", "time": "2026-10-21 20:48:50", "done": true },
+    { "status": "OUT_FOR_DELIVERY", "label": "派送中", "time": "2026-10-21 20:49:56", "done": false },
+    { "status": "DELIVERED", "label": "已送达", "time": "2026-10-21 20:50:20", "done": false }
+  ]
+}
+```
+
+- 只有订单所属用户可读；未发货返回 `data: null`。
+- `eta` 就是最终送达时间；到点后 `status=DELIVERED`、`deliveredAt=eta`。
+- `originName` 可能是「XX 转运中心」（未配发货地址）或「店铺名 + 发货仓」
+  （商家 / 平台自营配置了发货坐标）。
+- `destAddress` 只给前端腾讯地图做地理编码，**不进入 agent 上下文**。
 
 ---
 
@@ -644,6 +699,10 @@ Authorization: Bearer <token>
 |---|---|---|---|
 | GET | `/api/merchant/profile` | — | `MerchantView` |
 | PUT | `/api/merchant/profile` | `MerchantRequest` | `MerchantView` |
+| PUT | `/api/merchant/ship-address` | `ShipAddressRequest` | `MerchantView` |
+
+- `/ship-address` 只改当前商家的发货地址，不改店铺资料；平台自营店的发货地址由
+  `/api/admin/merchants/{id}/ship-address` 代设。
 
 ### 16.2 商品与 SKU
 
@@ -739,9 +798,12 @@ Authorization: Bearer <token>
 | POST | `/api/admin/merchants/{id}/reject` | `{reason}` | `null` |
 | POST | `/api/admin/merchants/{id}/disable` | — | `null` |
 | POST | `/api/admin/merchants/{id}/enable` | — | `null` |
+| PUT | `/api/admin/merchants/{id}/ship-address` | `ShipAddressRequest` | `MerchantView` |
 
 - 只有 `PENDING` 能通过/驳回；默认店铺不能审核/禁用/转让。
 - 审核/禁用后对应的授权缓存立即失效。
+- `ship-address` 可用于所有商户，包括平台自营（id=1）；平台自营没有店主账号，
+  只能从这里设置发货地址。
 
 ### 17.3 商品与 SKU
 
@@ -1025,6 +1087,14 @@ agent 服务在对话过程中需要实时数据时，会反向回调 Java 的�
   "createdAt": "2026-10-19 15:16:14",
   "paidAt": "2026-10-19 15:16:30",
   "shippedAt": "2026-10-19 15:17:02",
+  "logistics": {
+    "status": "IN_TRANSIT",
+    "statusLabel": "运输中",
+    "eta": "2026-10-21 20:50:20",
+    "carrier": "极速物流",
+    "courierName": "赵师傅",
+    "progress": 42
+  },
   "items": [
     { "productName": "商家A测试商品", "specText": "颜色:黑色", "quantity": 1, "unitPrice": "66.00" }
   ]
