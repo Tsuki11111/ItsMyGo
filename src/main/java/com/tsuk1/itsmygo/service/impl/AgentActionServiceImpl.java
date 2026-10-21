@@ -23,6 +23,7 @@ import com.tsuk1.itsmygo.entity.ProductSku;
 import com.tsuk1.itsmygo.mapper.AddressMapper;
 import com.tsuk1.itsmygo.mapper.AgentActionMapper;
 import com.tsuk1.itsmygo.mapper.MerchantMapper;
+import com.tsuk1.itsmygo.mapper.OrderMapper;
 import com.tsuk1.itsmygo.mapper.ProductMapper;
 import com.tsuk1.itsmygo.mapper.ProductSkuMapper;
 import com.tsuk1.itsmygo.service.AgentActionService;
@@ -39,10 +40,12 @@ import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -68,6 +71,7 @@ public class AgentActionServiceImpl implements AgentActionService {
     private final ProductMapper productMapper;
     private final ProductSkuMapper skuMapper;
     private final MerchantMapper merchantMapper;
+    private final OrderMapper orderMapper;
     private final OrderService orderService;
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
@@ -78,6 +82,7 @@ public class AgentActionServiceImpl implements AgentActionService {
                                   ProductMapper productMapper,
                                   ProductSkuMapper skuMapper,
                                   MerchantMapper merchantMapper,
+                                  OrderMapper orderMapper,
                                   OrderService orderService,
                                   StringRedisTemplate redis,
                                   ObjectMapper objectMapper,
@@ -87,6 +92,7 @@ public class AgentActionServiceImpl implements AgentActionService {
         this.productMapper = productMapper;
         this.skuMapper = skuMapper;
         this.merchantMapper = merchantMapper;
+        this.orderMapper = orderMapper;
         this.orderService = orderService;
         this.redis = redis;
         this.objectMapper = objectMapper;
@@ -345,7 +351,7 @@ public class AgentActionServiceImpl implements AgentActionService {
                 action.setStatus(AgentActionStatus.EXPIRED.name());
             }
         }
-        return actions.stream().map(this::toView).toList();
+        return toViews(actions);
     }
 
     // ── 执行 ──
@@ -451,16 +457,112 @@ public class AgentActionServiceImpl implements AgentActionService {
         actionMapper.updateById(action);
     }
 
+    private List<AgentActionView> toViews(List<AgentAction> actions) {
+        Set<Long> orderIds = new HashSet<>();
+        for (AgentAction action : actions) {
+            collectOrderIds(action, orderIds);
+        }
+        Map<Long, Order> currentOrders = orderIds.isEmpty() ? Map.of()
+                : orderMapper.selectByIds(orderIds).stream()
+                .collect(Collectors.toMap(Order::getId, Function.identity()));
+        return actions.stream().map(action -> toView(action, currentOrders)).toList();
+    }
+
+    private void collectOrderIds(AgentAction action, Set<Long> orderIds) {
+        if (!AgentActionStatus.SUCCEEDED.name().equals(action.getStatus())) {
+            return;
+        }
+        Object result = readJson(action.getResultJson());
+        if (!(result instanceof Map<?, ?> map)) {
+            return;
+        }
+        if (AgentActionType.CREATE_ORDER.name().equals(action.getType())) {
+            if (map.get("orders") instanceof List<?> orders) {
+                for (Object item : orders) {
+                    if (item instanceof Map<?, ?> order) {
+                        Long id = toLong(order.get("id"));
+                        if (id != null) {
+                            orderIds.add(id);
+                        }
+                    }
+                }
+            }
+        } else if (AgentActionType.APPLY_REFUND.name().equals(action.getType())) {
+            Long id = toLong(map.get("orderId"));
+            if (id != null) {
+                orderIds.add(id);
+            }
+        }
+    }
+
     private AgentActionView toView(AgentAction action) {
+        return toView(action, Map.of());
+    }
+
+    private AgentActionView toView(AgentAction action, Map<Long, Order> currentOrders) {
+        Object result = readJson(action.getResultJson());
+        enrichResult(action, result, currentOrders);
         return new AgentActionView(
                 action.getActionNo(),
                 action.getType(),
                 action.getStatus(),
                 readJson(action.getSummaryJson()),
-                readJson(action.getResultJson()),
+                result,
                 nullToEmpty(action.getErrorMessage()),
                 action.getExpiresAt(),
                 action.getCreatedAt());
+    }
+
+    /** 动作结果是执行时的快照；读取列表时用订单当前状态覆盖，支付 / 发货后卡片才不会停在旧状态。 */
+    private void enrichResult(AgentAction action, Object result, Map<Long, Order> currentOrders) {
+        if (!(result instanceof Map<?, ?> raw)) {
+            return;
+        }
+        @SuppressWarnings("unchecked")
+        Map<String, Object> map = (Map<String, Object>) raw;
+        if (AgentActionType.CREATE_ORDER.name().equals(action.getType())) {
+            if (map.get("orders") instanceof List<?> orders) {
+                for (Object item : orders) {
+                    if (item instanceof Map<?, ?> rawOrder) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> order = (Map<String, Object>) rawOrder;
+                        applyOrderStatus(order, currentOrders.get(toLong(order.get("id"))));
+                    }
+                }
+            }
+        } else if (AgentActionType.APPLY_REFUND.name().equals(action.getType())) {
+            applyOrderStatus(map, currentOrders.get(toLong(map.get("orderId"))));
+        }
+    }
+
+    private void applyOrderStatus(Map<String, Object> target, Order order) {
+        if (order == null) {
+            return;
+        }
+        target.put("status", order.getStatus());
+        target.put("statusLabel", statusLabel(order.getStatus()));
+    }
+
+    private String statusLabel(String status) {
+        try {
+            return OrderStatus.valueOf(status).label();
+        } catch (Exception e) {
+            return status;
+        }
+    }
+
+    private Long toLong(Object value) {
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        if (value instanceof String text) {
+            try {
+                return Long.parseLong(text);
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
     }
 
     private Map<String, Object> lineView(Line line) {

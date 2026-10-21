@@ -106,6 +106,17 @@ class AgentActionControllerTest extends ApiTestBase {
                 .andExpect(jsonPath("$.data.records.length()").value(1))
                 .andExpect(jsonPath("$.data.records[0].order.id").value(orderId));
         assertThat(productSkuMapper.selectById(skuId).getStock()).isEqualTo(8);
+
+        // 支付后动作卡片要回查订单当前状态，不能停在执行时的「待支付」快照
+        mockMvc.perform(post("/api/orders/" + orderId + "/pay")
+                        .header("Authorization", bearer(token)))
+                .andExpect(jsonPath("$.code").value(200));
+        mockMvc.perform(get("/api/agent/actions")
+                        .header("Authorization", bearer(token))
+                        .param("sessionId", "sess-test"))
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data[0].result.orders[0].status").value("PAID"))
+                .andExpect(jsonPath("$.data[0].result.orders[0].statusLabel").value("已支付"));
     }
 
     @Test

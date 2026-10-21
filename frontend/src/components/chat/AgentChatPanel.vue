@@ -25,6 +25,7 @@ import { useUserStore } from '@/stores/user'
 import type {
   AgentActionView,
   AgentImage,
+  AgentOrderResult,
   AgentSessionView,
   AgentStreamEvent,
   AgentTraceEvent,
@@ -97,6 +98,27 @@ const suggestions = computed(() =>
 
 const canSend = computed(() => input.value.trim().length > 0 && !streaming.value)
 
+/**
+ * 只展示还需要用户关注的卡片：
+ * - 待确认 / 执行中 / 失败：保留
+ * - 已取消 / 已过期：隐藏
+ * - 已完成：默认隐藏；但下单成功且订单还没支付时保留，否则用户没有「去支付」入口
+ */
+const visibleActions = computed(() =>
+  actions.value.filter((action) => {
+    if (action.status === 'PENDING_CONFIRM'
+        || action.status === 'EXECUTING'
+        || action.status === 'FAILED') {
+      return true
+    }
+    if (action.status === 'SUCCEEDED' && action.type === 'CREATE_ORDER') {
+      const result = action.result as AgentOrderResult | null
+      return !!result?.orders.some((order) => order.status === 'PENDING_PAYMENT')
+    }
+    return false
+  }),
+)
+
 const TRACE_LABELS: Record<string, string> = {
   delegate: '派发',
   tool: '工具',
@@ -141,6 +163,13 @@ function onActionUpdated(updated: AgentActionView) {
   const index = actions.value.findIndex((item) => item.actionNo === updated.actionNo)
   if (index >= 0) actions.value[index] = updated
   else actions.value.push(updated)
+}
+
+/** 用户去订单页支付 / 商家处理退款后回到聊天：重新拉一次动作，卡片状态才会更新 */
+function onVisibilityChange() {
+  if (document.visibilityState === 'visible' && sessionId.value && !streaming.value) {
+    void loadActions(sessionId.value)
+  }
 }
 
 async function scrollToBottom() {
@@ -358,6 +387,7 @@ function onEnter(event: KeyboardEvent) {
 }
 
 onMounted(async () => {
+  document.addEventListener('visibilitychange', onVisibilityChange)
   await refreshSessions()
   const saved = sessionKey.value ? localStorage.getItem(sessionKey.value) : null
   const target = saved || sessions.value[0]?.sessionId || null
@@ -371,6 +401,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  document.removeEventListener('visibilitychange', onVisibilityChange)
   abortController?.abort()
   if (streaming.value && sessionId.value && runId.value) {
     void stopAgent(sessionId.value, runId.value).catch(() => undefined)
@@ -506,7 +537,7 @@ onBeforeUnmount(() => {
         </div>
       </template>
 
-      <div v-else-if="!actions.length" class="welcome">
+      <div v-else-if="!visibleActions.length" class="welcome">
         <p class="greeting">你好，我是买小购。</p>
         <p>{{ intro }}</p>
         <p class="pending">可以问我产品使用、参数或售后问题。</p>
@@ -528,9 +559,9 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div v-if="actions.length" class="action-list">
+      <div v-if="visibleActions.length" class="action-list">
         <AgentActionCard
-          v-for="action in actions"
+          v-for="action in visibleActions"
           :key="action.actionNo"
           :action="action"
           @updated="onActionUpdated"

@@ -24,8 +24,29 @@ const orderSummary = computed(() => props.action.summary as AgentOrderSummary)
 const refundSummary = computed(() => props.action.summary as AgentRefundSummary)
 const orderResult = computed(() => props.action.result as AgentOrderResult | null)
 const refundResult = computed(() => props.action.result as AgentRefundResult | null)
+const hasPendingPayment = computed(() =>
+  !!orderResult.value?.orders.some((order) => order.status === 'PENDING_PAYMENT'),
+)
 
-const title = computed(() => (isOrder.value ? '订单待确认' : '退款待确认'))
+const title = computed(() => {
+  const order = isOrder.value
+  switch (props.action.status) {
+    case 'PENDING_CONFIRM':
+      return order ? '订单待确认' : '退款待确认'
+    case 'EXECUTING':
+      return order ? '正在下单' : '正在提交退款'
+    case 'SUCCEEDED':
+      return order ? '订单已创建' : '退款申请已提交'
+    case 'FAILED':
+      return order ? '下单失败' : '退款提交失败'
+    case 'CANCELLED':
+      return order ? '订单草稿已取消' : '退款草稿已取消'
+    case 'EXPIRED':
+      return order ? '订单草稿已过期' : '退款草稿已过期'
+    default:
+      return order ? '订单' : '退款'
+  }
+})
 
 const statusText = computed(() => {
   switch (props.action.status) {
@@ -151,7 +172,7 @@ async function cancel() {
         <span>共 {{ orderSummary.itemCount }} 件</span>
         <span>应付 <strong class="total">¥{{ orderSummary.totalAmount }}</strong></span>
       </div>
-      <p class="note">{{ orderSummary.note }}</p>
+      <p v-if="pending" class="note">{{ orderSummary.note }}</p>
     </template>
 
     <template v-else>
@@ -177,20 +198,31 @@ async function cancel() {
         <span>退款金额</span>
         <strong class="total">¥{{ refundSummary.totalAmount }}</strong>
       </div>
-      <p class="note">{{ refundSummary.note }}</p>
+      <p v-if="pending" class="note">{{ refundSummary.note }}</p>
     </template>
 
     <div v-if="action.status === 'SUCCEEDED'" class="result">
       <template v-if="isOrder && orderResult">
         <p v-for="order in orderResult.orders" :key="order.id" class="result-line">
           <span>订单 {{ order.orderNo }} · {{ order.statusLabel }} · ¥{{ order.totalAmount }}</span>
-          <router-link :to="`/order/${order.id}`" class="pay-link">去支付</router-link>
+          <router-link
+            v-if="order.status === 'PENDING_PAYMENT'"
+            :to="`/order/${order.id}`"
+            class="pay-link"
+          >
+            去支付
+          </router-link>
         </p>
-        <p class="note">{{ orderResult.note }}</p>
+        <p v-if="hasPendingPayment" class="note">{{ orderResult.note }}</p>
       </template>
       <template v-else-if="!isOrder && refundResult">
         <p class="result-line">
-          {{ refundResult.note }}（当前状态：{{ refundResult.statusLabel }}）
+          <template v-if="refundResult.status === 'REFUNDING'">
+            {{ refundResult.note }}（当前状态：{{ refundResult.statusLabel }}）
+          </template>
+          <template v-else>
+            当前状态：{{ refundResult.statusLabel }}
+          </template>
         </p>
       </template>
     </div>
