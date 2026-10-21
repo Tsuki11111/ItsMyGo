@@ -937,7 +937,8 @@ data: {"userId":1,"customerUnread":0,"merchantUnread":0}
 ```
 
 - `traces` 是该轮执行流；老消息没有 trace，返回空数组。
-- 前端历史消息默认折叠成一行「执行过程 · N 步」，点击展开全部步骤。
+- `products` 是该轮导购推荐的商品卡；老消息没有 products，返回空数组。
+  前端历史消息默认折叠成一行「执行过程 · N 步」，点击展开全部步骤。
 
 ### 19.2 Converse SSE 事件
 
@@ -954,7 +955,7 @@ data: {"kind":"delegate","agent":"product-kb","detail":"检索产品手册"}
 | `trace` | `{kind, agent, detail}`（`kind`：delegate/tool/result/reply/node） |
 | `delta` | `{delta}`（一期通常不出现，前端仍兼容） |
 | `usage` | `{calls, failed, totalTokens, cost, elapsedMs, unpricedCalls}` |
-| `final` | `{answer, images:[{url,caption}], webOnly}` |
+| `final` | `{answer, images:[{url,caption}], products:[ProductCard], webOnly}` |
 | `error` | `{code, message, retryable}` |
 | `done` | `{reason: "final" / "stopped" / "error"}` |
 
@@ -985,10 +986,18 @@ agent 服务在对话过程中需要实时数据时，会反向回调 Java 的�
 | 方法 | 路径 | 鉴权 | 请求 | 返回 |
 |---|---|---|---|---|
 | POST | `/internal/agent/orders/query` | `X-Agent-Ticket` | `{orderNo?, status?, limit?}` | `AgentOrderView[]` |
-| POST | `/internal/agent/catalog/products` | `X-Agent-Ticket` | `{keyword, limit?}` | `AgentProductView[]` |
+| POST | `/internal/agent/catalog/products` | `X-Agent-Ticket` | `{keyword?, categoryId?, priceMin?, priceMax?, sort?, limit?}` | `AgentProductView[]` |
+| GET | `/internal/agent/catalog/all` | `X-Agent-Ticket` | `limit=100` | `AgentProductView[]` |
+| GET | `/internal/agent/catalog/categories` | `X-Agent-Ticket` | — | `CategoryNode[]` |
 | GET | `/internal/agent/catalog/addresses` | `X-Agent-Ticket` | — | `AgentAddressView[]` |
 | POST | `/internal/agent/actions/order` | `X-Agent-Ticket` | `{addressId?, items:[{productId,skuId,quantity}]}` | `AgentActionView` |
 | POST | `/internal/agent/actions/refund` | `X-Agent-Ticket` | `{orderNo}` | `AgentActionView` |
+
+- 商品搜索：`sort` 取 `recommend`（默认，有货优先 + 销量/评分）/ `sales` /
+  `price_asc` / `price_desc` / `newest`；`limit` 默认 5、上限 10。
+- `AgentProductView` 带 `price / totalStock / sales / rating / reviewCount /
+  merchantName / categoryName / skus`；`/catalog/all` 是语义索引的全量入口（上限 100）。
+- 商品目录**不做 text2sql**：模型只选筛选参数，SQL 由 Java 固定生成。
 
 - 商品搜索返回商品与 SKU（skuId / specText / price / stock），供 agent 落到具体规格。
 - 地址只返回当前票据用户自己的；动作准备接口只落 `PENDING_CONFIRM` 草稿，**不执行**。
@@ -1021,6 +1030,26 @@ agent 服务在对话过程中需要实时数据时，会反向回调 Java 的�
   ]
 }
 ```
+
+**ProductCard**（final / 历史里的导购商品卡）
+
+```json
+{
+  "productId": "1655",
+  "name": "兄弟 HAK 180 烫金机",
+  "image": "",
+  "price": "1999.00",
+  "stock": "4",
+  "sales": "92",
+  "rating": "",
+  "merchantName": "平台自营",
+  "specText": "",
+  "categoryName": "办公设备"
+}
+```
+
+- 最终回复里的 `products` 只保留回复实际引用到的商品（`/product/{id}` 或商品名）；
+  历史消息同样返回该字段。
 
 ### 19.4 待确认动作（浏览器确认接口）
 

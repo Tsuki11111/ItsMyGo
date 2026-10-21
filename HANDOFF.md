@@ -45,12 +45,16 @@ Java 再按 `agent_sessions` 二次校验），消息页可切换历史会话、
 签发 10 分钟票据（gRPC metadata 下发，不进模型上下文），Java 只认票据里的 userId。
 **M9/M10 智能下单与退款申请已完成（2026-10-21）**：agent 能搜索商品、准备订单草稿、
 准备退款草稿；聊天里渲染确认卡片，用户确认后 Java 才执行。下单复用现有拆单 / 库存 /
-提交令牌，退款复用 `applyRefund`；支付仍在订单页。后端 **自动化测试 200 条**。
+提交令牌，退款复用 `applyRefund`；支付仍在订单页。
+**M11–M13 AI 导购已完成（2026-10-21）**：新增 product-guide 子 agent；商品搜索支持
+分类 / 价格 / 排序 / 销量 / 评分 / 库存；关键词不足时走语义检索；聊天里渲染商品卡
+（历史可恢复），并按最终回复引用裁剪。后端 **自动化测试 202 条**。
 
-**下一步：M8 催办动作本轮按用户要求跳过** —— 通用动作层（`agent_actions` + 确认门）
-已经就绪，后续接催发货 / 催退款只需加两种动作类型；也可以继续做商家侧动作。
-联调需要先启动 rag_helper gRPC（8003）和 Java 后端（8080），并在 `.env` 配好
-`AGENT_GRPC_KEY`；智能动作还可用 `AGENT_ACTIONS_ENABLED=false` 一键停。
+**下一步：M8 催办动作仍按用户要求跳过** —— 通用动作层（`agent_actions` + 确认门）
+已经就绪，后续接催发货 / 催退款只需加两种动作类型；也可以做 M14 导购增强
+（商品对比 / 加入购物车）或商家侧动作。联调需要先启动 rag_helper gRPC（8003）
+和 Java 后端（8080），并在 `.env` 配好 `AGENT_GRPC_KEY`；智能动作还可用
+`AGENT_ACTIONS_ENABLED=false` 一键停。
 
 **交接前先看 `git status`** —— 本轮改动可能尚未提交，见 §6 最新一条。
 
@@ -984,9 +988,45 @@ HTTP 失败、401、业务错误都返回可读字符串，让主 agent 能正�
 `minmax(0, 1fr)` 或 `min-width: 0`；否则再多的 `overflow-wrap` 也挡不住
 「最小内容宽度」把容器撑开。
 
+### 5.30 ★ 导购商品卡的两个坑（2026-10-21 踩到 / 补齐）
+
+**① 多次搜索会把中间候选全塞进 final。** 导购为了找对商品会换关键词、分类浏览、
+语义检索，工具每次调用都把商品卡放进收集桶；如果收尾不按最终回复裁剪，
+用户会看到一堆无关商品卡。`_reconcile_reply_products` 按 `/product/{id}` 或
+精确商品名保留，零引用时才回退前 3 张。
+
+**② 语义检索只按 `score > 0` 会把整目录塞给模型。** 余弦分数对不相关商品也可能
+是正数；用相对阈值（最高分 × 0.8，且不低于 0.15）只保留接近的候选。
+
 ---
 
 ## 6. 历史记录
+
+### 2026-10-21 · M11–M13 AI 导购与商品卡
+
+**范围**：新增 AI 导购子 agent；商品搜索支持分类 / 价格 / 排序 / 销量 / 评分 / 库存；
+关键词不足时语义检索；聊天里渲染商品卡并持久化到历史。
+
+**Java**：`AgentCatalogService` 扩 `AgentProductSearchRequest`（keyword / categoryId /
+priceMin / priceMax / sort / limit）；批量回填评价、店铺、分类；
+`/internal/agent/catalog/products|all|categories` 三个内部接口；
+`AgentProductView` 新增销量 / 评分 / 库存 / 店铺 / 分类 / 详情摘要；
+proto 增加 `ProductCard`，`FinalEvent.products` / `HistoryMessage.products`。
+
+**rag_helper**：新增 `product-guide` 子 agent（search_products /
+semantic_search_products / list_categories）；`semantic_index` 用 DashScope embedding
++ 内存余弦（TTL 300s，关键词不足自动回退）；商品卡 ContextVar 收集，
+`_merge_products` 去重、`_reconcile_reply_products` 按最终回复裁剪；
+Mongo `chat_message.products` 存档并在 GetHistory 返回。
+
+**前端**：`AgentProductCard.vue`（图片 / 价格 / 库存 / 销量 / 店铺 / 查看详情 /
+让买小购下单）；`AgentChatPanel.vue` 在 final 与历史里渲染商品卡网格。
+
+**验证**：Java **202 条全绿**（新增 AgentCatalogToolTest 2 条）；rag_helper 回归
+**56/56**（新增导购工具、语义索引、商品卡往返、商品卡对账）；浏览器实测
+「能做名片烫金的设备，预算 3000」→ 语义回退找到 HAK 180，商品卡与历史各 1 张。
+
+**下一步**：M8 催办（仍跳过）或 M14 导购增强（对比 / 加入购物车）。
 
 ### 2026-10-21 · 动作卡片状态不随订单更新
 

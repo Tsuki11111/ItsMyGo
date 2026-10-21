@@ -1146,6 +1146,44 @@ SUCCEEDED / FAILED`，另有 `CANCELLED` / `EXPIRED`。
 退款、无票据），全量 200 条；rag_helper 回归 52/52；浏览器实测三张卡片渲染、
 确认下单后生成新订单并出现「去支付」。
 
+### 3.21 AI 导购、商品搜索与商品卡（M11–M13，2026-10-21）
+
+**拓扑**：主 agent 新增 `product-guide` 子 agent（rag_helper），与
+`product-kb`（产品手册）、`order-query`（订单 / 下单 / 退款）分工：
+
+- 想买 / 推荐 / 预算 / 用途 → `product-guide`
+- 怎么用 / 参数 → `product-kb`
+- 订单 / 退款 / 已选定商品下单 → `order-query`
+
+**商品目录接口**（内部，`X-Agent-Ticket`）：
+
+- `POST /internal/agent/catalog/products`：
+  `keyword / categoryId / priceMin / priceMax / sort / limit`；
+  `sort = recommend`（有货优先，销量 / 评分降序）/ `sales` / `price_asc` /
+  `price_desc` / `newest`
+- `GET /internal/agent/catalog/all?limit=100`：语义索引全量（在售 + ACTIVE 店铺）
+- `GET /internal/agent/catalog/categories`：分类树
+
+`AgentProductView` 带 `price / totalStock / sales / rating / reviewCount /
+merchantName / categoryName / skus`；评价用 `ReviewMapper.statsByProductIds`
+批量回填，避免 N+1。商品量小，推荐排序在内存里做；**不做 text2sql** ——
+模型只选筛选参数，不写 SQL。
+
+**语义检索（M13）**：rag_helper 的 `semantic_index` 拉取全量商品，用既有
+DashScope embedding 生成向量，内存余弦排序；缓存 TTL 300 秒。关键词结果少于 2 条
+时自动语义回退；embedding 失败只走关键词，不阻断对话。量大了再迁移 Milvus /
+搜索引擎。
+
+**商品卡（M12）**：`FinalEvent.products` / `HistoryMessage.products`（proto 加字段，
+向后兼容）；前端 `AgentProductCard.vue` 渲染图片 / 价格 / 库存 / 销量 / 店铺，
+「查看详情」跳 `/product/{id}`，「让买小购下单」把商品名与规格带回对话。
+主 agent 收尾时按最终回复里的 `/product/{id}` 或精确商品名**裁商品卡**，
+避免把中间搜索的无关候选全挂上去；历史同样持久化。
+
+**测试**：Java 202 条（新增 `AgentCatalogToolTest` 2 条）；rag_helper 回归 **56/56**
+（新增导购工具、语义索引、商品卡往返、商品卡对账）；浏览器实测语义问题
+「能做名片烫金的设备，预算 3000」→ 推荐 HAK 180，商品卡与历史各 1 张。
+
 ---
 
 ## 4. 前端（`frontend/`）
