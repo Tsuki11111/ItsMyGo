@@ -5,6 +5,7 @@ import com.tsuk1.itsmygo.common.ResultCode;
 import com.tsuk1.itsmygo.common.exception.BizException;
 import com.tsuk1.itsmygo.dto.MerchantRequest;
 import com.tsuk1.itsmygo.dto.MerchantView;
+import com.tsuk1.itsmygo.dto.ShipAddressRequest;
 import com.tsuk1.itsmygo.security.CurrentUser;
 import com.tsuk1.itsmygo.service.MerchantService;
 import jakarta.validation.Valid;
@@ -35,6 +36,12 @@ public class MerchantController {
     public Result<MerchantView> update(@AuthenticationPrincipal CurrentUser user,
                                        @Valid @RequestBody MerchantRequest request) {
         return Result.ok(merchantService.updateProfile(requireMerchant(user), request));
+    }
+
+    @PutMapping("/ship-address")
+    public Result<MerchantView> updateShipAddress(@AuthenticationPrincipal CurrentUser user,
+                                                  @Valid @RequestBody ShipAddressRequest request) {
+        return Result.ok(merchantService.updateShipAddress(requireMerchant(user), request));
     }
 
     private Long requireMerchant(CurrentUser user) {

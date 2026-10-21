@@ -4,6 +4,7 @@ import com.tsuk1.itsmygo.dto.AdminMerchantView;
 import com.tsuk1.itsmygo.dto.MerchantRequest;
 import com.tsuk1.itsmygo.dto.MerchantView;
 import com.tsuk1.itsmygo.dto.PageResponse;
+import com.tsuk1.itsmygo.dto.ShipAddressRequest;
 import com.tsuk1.itsmygo.entity.Merchant;
 
 /** 商户入驻、资料与平台审核 */
@@ -22,6 +23,9 @@ public interface MerchantService {
     MerchantView profile(Long merchantId);
 
     MerchantView updateProfile(Long merchantId, MerchantRequest request);
+
+    /** 商家 / 平台自营设置发货地址；lng/lat 缺一即视为未定位 */
+    MerchantView updateShipAddress(Long merchantId, ShipAddressRequest request);
 
     PageResponse<AdminMerchantView> pageForAdmin(int page, int size, String status, String keyword);
 

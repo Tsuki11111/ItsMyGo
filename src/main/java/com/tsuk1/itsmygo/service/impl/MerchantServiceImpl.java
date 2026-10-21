@@ -9,6 +9,7 @@ import com.tsuk1.itsmygo.dto.AdminMerchantView;
 import com.tsuk1.itsmygo.dto.MerchantRequest;
 import com.tsuk1.itsmygo.dto.MerchantView;
 import com.tsuk1.itsmygo.dto.PageResponse;
+import com.tsuk1.itsmygo.dto.ShipAddressRequest;
 import com.tsuk1.itsmygo.entity.Merchant;
 import com.tsuk1.itsmygo.entity.User;
 import com.tsuk1.itsmygo.mapper.MerchantMapper;
@@ -20,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -103,7 +105,8 @@ public class MerchantServiceImpl implements MerchantService {
         if (merchant == null || !Merchant.ACTIVE.equals(merchant.getStatus())) {
             throw new BizException(ResultCode.NOT_FOUND, "店铺不存在");
         }
-        return toView(merchant);
+        // 公开店铺页不能泄露发货仓地址 / 坐标
+        return toView(merchant, false);
     }
 
     @Override
@@ -123,6 +126,28 @@ public class MerchantServiceImpl implements MerchantService {
         } catch (DuplicateKeyException e) {
             throw new BizException(ResultCode.BAD_REQUEST, "店铺名已被占用");
         }
+        return toView(merchantMapper.selectById(merchantId));
+    }
+
+    @Override
+    @Transactional
+    public MerchantView updateShipAddress(Long merchantId, ShipAddressRequest request) {
+        requireMerchant(merchantId);
+        // 经纬度必须成对；缺一个就清空，物流回退虚拟转运中心
+        BigDecimal lng = request.lng();
+        BigDecimal lat = request.lat();
+        if (lng == null || lat == null) {
+            lng = null;
+            lat = null;
+        }
+        merchantMapper.update(null, Wrappers.<Merchant>lambdaUpdate()
+                .eq(Merchant::getId, merchantId)
+                .set(Merchant::getShipProvince, trim(request.province()))
+                .set(Merchant::getShipCity, trim(request.city()))
+                .set(Merchant::getShipDistrict, trim(request.district()))
+                .set(Merchant::getShipAddress, trim(request.address()))
+                .set(Merchant::getShipLng, lng)
+                .set(Merchant::getShipLat, lat));
         return toView(merchantMapper.selectById(merchantId));
     }
 
@@ -250,9 +275,23 @@ public class MerchantServiceImpl implements MerchantService {
         merchant.setContactPhone(request.contactPhone().trim());
     }
 
+    private String trim(String value) {
+        return value == null ? "" : value.trim();
+    }
+
     private MerchantView toView(Merchant merchant) {
+        return toView(merchant, true);
+    }
+
+    private MerchantView toView(Merchant merchant, boolean includeShipAddress) {
         return new MerchantView(merchant.getId(), merchant.getName(), merchant.getLogo(),
                 merchant.getDescription(), merchant.getContactName(), merchant.getContactPhone(),
+                includeShipAddress ? merchant.getShipProvince() : "",
+                includeShipAddress ? merchant.getShipCity() : "",
+                includeShipAddress ? merchant.getShipDistrict() : "",
+                includeShipAddress ? merchant.getShipAddress() : "",
+                includeShipAddress ? merchant.getShipLng() : null,
+                includeShipAddress ? merchant.getShipLat() : null,
                 merchant.getStatus(), merchant.getRejectReason(), merchant.getOwnerUserId(),
                 merchant.getCreatedAt());
     }
@@ -260,6 +299,8 @@ public class MerchantServiceImpl implements MerchantService {
     private AdminMerchantView toAdminView(Merchant merchant, User owner) {
         return new AdminMerchantView(merchant.getId(), merchant.getName(), merchant.getLogo(),
                 merchant.getDescription(), merchant.getContactName(), merchant.getContactPhone(),
+                merchant.getShipProvince(), merchant.getShipCity(), merchant.getShipDistrict(),
+                merchant.getShipAddress(), merchant.getShipLng(), merchant.getShipLat(),
                 merchant.getStatus(), merchant.getRejectReason(), merchant.getOwnerUserId(),
                 owner == null ? "" : owner.getUsername(), merchant.getCreatedAt());
     }

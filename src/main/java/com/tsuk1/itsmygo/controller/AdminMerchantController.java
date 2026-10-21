@@ -3,12 +3,15 @@ package com.tsuk1.itsmygo.controller;
 import com.tsuk1.itsmygo.common.Result;
 import com.tsuk1.itsmygo.dto.AdminMerchantView;
 import com.tsuk1.itsmygo.dto.MerchantRejectRequest;
+import com.tsuk1.itsmygo.dto.MerchantView;
 import com.tsuk1.itsmygo.dto.PageResponse;
+import com.tsuk1.itsmygo.dto.ShipAddressRequest;
 import com.tsuk1.itsmygo.service.MerchantService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -57,5 +60,12 @@ public class AdminMerchantController {
     public Result<Void> enable(@PathVariable Long id) {
         merchantService.enable(id);
         return Result.ok();
+    }
+
+    /** 平台自营（id=1）与普通商户共用；平台后台可代设 */
+    @PutMapping("/{id}/ship-address")
+    public Result<MerchantView> updateShipAddress(@PathVariable Long id,
+                                                  @Valid @RequestBody ShipAddressRequest request) {
+        return Result.ok(merchantService.updateShipAddress(id, request));
     }
 }

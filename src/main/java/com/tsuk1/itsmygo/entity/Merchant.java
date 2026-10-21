@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /** 商户/店铺。默认商户 id=1 为平台自营，owner_user_id 为 NULL。 */
@@ -32,6 +33,19 @@ public class Merchant {
     private String contactName;
 
     private String contactPhone;
+
+    /** 发货地址（虚拟物流起点）；ship_lng/ship_lat 都为空时回退虚拟转运中心 */
+    private String shipProvince;
+
+    private String shipCity;
+
+    private String shipDistrict;
+
+    private String shipAddress;
+
+    private BigDecimal shipLng;
+
+    private BigDecimal shipLat;
 
     private String status;
 

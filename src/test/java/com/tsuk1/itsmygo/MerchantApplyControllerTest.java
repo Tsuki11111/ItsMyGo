@@ -4,6 +4,7 @@ import com.tsuk1.itsmygo.dto.MerchantRequest;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -71,6 +72,25 @@ class MerchantApplyControllerTest extends ApiTestBase {
         mockMvc.perform(get("/api/shops/" + merchantId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.name").value(shopName));
+
+        // 发货地址只给商家自己和平台后台看，公开店铺必须脱敏
+        mockMvc.perform(put("/api/merchant/ship-address")
+                        .header("Authorization", bearer(customer))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"province":"浙江省","city":"杭州市","district":"西湖区",
+                                 "address":"文三路 9 号","lng":120.1,"lat":30.2}
+                                """))
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.shipAddress").value("文三路 9 号"));
+
+        mockMvc.perform(get("/api/shops/" + merchantId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.shipProvince").value(""))
+                .andExpect(jsonPath("$.data.shipCity").value(""))
+                .andExpect(jsonPath("$.data.shipAddress").value(""))
+                .andExpect(jsonPath("$.data.shipLng").value(nullValue()))
+                .andExpect(jsonPath("$.data.shipLat").value(nullValue()));
 
         mockMvc.perform(get("/api/merchant-apply")
                         .header("Authorization", bearer(customer)))
