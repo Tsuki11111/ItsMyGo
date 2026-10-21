@@ -1,5 +1,5 @@
 import { get, post } from './http'
-import type { CheckoutView, OrderView, PageResponse } from './types'
+import type { CheckoutView, LogisticsView, OrderView, PageResponse } from './types'
 
 /**
  * 一次性提交令牌。
@@ -26,6 +26,11 @@ export function createOrder(payload: CreateOrderPayload): Promise<CheckoutView> 
 
 export function fetchOrder(id: number): Promise<OrderView> {
   return get<OrderView>(`/orders/${id}`)
+}
+
+/** 虚拟物流；未发货时返回 null */
+export function fetchOrderLogistics(id: number): Promise<LogisticsView | null> {
+  return get<LogisticsView | null>(`/orders/${id}/logistics`)
 }
 
 export interface OrderQuery {

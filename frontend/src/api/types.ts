@@ -250,6 +250,35 @@ export interface OrderView {
   itemCount: number
 }
 
+// ── 虚拟物流 ──
+
+export interface LogisticsTimelineItem {
+  status: string
+  label: string
+  time: string
+  done: boolean
+}
+
+export interface LogisticsView {
+  orderNo: string
+  trackingNo: string
+  carrier: string
+  courierName: string
+  courierPhone: string
+  status: string
+  statusLabel: string
+  shippedAt: string
+  eta: string
+  deliveredAt: string
+  /** 0–100 的运输进度，用来在地图上插值快递员位置 */
+  progress: number
+  originName: string
+  originLng: number
+  originLat: number
+  destAddress: string
+  timeline: LogisticsTimelineItem[]
+}
+
 /** 一次结算生成多个子订单（按商户拆单） */
 export interface CheckoutView {
   orders: OrderView[]
@@ -486,6 +515,13 @@ export interface MerchantView {
   description: string
   contactName: string
   contactPhone: string
+  /** 发货地址；shipLng/shipLat 都为空时物流回退虚拟转运中心 */
+  shipProvince: string
+  shipCity: string
+  shipDistrict: string
+  shipAddress: string
+  shipLng: number | null
+  shipLat: number | null
   /** PENDING / ACTIVE / REJECTED / DISABLED */
   status: string
   rejectReason: string
@@ -505,6 +541,16 @@ export interface MerchantPayload {
   description: string
   contactName: string
   contactPhone: string
+}
+
+/** 商家 / 平台自营的发货地址；经纬度成对为空表示未定位 */
+export interface ShipAddressPayload {
+  province: string
+  city: string
+  district: string
+  address: string
+  lng: number | null
+  lat: number | null
 }
 
 // ── 在线聊天 ──────────────────────────────────────────────────────

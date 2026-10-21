@@ -1,13 +1,21 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ProductImage from '@/components/ProductImage.vue'
+import LogisticsPanel from '@/components/LogisticsPanel.vue'
 import ReviewDialog from '@/views/user/components/ReviewDialog.vue'
-import { applyRefund, cancelOrder, confirmOrder, fetchOrder, payOrder } from '@/api/order'
+import {
+  applyRefund,
+  cancelOrder,
+  confirmOrder,
+  fetchOrder,
+  fetchOrderLogistics,
+  payOrder,
+} from '@/api/order'
 import { startConversation } from '@/api/chat'
 import { useUserStore } from '@/stores/user'
-import type { OrderItem, OrderView } from '@/api/types'
+import type { LogisticsView, OrderItem, OrderView } from '@/api/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -18,6 +26,8 @@ const loading = ref(true)
 const acting = ref(false)
 const notFound = ref(false)
 const startingChat = ref(false)
+const logistics = ref<LogisticsView | null>(null)
+let logisticsTimer: number | undefined
 
 const order = computed(() => view.value?.order ?? null)
 const payable = computed(() => order.value?.status === 'PENDING_PAYMENT')
@@ -68,16 +78,48 @@ function formatTime(value: string | null): string {
 async function load() {
   loading.value = true
   notFound.value = false
+  stopLogisticsPolling()
   try {
-    view.value = await fetchOrder(Number(route.params.id))
+    const orderView = await fetchOrder(Number(route.params.id))
+    view.value = orderView
+    logistics.value = await fetchOrderLogistics(orderView.order.id).catch(() => null)
+    startLogisticsPolling()
   } catch {
     // 不存在 / 不是自己的订单 —— 后端一律当「不存在」返回 404
     view.value = null
+    logistics.value = null
     notFound.value = true
   } finally {
     loading.value = false
   }
 }
+
+/** 虚拟物流会随时间推进，发货后每 30 秒刷新一次，送达/取消后停 */
+function stopLogisticsPolling() {
+  if (logisticsTimer) {
+    window.clearInterval(logisticsTimer)
+    logisticsTimer = undefined
+  }
+}
+
+function startLogisticsPolling() {
+  stopLogisticsPolling()
+  if (!order.value || !logistics.value) return
+  if (['DELIVERED', 'CANCELLED'].includes(logistics.value.status)) return
+  logisticsTimer = window.setInterval(async () => {
+    if (!order.value) return
+    try {
+      logistics.value = await fetchOrderLogistics(order.value.id)
+      if (!logistics.value || ['DELIVERED', 'CANCELLED'].includes(logistics.value.status)) {
+        stopLogisticsPolling()
+      }
+    } catch {
+      // 物流刷新失败不影响订单页
+    }
+  }, 30_000)
+}
+
+onBeforeUnmount(stopLogisticsPolling)
 
 async function onPay() {
   if (!order.value) return
@@ -241,6 +283,12 @@ onMounted(load)
           <span class="line-sub">{{ order.phone }}</span>
         </p>
         <p class="line-sub">{{ order.address }}</p>
+      </section>
+
+      <!-- ── 物流状态 ── -->
+      <section v-if="logistics" class="block">
+        <h2 class="block-title">物流状态</h2>
+        <LogisticsPanel :logistics="logistics" />
       </section>
 
       <!-- ── 商品清单 ── -->
