@@ -13,6 +13,7 @@ import type {
   ProductPayload,
   ProductSku,
   ProductSkuView,
+  ShipAddressPayload,
   SkuSavePayload,
 } from './types'
 
@@ -40,6 +41,11 @@ export function fetchMerchantProfile(): Promise<MerchantView> {
 
 export function updateMerchantProfile(payload: MerchantPayload): Promise<MerchantView> {
   return put<MerchantView>('/merchant/profile', payload)
+}
+
+/** 商家设置发货地址：虚拟物流从这里出发 */
+export function updateMerchantShipAddress(payload: ShipAddressPayload): Promise<MerchantView> {
+  return put<MerchantView>('/merchant/ship-address', payload)
 }
 
 // ── 商家商品 ──

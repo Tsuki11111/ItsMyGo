@@ -7,6 +7,7 @@ import type {
   CategoryPayload,
   Coupon,
   CouponPayload,
+  MerchantView,
   Order,
   OrderView,
   PageResponse,
@@ -14,6 +15,7 @@ import type {
   ProductPayload,
   ProductSku,
   ProductSkuView,
+  ShipAddressPayload,
   ShipPayload,
   SkuSavePayload,
 } from './types'
@@ -199,4 +201,12 @@ export function disableMerchant(id: number): Promise<void> {
 
 export function enableMerchant(id: number): Promise<void> {
   return post<void>(`/admin/merchants/${id}/enable`)
+}
+
+/** 平台代设发货地址；平台自营（id=1）也走这里 */
+export function updateAdminMerchantShipAddress(
+  id: number,
+  payload: ShipAddressPayload,
+): Promise<MerchantView> {
+  return put<MerchantView>(`/admin/merchants/${id}/ship-address`, payload)
 }

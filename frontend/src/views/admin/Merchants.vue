@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import ShipAddressDialog from '@/components/ShipAddressDialog.vue'
 import {
   approveMerchant,
   disableMerchant,
@@ -17,6 +18,8 @@ const size = ref(10)
 const status = ref('')
 const keyword = ref('')
 const loading = ref(false)
+const shipDialogVisible = ref(false)
+const shipTarget = ref<AdminMerchantView | null>(null)
 
 const STATUS_OPTIONS = [
   { value: 'PENDING', label: '待审核' },
@@ -144,6 +147,11 @@ function formatTime(value: string): string {
   return value.replace('T', ' ').slice(0, 16)
 }
 
+function openShipAddress(row: AdminMerchantView) {
+  shipTarget.value = row
+  shipDialogVisible.value = true
+}
+
 onMounted(load)
 </script>
 
@@ -194,13 +202,28 @@ onMounted(load)
           <el-tag :type="statusTag(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
         </template>
       </el-table-column>
+      <el-table-column label="发货地" min-width="150">
+        <template #default="{ row }">
+          <template v-if="row.shipAddress || row.shipCity || row.shipDistrict">
+            <p class="ship-place">
+              {{ row.shipProvince }}{{ row.shipCity }}{{ row.shipDistrict }}
+            </p>
+            <p class="muted">
+              {{ row.shipAddress || '—' }}
+              <span v-if="row.shipLng == null || row.shipLat == null">（未定位）</span>
+            </p>
+          </template>
+          <span v-else class="muted">虚拟转运中心兜底</span>
+        </template>
+      </el-table-column>
       <el-table-column label="申请时间" width="150">
         <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="220" fixed="right">
+      <el-table-column label="操作" width="280" fixed="right">
         <template #default="{ row }">
           <el-tag v-if="row.id === 1" type="info" size="small">平台自营</el-tag>
-          <template v-else>
+          <el-button link type="primary" @click="openShipAddress(row)">发货地址</el-button>
+          <template v-if="row.id !== 1">
             <template v-if="row.status === 'PENDING'">
               <el-button link type="success" @click="approve(row)">通过</el-button>
               <el-button link type="danger" @click="reject(row)">驳回</el-button>
@@ -241,6 +264,15 @@ onMounted(load)
         @size-change="onSizeChange"
       />
     </div>
+
+    <ShipAddressDialog
+      v-model="shipDialogVisible"
+      mode="admin"
+      :merchant-id="shipTarget?.id ?? 0"
+      :merchant-name="shipTarget?.name ?? ''"
+      :initial="shipTarget"
+      @saved="load"
+    />
   </div>
 </template>
 
@@ -284,6 +316,11 @@ onMounted(load)
   margin: 0;
   font-size: 12px;
   color: var(--el-text-color-secondary);
+}
+
+.ship-place {
+  margin: 0;
+  font-size: 13px;
 }
 
 .pager {
