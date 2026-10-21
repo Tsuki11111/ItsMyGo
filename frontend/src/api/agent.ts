@@ -1,5 +1,6 @@
 import { UNAUTHORIZED_EVENT, clearAuth, get, getToken, post } from './http'
 import type {
+  AgentActionView,
   AgentConversePayload,
   AgentHistoryView,
   AgentSessionView,
@@ -83,6 +84,19 @@ export function fetchAgentHistory(
 /** 当前用户的历史会话（跨设备）；agent 和 Java 都会按用户过滤 */
 export function fetchAgentSessions(limit = 20): Promise<AgentSessionView[]> {
   return get<AgentSessionView[]>('/agent/sessions', { limit })
+}
+
+/** 某个会话里的待确认 / 已执行动作（刷新页面后卡片也能恢复） */
+export function fetchAgentActions(sessionId: string): Promise<AgentActionView[]> {
+  return get<AgentActionView[]>('/agent/actions', { sessionId })
+}
+
+export function confirmAgentAction(actionNo: string): Promise<AgentActionView> {
+  return post<AgentActionView>(`/agent/actions/${encodeURIComponent(actionNo)}/confirm`)
+}
+
+export function cancelAgentAction(actionNo: string): Promise<AgentActionView> {
+  return post<AgentActionView>(`/agent/actions/${encodeURIComponent(actionNo)}/cancel`)
 }
 
 function handleFrame(frame: string, onEvent: (event: AgentStreamEvent) => void) {

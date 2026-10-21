@@ -45,6 +45,10 @@ itsmygo:
       target: ${AGENT_GRPC_TARGET:127.0.0.1:8003}
       key: ${AGENT_GRPC_KEY:}
       deadline-seconds: ${AGENT_GRPC_DEADLINE_SECONDS:240}
+    # 智能下单 / 退款动作：高危动作必须用户确认；expiry 是确认卡片的有效期
+    actions:
+      enabled: ${AGENT_ACTIONS_ENABLED:true}
+      expiry-seconds: ${AGENT_ACTION_EXPIRY_SECONDS:600}
 
 # MyBatis-Plus 的 SQL 是运行时生成的，不开日志根本看不见
 logging:

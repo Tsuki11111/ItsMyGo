@@ -14,13 +14,16 @@ import {
   VideoPause,
 } from '@element-plus/icons-vue'
 import {
+  fetchAgentActions,
   fetchAgentHistory,
   fetchAgentSessions,
   stopAgent,
   streamAgentMessage,
 } from '@/api/agent'
+import AgentActionCard from './AgentActionCard.vue'
 import { useUserStore } from '@/stores/user'
 import type {
+  AgentActionView,
   AgentImage,
   AgentSessionView,
   AgentStreamEvent,
@@ -47,6 +50,7 @@ const emit = defineEmits<{ back: [] }>()
 const userStore = useUserStore()
 
 const messages = ref<UiMessage[]>([])
+const actions = ref<AgentActionView[]>([])
 const sessions = ref<AgentSessionView[]>([])
 const input = ref('')
 const streaming = ref(false)
@@ -133,10 +137,28 @@ function findMessage(id: string): UiMessage | undefined {
   return messages.value.find((item) => item.id === id)
 }
 
+function onActionUpdated(updated: AgentActionView) {
+  const index = actions.value.findIndex((item) => item.actionNo === updated.actionNo)
+  if (index >= 0) actions.value[index] = updated
+  else actions.value.push(updated)
+}
+
 async function scrollToBottom() {
   await nextTick()
   const el = scrollEl.value
   if (el) el.scrollTop = el.scrollHeight
+}
+
+async function loadActions(id: string | null) {
+  if (!id) {
+    actions.value = []
+    return
+  }
+  try {
+    actions.value = await fetchAgentActions(id)
+  } catch {
+    actions.value = []
+  }
 }
 
 async function loadHistory(savedSessionId: string) {
@@ -154,6 +176,7 @@ async function loadHistory(savedSessionId: string) {
       error: '',
       stopped: false,
     }))
+    await loadActions(savedSessionId)
     await scrollToBottom()
   } catch {
     // 历史加载失败不销毁会话，用户仍可继续发送
@@ -182,6 +205,7 @@ async function selectSession(command: unknown) {
   sessionId.value = id
   persistSession(id)
   messages.value = []
+  actions.value = []
   await loadHistory(id)
 }
 
@@ -263,6 +287,7 @@ async function sendMessage(preset?: string) {
         streaming.value = false
         activeAssistantId.value = null
         void refreshSessions()
+        void loadActions(sessionId.value)
         break
     }
     void scrollToBottom()
@@ -323,6 +348,7 @@ function newSession() {
   runId.value = ''
   persistSession(null)
   messages.value = []
+  actions.value = []
 }
 
 function onEnter(event: KeyboardEvent) {
@@ -480,7 +506,7 @@ onBeforeUnmount(() => {
         </div>
       </template>
 
-      <div v-else class="welcome">
+      <div v-else-if="!actions.length" class="welcome">
         <p class="greeting">你好，我是买小购。</p>
         <p>{{ intro }}</p>
         <p class="pending">可以问我产品使用、参数或售后问题。</p>
@@ -500,6 +526,15 @@ onBeforeUnmount(() => {
             </button>
           </div>
         </div>
+      </div>
+
+      <div v-if="actions.length" class="action-list">
+        <AgentActionCard
+          v-for="action in actions"
+          :key="action.actionNo"
+          :action="action"
+          @updated="onActionUpdated"
+        />
       </div>
     </div>
 
@@ -632,6 +667,10 @@ onBeforeUnmount(() => {
   background: #fff;
   border: 1px solid var(--c-border);
   border-radius: 12px;
+}
+
+.action-list {
+  margin-top: 4px;
 }
 
 .welcome p {

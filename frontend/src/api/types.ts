@@ -661,3 +661,87 @@ export type AgentStreamEvent =
   | ({ type: 'final' } & AgentFinalEvent)
   | ({ type: 'error' } & AgentErrorEvent)
   | { type: 'done'; reason: 'final' | 'stopped' | 'error' }
+
+// ── 智能体待确认动作（M9 下单 / M10 退款申请）──
+
+export type AgentActionType = 'CREATE_ORDER' | 'APPLY_REFUND'
+export type AgentActionStatus =
+  | 'PENDING_CONFIRM'
+  | 'EXECUTING'
+  | 'SUCCEEDED'
+  | 'FAILED'
+  | 'CANCELLED'
+  | 'EXPIRED'
+
+export interface AgentActionItem {
+  productName: string
+  specText?: string
+  quantity: number
+  unitPrice: string
+  subtotal?: string
+  image?: string
+}
+
+export interface AgentOrderGroup {
+  merchantId: number
+  merchantName: string
+  items: AgentActionItem[]
+  subtotal: string
+  discount: string
+  total: string
+}
+
+export interface AgentOrderSummary {
+  address: {
+    id: number
+    receiver: string
+    phone: string
+    address: string
+  }
+  groups: AgentOrderGroup[]
+  itemCount: number
+  originalAmount: string
+  discountAmount: string
+  totalAmount: string
+  note: string
+}
+
+export interface AgentRefundSummary {
+  orderNo: string
+  merchantName: string
+  status: string
+  statusLabel: string
+  totalAmount: string
+  items: AgentActionItem[]
+  note: string
+}
+
+export interface AgentOrderResult {
+  orders: Array<{
+    id: number
+    orderNo: string
+    status: string
+    statusLabel: string
+    totalAmount: string
+  }>
+  note: string
+}
+
+export interface AgentRefundResult {
+  orderId: number
+  orderNo: string
+  status: string
+  statusLabel: string
+  note: string
+}
+
+export interface AgentActionView {
+  actionNo: string
+  type: AgentActionType
+  status: AgentActionStatus
+  summary: AgentOrderSummary | AgentRefundSummary
+  result: AgentOrderResult | AgentRefundResult | null
+  errorMessage: string
+  expiresAt: string
+  createdAt: string
+}
