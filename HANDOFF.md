@@ -957,9 +957,44 @@ HTTP 失败、401、业务错误都返回可读字符串，让主 agent 能正�
 **⑥ 当前刻意不支持优惠券。** 智能下单走 `coupons = []`，避免准备页和
 `OrderService.create` 的优惠计算出现两套口径。要加时先抽一个共享的试算方法。
 
+### 5.29 ★ 长执行流会把整个聊天面板顶出窗口（2026-10-21 修）
+
+**症状**：展开执行流后偶发横向撑破，整个聊天面板比 `ChatCenter` 宽，甚至把页面
+撑出横向滚动条。不是执行流 `max-height` 的问题，也不是文字换行没写。
+
+**根因**：`ChatCenter` 的网格是 `grid-template-columns: 300px 1fr`。`1fr` 的
+最小尺寸默认是 `auto`（= min-content），执行流里一旦出现长 URL / 长 JSON /
+无空格串，轨道会按最小内容宽度撑宽；面板、消息区、气泡再按百分比跟着放大，
+形成越撑越宽的循环。
+
+**修法**：
+- `grid-template-columns: 300px minmax(0, 1fr)`（窄屏 `minmax(0, 1fr)`）
+- `.agent-panel` / `.messages` / `.msg-row` / `.trace-box` / `.trace-list` /
+  `.trace-line` 全部补 `min-width: 0`
+- `.trace-list` 加 `overflow-x: hidden`，`.trace-detail` 加 `max-width: 100%`
+- 验证：注入 400 个汉字 + 600 个无空格字母，桌面端气泡 712px、面板 854px、
+  消息区 839px 均保持不变；执行流内部 200px 滚动，窗口无横向溢出。
+
+**教训**：只要用了 `1fr` / `auto` 网格或 flex 且右列内容来自模型，就必须写
+`minmax(0, 1fr)` 或 `min-width: 0`；否则再多的 `overflow-wrap` 也挡不住
+「最小内容宽度」把容器撑开。
+
 ---
 
 ## 6. 历史记录
+
+### 2026-10-21 · 修复长执行流撑出聊天面板
+
+**问题**：展开买小购的执行流后，偶发横向超出窗体。
+
+**根因**：`ChatCenter` 的 `grid-template-columns: 300px 1fr` 中，`1fr` 的最小
+尺寸是 min-content；执行流里的长 URL / 长 JSON / 无空格串把轨道撑宽，面板、
+消息区、气泡按百分比跟着放大。
+
+**修复**：改 `minmax(0, 1fr)`；面板 / 消息区 / 执行流链路补 `min-width: 0`；
+执行流加 `overflow-x: hidden`、详情加 `max-width: 100%`。浏览器注入
+400 汉字 + 600 无空格字母验证：气泡 712px、面板 854px、消息区 839px 不变，
+执行流 200px 内部滚动；`npm run build` 通过。
 
 ### 2026-10-21 · M9/M10 智能下单与退款申请
 
