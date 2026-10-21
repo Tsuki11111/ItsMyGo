@@ -4,6 +4,7 @@ import com.tsuk1.itsmygo.common.Result;
 import com.tsuk1.itsmygo.common.ResultCode;
 import com.tsuk1.itsmygo.common.agent.AgentToolTicketService;
 import com.tsuk1.itsmygo.common.exception.BizException;
+import com.tsuk1.itsmygo.dto.CategoryNode;
 import com.tsuk1.itsmygo.dto.OrderView;
 import com.tsuk1.itsmygo.dto.agent.AgentActionView;
 import com.tsuk1.itsmygo.dto.agent.AgentAddressView;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -69,9 +71,22 @@ public class AgentToolController {
             @RequestHeader(value = "X-Agent-Ticket", required = false) String ticket,
             @RequestBody(required = false) AgentProductSearchRequest request) {
         requireIdentity(ticket);
-        String keyword = request == null ? null : request.keyword();
-        int limit = request == null || request.limit() == null ? DEFAULT_LIMIT : request.limit();
-        return Result.ok(catalogService.searchProducts(keyword, limit));
+        return Result.ok(catalogService.searchProducts(request));
+    }
+
+    @GetMapping("/catalog/all")
+    public Result<List<AgentProductView>> allProducts(
+            @RequestHeader(value = "X-Agent-Ticket", required = false) String ticket,
+            @RequestParam(defaultValue = "100") int limit) {
+        requireIdentity(ticket);
+        return Result.ok(catalogService.listAll(limit));
+    }
+
+    @GetMapping("/catalog/categories")
+    public Result<List<CategoryNode>> categories(
+            @RequestHeader(value = "X-Agent-Ticket", required = false) String ticket) {
+        requireIdentity(ticket);
+        return Result.ok(catalogService.categories());
     }
 
     @GetMapping("/catalog/addresses")

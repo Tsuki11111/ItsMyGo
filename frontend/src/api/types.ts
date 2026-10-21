@@ -597,10 +597,25 @@ export interface AgentImage {
   caption: string
 }
 
+/** 导购推荐的商品卡（M11/M12） */
+export interface AgentProductCard {
+  productId: string
+  name: string
+  image: string
+  price: string
+  stock: string
+  sales: string
+  rating: string
+  merchantName: string
+  specText: string
+  categoryName: string
+}
+
 export interface AgentHistoryMessage {
   role: string
   text: string
   images: AgentImage[]
+  products: AgentProductCard[]
   ts: string
   traces: AgentTraceEvent[]
 }
@@ -644,6 +659,7 @@ export interface AgentUsageEvent {
 export interface AgentFinalEvent {
   answer: string
   images: AgentImage[]
+  products: AgentProductCard[]
   webOnly: boolean
 }
 

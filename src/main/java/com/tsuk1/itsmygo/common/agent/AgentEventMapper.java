@@ -3,6 +3,7 @@ package com.tsuk1.itsmygo.common.agent;
 import agent.v1.Event;
 import agent.v1.FinalEvent;
 import agent.v1.Image;
+import agent.v1.ProductCard;
 import agent.v1.Trace;
 import agent.v1.Usage;
 
@@ -85,6 +86,22 @@ public final class AgentEventMapper {
             images.add(item);
         }
         data.put("images", images);
+        List<Map<String, Object>> products = new ArrayList<>();
+        for (ProductCard product : finalEvent.getProductsList()) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("productId", product.getProductId());
+            item.put("name", product.getName());
+            item.put("image", product.getImage());
+            item.put("price", product.getPrice());
+            item.put("stock", product.getStock());
+            item.put("sales", product.getSales());
+            item.put("rating", product.getRating());
+            item.put("merchantName", product.getMerchantName());
+            item.put("specText", product.getSpecText());
+            item.put("categoryName", product.getCategoryName());
+            products.add(item);
+        }
+        data.put("products", products);
         return data;
     }
 }

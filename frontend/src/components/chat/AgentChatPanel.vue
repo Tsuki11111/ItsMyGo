@@ -21,11 +21,13 @@ import {
   streamAgentMessage,
 } from '@/api/agent'
 import AgentActionCard from './AgentActionCard.vue'
+import AgentProductCardView from './AgentProductCard.vue'
 import { useUserStore } from '@/stores/user'
 import type {
   AgentActionView,
   AgentImage,
   AgentOrderResult,
+  AgentProductCard,
   AgentSessionView,
   AgentStreamEvent,
   AgentTraceEvent,
@@ -38,6 +40,7 @@ interface UiMessage {
   role: 'user' | 'assistant'
   text: string
   images: AgentImage[]
+  products: AgentProductCard[]
   traces: AgentTraceEvent[]
   usage: AgentUsageEvent | null
   webOnly: boolean
@@ -165,6 +168,12 @@ function onActionUpdated(updated: AgentActionView) {
   else actions.value.push(updated)
 }
 
+/** 商品卡上的「让买小购下单」：把商品名与规格带回对话，由导购/订单子 agent 继续 */
+function buyProduct(product: AgentProductCard) {
+  const spec = product.specText ? `，规格：${product.specText}` : ''
+  void sendMessage(`帮我买这个商品：${product.name}${spec}`)
+}
+
 /** 用户去订单页支付 / 商家处理退款后回到聊天：重新拉一次动作，卡片状态才会更新 */
 function onVisibilityChange() {
   if (document.visibilityState === 'visible' && sessionId.value && !streaming.value) {
@@ -199,6 +208,7 @@ async function loadHistory(savedSessionId: string) {
       role: item.role === 'user' ? 'user' : 'assistant',
       text: item.text,
       images: item.images || [],
+      products: item.products || [],
       traces: item.traces || [],
       usage: null,
       webOnly: false,
@@ -250,6 +260,7 @@ async function sendMessage(preset?: string) {
     role: 'user',
     text: content,
     images: [],
+    products: [],
     traces: [],
     usage: null,
     webOnly: false,
@@ -261,6 +272,7 @@ async function sendMessage(preset?: string) {
     role: 'assistant',
     text: '',
     images: [],
+    products: [],
     traces: [],
     usage: null,
     webOnly: false,
@@ -296,6 +308,7 @@ async function sendMessage(preset?: string) {
       case 'final':
         assistant.text = event.answer || assistant.text
         assistant.images = event.images || []
+        assistant.products = event.products || []
         assistant.webOnly = event.webOnly
         break
       case 'usage':
@@ -530,6 +543,16 @@ onBeforeUnmount(() => {
             </div>
 
             <p v-if="message.webOnly" class="web-only">本轮仅联网结果，知识库未命中</p>
+
+            <div v-if="message.products.length" class="product-grid">
+              <AgentProductCardView
+                v-for="product in message.products"
+                :key="product.productId"
+                :product="product"
+                @buy="buyProduct"
+              />
+            </div>
+
             <p v-if="message.usage" class="usage">{{ usageText(message.usage) }}</p>
             <p v-if="message.error" class="error">{{ message.error }}</p>
             <p v-if="message.stopped" class="stopped">已停止生成</p>
@@ -1033,6 +1056,13 @@ onBeforeUnmount(() => {
   border: 1px solid var(--c-border);
   border-radius: 8px;
   cursor: zoom-in;
+}
+
+.product-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+  gap: 10px;
+  margin-top: 12px;
 }
 
 .web-only {

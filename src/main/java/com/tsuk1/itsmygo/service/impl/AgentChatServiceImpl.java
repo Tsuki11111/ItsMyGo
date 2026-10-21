@@ -222,6 +222,14 @@ public class AgentChatServiceImpl implements AgentChatService {
                             item.getTraceList().stream()
                                     .map(trace -> new AgentHistoryMessage.AgentTrace(
                                             trace.getKind(), trace.getAgent(), trace.getDetail()))
+                                    .toList(),
+                            item.getProductsList().stream()
+                                    .map(product -> new AgentHistoryMessage.AgentProductCard(
+                                            product.getProductId(), product.getName(),
+                                            product.getImage(), product.getPrice(),
+                                            product.getStock(), product.getSales(),
+                                            product.getRating(), product.getMerchantName(),
+                                            product.getSpecText(), product.getCategoryName()))
                                     .toList()))
                     .toList();
             sessionMapper.touch(sessionId, user.id());
