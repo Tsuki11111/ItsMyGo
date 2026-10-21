@@ -1123,8 +1123,17 @@ SUCCEEDED / FAILED`，另有 `CANCELLED` / `EXPIRED`。
   该会话的动作，前端刷新后靠它恢复卡片。
 
 **前端**：`AgentActionCard.vue` 渲染订单 / 退款两类卡片；`AgentChatPanel.vue`
-在 `done` 和加载历史时拉取动作列表，确认 / 取消后就地更新。卡片由 Java 数据驱动，
-不依赖模型在回复里写什么。
+在 `done` 和加载历史时拉取动作列表，确认 / 取消后就地更新；`visibilitychange`
+时也会重新拉一次。卡片由 Java 数据驱动，不依赖模型在回复里写什么。
+
+前端只展示**还需要用户关注**的卡片：待确认 / 执行中 / 失败；已取消、已过期、
+已完成默认隐藏。唯一例外是下单成功但订单仍 `PENDING_PAYMENT` —— 保留卡片给
+「去支付」入口，支付完成后再消失；退款成功则直接隐藏。
+
+**卡片状态是活的**：`result_json` 只存执行时的快照；`GET /api/agent/actions`
+在返回前按 `orders` 当前状态覆盖 `result.orders[].status / statusLabel`
+（退款动作覆盖 `result.status`）。前端按状态改标题、只在 `PENDING_PAYMENT`
+时显示「去支付」。用户支付 / 商家发货 / 退款后回到聊天，卡片不会停在旧状态。
 
 **安全性质**：
 - userId：agent 侧来自票据，浏览器侧来自 JWT；确认接口没有 userId 参数

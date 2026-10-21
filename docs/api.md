@@ -1034,6 +1034,8 @@ agent 服务在对话过程中需要实时数据时，会反向回调 Java 的�
   偷改数量 / 地址 / 金额。
 - 只有动作所属用户能确认 / 取消；别人的动作一律 404。
 - 状态：`PENDING_CONFIRM / EXECUTING / SUCCEEDED / FAILED / CANCELLED / EXPIRED`。
+- 列表接口返回前会按订单当前状态覆盖 `result` 里的 `status / statusLabel`；
+  支付、发货、退款后卡片会自动更新，不依赖动作执行时的快照。
 - 有效期默认 600 秒（`AGENT_ACTION_EXPIRY_SECONDS`）；过期后确认返回 EXPIRED，不执行。
 - 双击确认幂等：条件更新只有一个请求会进入 EXECUTING。
 - 限流：confirm / cancel 10 次/60s/用户；总开关 `AGENT_ACTIONS_ENABLED=false`。
