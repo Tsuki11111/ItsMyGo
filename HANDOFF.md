@@ -40,11 +40,15 @@
 消息页固定卡片可真实对话，Java 经 gRPC 调 rag_helper，SSE 回传答案、执行流、图片与用量；
 支持停止、历史恢复、会话归属校验；**多用户会话已双向隔离**（agent 按 user_id 过滤，
 Java 再按 `agent_sessions` 二次校验），消息页可切换历史会话、跨设备续聊。
-后端 **自动化测试 189 条**。
+**M7 真实订单查询已接通（2026-10-21）**：order-query 不再返回 mock，agent 通过 Java
+内部接口 `/internal/agent/orders/query` 查当前用户的真实订单；每次 Converse 由 Java
+签发 10 分钟票据（gRPC metadata 下发，不进模型上下文），Java 只认票据里的 userId。
+后端 **自动化测试 194 条**。
 
-**下一步：M7 查订单环回** —— 把 Java 的真实订单查询接口暴露给 agent（替换它的 mock）。
-M6 联调需要先启动 rag_helper 的 gRPC 服务（8003），并在 `.env` 配好 `AGENT_GRPC_KEY`；
-密钥只放后端，不能入库。
+**下一步：M8 催办动作（催发货 / 催退款）** —— 走「提案 → Java 校验执行」的写操作模型；
+下单 / 退款申请属于高危动作，要加用户确认门，排在 M9 / M10。
+M6/M7 联调需要先启动 rag_helper 的 gRPC 服务（8003）和 Java 后端（8080），
+并在 `.env` 配好 `AGENT_GRPC_KEY`；密钥只放后端，不能入库。
 
 **交接前先看 `git status`** —— 本轮改动可能尚未提交，见 §6 最新一条。
 
@@ -65,8 +69,10 @@ M6 联调需要先启动 rag_helper 的 gRPC 服务（8003），并在 `.env` �
 用户中心后续、顾客端订单操作、多商户改造都已完成，本轮不再拆新页面
 （佣金 / 分账 / 商家结算、商家子账号、关注店铺明确不做）。
 
-1. **M6 客服接入 → M7 查订单环回** — 先读外部仓库 `D:\PycharmProjects\rag_helper`
-   的 `evolution-plan.md` §5/§6 与 `proto/agent.proto`，对接契约以那边为准
+1. **M8 催办动作 → M9 下单 → M10 退款申请** — M6 / M7 已完成；写操作统一走
+   「agent 提案 → Java 校验 → 用户确认（高危）→ 执行」。先读外部仓库
+   `D:\PycharmProjects\rag_helper` 的 `evolution-plan.md` §5/§6 与 `proto/agent.proto`，
+   对接契约以那边为准
 
 ⚠️ **四个对接约定**（细节见 implementation §4.3）：
 响应拦截器按 **body 的 `code`** 判断而不是 HTTP 状态码；库存走独立接口；
@@ -905,9 +911,71 @@ SecurityConfig 必须放行 `DispatcherType.ASYNC/ERROR`。
 **⑥ final 之后还可能来 usage。** 收到 final 不能立刻 break，要继续读到 EOF，
 再发 `done{reason}`；否则前端拿不到用量，且 Stop 逻辑可能误判本轮未结束。
 
+### 5.27 ★ M7 订单查询工具回调的五个坑（2026-10-21 踩到 / 补齐）
+
+**① ContextVar 不会自动跨 `threading.Thread`。** gRPC 层在 `Converse` 里读 metadata，
+但真正跑 `run_main_agent` 的是新起的 worker 线程；在 gRPC 线程里 `set_tool_context`
+对 worker 不可见。正确做法：把票据作为 `run_main_agent(tool_ticket=...)` 参数传进去，
+**在 worker 线程内部**设置 ContextVar。这是最容易「本机测试通过、线上查订单无权限」的地方。
+
+**② 工具票据必须按 Converse 签发，不能复用 `x-user-id`。** 只传 userId 等于把身份
+交给 agent 进程；票据是 Java 签发、10 分钟过期、只经 gRPC metadata 下发的短期凭证，
+Java 回调接口只认它。TTL 必须 ≥ Converse deadline（240s），否则长回合末尾的工具调用会 401。
+
+**③ `/internal/agent/**` 是 permitAll，票据是唯一凭证。** 路径只在内网用，
+不要把它暴露到公网；如果以后要加静态服务密钥，也别忘了保留票据这层用户身份。
+
+**④ 工具不能抛异常。** Python 工具抛错会打断整轮对话；`query_orders` 对无票据、
+HTTP 失败、401、业务错误都返回可读字符串，让主 agent 能正常转述。
+
+**⑤ `AgentOrderView` 不要顺手加 PII。** agent 只需要订单号 / 状态 / 店铺 / 金额 / 物流，
+收货人、电话、地址一律不进响应；新增字段前先问「模型真的需要吗」。
+
 ---
 
 ## 6. 历史记录
+
+### 2026-10-21 · M7 真实订单查询接通（双仓库）
+
+**范围**：买小购的 order-query 从固定 mock 换成 Java 的真实订单接口；
+agent 能按订单号或最近订单查询**当前登录用户自己的**订单状态、商品、金额与物流单号。
+
+**路线**：选 A（agent 回调 Java 内部接口），不是把订单预注入 ConverseRequest。
+理由：后续下单 / 退款需要同步校验库存、地址、券，预注入给不了实时结果；
+市面上 function calling / MCP 也是这个形状。详见 §6 下面的对比记录。
+
+**Java**：
+- `AgentToolTicketService`：每次 Converse 签发 `its-my-go:agent:tool-ticket:{uuid}`，
+  Redis TTL 10 分钟；`AgentGrpcClient` 放 metadata `x-agent-tool-ticket`，**proto 未改**
+- `AgentToolController` + `AgentOrderView`：`POST /internal/agent/orders/query`，
+  只收 `{orderNo?, status?, limit?}`，票据解析 userId；响应**不含收货人/电话/地址**
+- `OrderService.findForAgent`：按 `orderNo + userId` 或 `userId + status` 查，
+  别人的订单返回空列表；`SecurityConfig` 放行 `/internal/agent/**`（票据是唯一凭证）
+- 测试 +5：`AgentToolControllerTest` 4 条（本人可见、越权为空、最近订单限流、
+  无效票据 401）+ `AgentControllerTest` 票据下发 1 条；全量 **194 条全绿**
+
+**rag_helper**：
+- 新增 `app/conf/its_mygo_config.py`（`ITS_MYGO_BASE_URL`，默认 8080）与
+  `app/agent/tool_context.py`（ContextVar）
+- `query_orders(order_no, status, limit)` 用 httpx 回调 Java；无票据 / HTTP 失败 /
+  业务错误都降级成可读提示，不抛异常
+- gRPC `_ident` 读 `x-agent-tool-ticket` → `run_main_agent(tool_ticket=...)` →
+  worker 线程内设置 ContextVar；主 agent prompt 增加「订单信息只能来自工具返回、
+  不许编造、目前只能查不能改」
+- 回归新增「订单查询：票据与格式化」，**51/51 全绿**
+
+**契约**：`proto/agent.proto` 不变；新增的是 `agent → Java` 的内部 HTTP 边，
+已同步到 `rag_helper/evolution-plan.md` §6 与两边 HANDOFF / README / implementation。
+
+**E2E**：重启 8080 + 8003，用 `testuser` 问「我的订单现在都到哪一步了」——
+执行流出现 `delegate order-query → tool query_orders`，final 返回 5 笔真实订单
+（含店铺、金额、物流单号），且主动说明「只能查、退款/取消请去订单页」。
+
+**坑**：见 §5.27，最要紧的是 ContextVar 不跨 `threading.Thread`，票据必须在
+`run_main_agent` 的 worker 线程内设置。
+
+**下一步**：M8 催办动作（催发货 / 催退款），按「提案 → Java 校验执行」做，
+复用同一套票据与工具回调。
 
 ### 2026-10-20 · 客服执行流与图片展示修复
 

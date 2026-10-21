@@ -61,6 +61,10 @@ cd /d/PycharmProjects/rag_helper
 # AGENT_GRPC_DEADLINE_SECONDS=240
 #
 # 改完 .env 要重启后端；密钥绝不能提交进 Git。
+#
+# 订单查询（M7）：agent 会回调 Java 的 /internal/agent/**，
+# 所以后端必须先在 8080 跑着；agent 侧地址默认 http://127.0.0.1:8080，
+# 需要改就在 rag_helper/.env 里设 ITS_MYGO_BASE_URL。
 
 
 # ─────────────────────────────────────────────

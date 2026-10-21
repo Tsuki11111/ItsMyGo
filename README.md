@@ -46,7 +46,12 @@ Spring Boot 单体 + Vue 3 前后端分离，经 **gRPC 接入 RAG 客服智能�
                     │  gRPC（内网，问答链路）
                     ▼
               Agent 服务（rag_helper）· 8003
+                    │  HTTP 工具回调（X-Agent-Ticket，内网）
+                    └──────────> Java /internal/agent/**
 ```
+
+需要实时数据时（如查订单），agent 会反向回调 Java 的内部工具接口；
+票据由 Java 每次对话签发，只走 gRPC metadata，不进模型上下文。
 
 **三条边界**（来自 `rag_helper` 的规划，本项目不能自行更改）：
 
@@ -84,7 +89,8 @@ Spring Boot 单体 + Vue 3 前后端分离，经 **gRPC 接入 RAG 客服智能�
 | **M5.6 多商户** | ✅ **完成（2026-10-19）** —— 商家入驻/审核、店铺主页、商品归属、商家商品/订单/店铺券/评价后台、跨店拆单分别支付、平台监管；不做佣金/分账/结算 |
 | **M5.7 在线聊天** | ✅ **完成（2026-10-19）** —— 顾客 ↔ 商家按店会话、SSE 实时消息、未读角标、已读回执、在线状态、文本/图片/商品卡/订单卡、离线留言 |
 | **M6 客服接入** | ✅ **完成（2026-10-20）** —— 消息页「买小购」真实客服：gRPC 调 rag_helper、SSE 流式答案与执行流、图片、用量、停止、历史恢复、会话归属校验 |
-| M7 查订单环回 | ⬜ 未开始（agent 的 order-query 仍是 mock） |
+| **M7 真实订单查询** | ✅ **完成（2026-10-21）** —— order-query 接 Java 内部工具接口，按订单号或最近订单查当前用户真实订单；每次对话签发短期票据 |
+| M8 催办动作 | ⬜ 未开始（催发货 / 催退款，提案 → Java 校验执行） |
 
 **交易闭环已通**：浏览商品 → 加购 → 下单（扣库存）→ 支付 → 发货 → 收货，
 以及取消、超时自动取消、退款（申请 → 审核 → 回滚库存）。
@@ -99,6 +105,8 @@ Spring Boot 单体 + Vue 3 前后端分离，经 **gRPC 接入 RAG 客服智能�
 流式返回答案、执行流、配图与用量；执行流默认折叠成一行（转圈 + 当前步骤），
 点击展开完整过程，历史会话同样可展开；支持停止与历史恢复，会话按用户隔离，
 可从「历史」切换跨设备保存的会话。
+**订单查询已接真实数据（M7）**：agent 通过 Java 内部接口按订单号或最近订单
+查询当前用户的真实订单状态、商品、金额与物流单号，不再返回 mock。
 
 ## 本地起来看看
 
@@ -107,6 +115,8 @@ Spring Boot 单体 + Vue 3 前后端分离，经 **gRPC 接入 RAG 客服智能�
 客服对话还需要启动外部 agent 服务（第三个终端）：
 `cd D:/PycharmProjects/rag_helper && .venv/Scripts/python.exe -m app.agent.api.grpc_service`；
 并把 `rag_helper/admin-key.txt` **第一行**的密钥填进本项目 `.env` 的 `AGENT_GRPC_KEY`。
+**订单查询需要 Java 后端同时在 8080 跑着**（agent 会回调 `/internal/agent/**`）；
+agent 侧地址默认 `http://127.0.0.1:8080`，需要改就在 `rag_helper/.env` 设 `ITS_MYGO_BASE_URL`。
 完整启动清单（含中间件、管理员提权、常见问题）见 [start.txt](start.txt)。
 **商家**：注册普通账号后访问 `/merchant/apply` 提交入驻，平台管理员在 `/admin/merchants` 审核。
 管理端在登录后顶栏用户面板的「管理后台」或直接访问 `/admin`；
@@ -114,7 +124,7 @@ Spring Boot 单体 + Vue 3 前后端分离，经 **gRPC 接入 RAG 客服智能�
 **提权后重新登录**。种子数据见 [sql/seed-data.sql](sql/seed-data.sql)，详见 [HANDOFF §3.4](HANDOFF.md)。
 
 **CI**：每次 push 自动在干净环境跑测试（[`.github/workflows/test.yml`](.github/workflows/test.yml)）。
-本地 189 条全绿，CI 跳过 3 条依赖 MinIO 的、跑 186 条（MinIO 已停止公开分发镜像，详见 [HANDOFF §5.12](HANDOFF.md)）。
+本地 194 条全绿，CI 跳过 3 条依赖 MinIO 的、跑 191 条（MinIO 已停止公开分发镜像，详见 [HANDOFF §5.12](HANDOFF.md)）。
 **测试跑在独立的库** `its_mygo_test`（Redis 用 db 1），和开发数据互不影响 —— 见 [HANDOFF §5.20](HANDOFF.md)。
 
 各里程碑的可验收产物见 [docs/decisions-ecommerce.md](docs/decisions-ecommerce.md) §4。

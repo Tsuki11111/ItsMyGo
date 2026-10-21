@@ -1048,6 +1048,47 @@ Python 的 ErrorEvent 只给用户通用文案，原始 message 记日志。
 
 **迁移（V20）**：建 `agent_sessions`；唯一键 `session_id`，索引 `user_id`。
 
+### 3.19 订单查询工具回调（M7，2026-10-21）
+
+**拓扑补了一条边**：`agent（rag_helper）→ Java /internal/agent/**`。
+方向与 M6 相反，但仍然是内网、仍然不让浏览器参与：
+
+```
+浏览器 → Java（/api/agent/**）→ gRPC 8003 → agent
+                                  ↑
+          Java /internal/agent/orders/query ← agent 的 order-query 工具
+```
+
+**为什么是 agent 回调 Java，而不是把订单预注入请求**：下单草稿、退款申请这类
+后续能力需要同步校验库存 / 地址 / 券；预注入只能给快照，给不了实时校验。
+选型对比见 HANDOFF §6 的 2026-10-21 记录。
+
+**票据（每次 Converse 一张）**：
+- `AgentToolTicketService.issue(userId, sessionId)` 写 Redis
+  `its-my-go:agent:tool-ticket:{uuid}`，TTL 10 分钟（硬约束：共用 Redis 的 key 必须带 TTL）
+- `AgentGrpcClient` 把它放进 gRPC metadata `x-agent-tool-ticket`；**proto 不变**
+- Python 的 gRPC 层读出后经 `run_main_agent(tool_ticket=...)` 放进 ContextVar；
+  order-query 工具回调 Java 时带回 `X-Agent-Ticket`
+- Java 只认票据里的 userId —— **模型不参与身份**，prompt injection 也传不了别人的 id
+
+**接口**：`POST /internal/agent/orders/query`，`SecurityConfig` 放行
+`/internal/agent/**`，鉴权完全由票据承担。请求体：
+`{orderNo?, status?, limit?}`；`limit` 上限 10，默认 5。
+返回 `Result<List<AgentOrderView>>`，**刻意不含收货人 / 电话 / 地址**，
+只给订单号、状态、店铺、金额、物流单号、时间和商品行。
+
+**归属**：`OrderServiceImpl.findForAgent` 按 `orderNo + userId` 或
+`userId + status` 查；别人的订单返回空列表，不泄露存在性。
+
+**Python 工具**：`query_orders(order_no="", status="", limit=5)` 用 httpx 调 Java；
+没有票据时直接返回「当前会话没有订单查询权限」，不发请求；HTTP 失败 / 401 / 业务错误
+都降级成可读提示，**不抛异常**（工具抛错会打断整轮对话）。
+
+**验证**：Java 新增 `AgentToolControllerTest` 4 条 + `AgentControllerTest`
+票据下发 1 条，全量 194 条全绿；rag_helper 回归 51/51（新增「订单查询：票据与格式化」）；
+浏览器实测「我的订单现在都到哪一步了」→ 执行流出现 delegate order-query →
+tool query_orders → final 输出 5 笔真实订单。
+
 ---
 
 ## 4. 前端（`frontend/`）

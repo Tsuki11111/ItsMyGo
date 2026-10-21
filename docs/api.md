@@ -976,6 +976,44 @@ data: {"kind":"delegate","agent":"product-kb","detail":"检索产品手册"}
 - 该流**不自动重连、不自动重试**；失败由用户重新发送。
 - 反代（Nginx）需 `proxy_buffering off; proxy_read_timeout 300s;`。
 
+### 19.3 内部工具接口（agent 专用，非浏览器接口）
+
+agent 服务在对话过程中需要实时数据时，会反向回调 Java 的内部接口。
+**只在内网使用，浏览器不调用**；路径由 `SecurityConfig` 放行，鉴权完全由
+每轮对话签发的票据承担。
+
+| 方法 | 路径 | 鉴权 | 请求 | 返回 |
+|---|---|---|---|---|
+| POST | `/internal/agent/orders/query` | `X-Agent-Ticket` | `{orderNo?, status?, limit?}` | `AgentOrderView[]` |
+
+- 票据由 Java 在每次 `POST /api/agent/converse` 时签发：
+  Redis `its-my-go:agent:tool-ticket:{uuid}`，TTL 10 分钟；
+  经 gRPC metadata `x-agent-tool-ticket` 下发给 agent，**不进模型上下文**。
+- 请求体**没有 userId**：Java 从票据解析用户，模型无法指定他人。
+- `orderNo` 为空时返回最近订单；`status` 逗号分隔；`limit` 默认 5、上限 10。
+- 别人的订单返回空数组（不泄露存在性）。
+- 响应**不含**收货人、电话、地址，只给订单号、状态、店铺、金额、物流单号、时间与商品行。
+- 票据缺失 / 过期 → `{"code":401,"message":"工具票据无效或已过期"}`。
+
+**AgentOrderView**
+
+```json
+{
+  "orderNo": "20261019151614788725",
+  "status": "SHIPPED",
+  "statusLabel": "已发货",
+  "merchantName": "商家A数码店",
+  "totalAmount": "66.00",
+  "trackingNo": "SFMERCHANTA001",
+  "createdAt": "2026-10-19 15:16:14",
+  "paidAt": "2026-10-19 15:16:30",
+  "shippedAt": "2026-10-19 15:17:02",
+  "items": [
+    { "productName": "商家A测试商品", "specText": "颜色:黑色", "quantity": 1, "unitPrice": "66.00" }
+  ]
+}
+```
+
 ---
 
 ## 20. 限流汇总
