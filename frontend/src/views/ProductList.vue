@@ -2,10 +2,13 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  Box, Briefcase, Coin, Connection, Cpu, Files, Monitor, Mouse, Printer, Share,
+  Box, Briefcase, Cellphone, Coin, Connection, Cpu, Files, Monitor, Mouse, Printer, Share,
 } from '@element-plus/icons-vue'
 import type { Component } from 'vue'
 import ProductImage from '@/components/ProductImage.vue'
+import bannerNewUser from '@/assets/banners/new-user.webp'
+import bannerPrinter from '@/assets/banners/printer.webp'
+import bannerOffice from '@/assets/banners/office-festival.webp'
 import { fetchCategoryTree, fetchProducts } from '@/api/product'
 import type { CategoryNode, Product } from '@/api/types'
 
@@ -35,6 +38,8 @@ const ICONS: Record<string, Component> = {
   路由器: Share,
   网络设备: Connection,
   笔记本电脑: Monitor,
+  台式机: Cpu,
+  平板电脑: Cellphone,
   显示器: Monitor,
   键鼠外设: Mouse,
   存储设备: Coin,
@@ -45,12 +50,11 @@ function iconOf(name: string): Component {
   return ICONS[name] ?? Box
 }
 
-/** 轮播位。后端还没有广告位数据，先用文案 + 渐变做，
- *  等真需要运营配置广告了再加一张表和一个接口。 */
+/** 轮播位。图是运营素材，左侧留白给标题 / 副标题叠加 */
 const banners = [
-  { title: '新用户专享', desc: '注册即领 100 元优惠券', from: '#ef8aab', to: '#f9c8db' },
-  { title: '打印机专场', desc: '激光 / 一体机 低至 5 折', from: '#e8638f', to: '#f4a9c3' },
-  { title: '办公设备节', desc: '满 2000 减 200', from: '#e8638f', to: '#ef8aab' },
+  { title: '新用户专享', desc: '注册即领 100 元优惠券', image: bannerNewUser },
+  { title: '打印机专场', desc: '激光 / 一体机 低至 5 折', image: bannerPrinter },
+  { title: '办公设备节', desc: '满 2000 减 200', image: bannerOffice },
 ]
 
 /**
@@ -192,7 +196,9 @@ onBeforeUnmount(() => observer?.disconnect())
           <el-carousel-item v-for="banner in banners" :key="banner.title">
             <div
               class="banner-slide"
-              :style="{ background: `linear-gradient(120deg, ${banner.from}, ${banner.to})` }"
+              :style="{
+                backgroundImage: `linear-gradient(90deg, rgba(255, 247, 250, .94) 0%, rgba(255, 247, 250, .62) 36%, rgba(255, 247, 250, 0) 64%), url(${banner.image})`,
+              }"
             >
               <h2>{{ banner.title }}</h2>
               <p>{{ banner.desc }}</p>
@@ -365,7 +371,9 @@ onBeforeUnmount(() => observer?.disconnect())
   flex-direction: column;
   justify-content: center;
   padding: 0 56px;
-  color: #fff;
+  background-size: cover;
+  background-position: center right;
+  color: var(--c-text);
 }
 
 .banner-slide h2 {
@@ -373,12 +381,13 @@ onBeforeUnmount(() => observer?.disconnect())
   font-size: 30px;
   font-weight: 700;
   letter-spacing: -0.02em;
+  color: #9d2f56;
 }
 
 .banner-slide p {
   margin: 10px 0 0;
   font-size: 14px;
-  opacity: 0.9;
+  color: #7a5361;
 }
 
 /* ── 品牌专区 ── */
@@ -601,6 +610,12 @@ onBeforeUnmount(() => observer?.disconnect())
   }
   .banner {
     height: 180px;
+  }
+  .banner-slide {
+    padding: 0 24px;
+  }
+  .banner-slide h2 {
+    font-size: 24px;
   }
 }
 </style>
