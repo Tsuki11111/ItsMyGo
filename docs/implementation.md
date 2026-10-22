@@ -1304,6 +1304,26 @@ agent 再回复用户「已完成 + 代商家致歉」。
 商家会话消息 `sender_type=AGENT`，agent 聊天随即出现「催发货已完成 + 代商家致歉」，
 动作 `SUCCEEDED`，卡片按预期隐藏。
 
+### 3.24 管理后台数据概览（M15，2026-10-22）
+
+**目标**：管理后台默认落地页，把「今天该处理什么」集中展示，不再一进来就是分类树。
+
+- `GET /api/admin/dashboard`，只读聚合，不参与业务状态流转。
+- **今日成交额**：`paid_at` 在当天、状态为 `PAID / SHIPPED / COMPLETED / REFUNDING`
+  的订单金额之和；已退款 / 已取消不计。今日订单按 `created_at`，今日支付按 `paid_at`。
+- **待办**：待发货（`PAID`）、待退款（`REFUNDING`）、待审核商户（`PENDING`）、
+  低库存 SKU（在售商品 + 在售规格，`stock <= 10`）。
+- **近 7 天成交**：按 `DATE(paid_at)` 聚合金额与订单数，Java 侧补齐没有成交的日期。
+- 待办列表各取最新 5 条；订单列表复用 `OrderService.pageForAdmin`，店铺名不 N+1。
+- 聚合 SQL 在 `AdminDashboardMapper`；无数据库迁移。
+- 前端 `/admin/dashboard` 是后台默认页，菜单第一项「数据概览」：
+  指标卡、7 天 SVG 折线图（悬停显示日期 / 成交额 / 订单数）、
+  待发货/待退款/待审核商户/低库存四块待办；
+  点击卡片跳订单 / 商户 / 商品管理。
+
+**验证**：`AdminDashboardControllerTest` 1 条（指标、7 天趋势、待发货/待退款、低库存）；
+Java 全量 211 条；前端 `npm run build` 通过；浏览器实测 `/admin` 默认进入看板。
+
 ---
 
 ## 4. 前端（`frontend/`）

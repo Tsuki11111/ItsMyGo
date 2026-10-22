@@ -878,6 +878,20 @@ Authorization: Bearer <token>
 - 管理员不能调用顾客侧的**会话/消息接口**（`/api/chat/conversations/**`）；
   `unread-count`、`stream-ticket`、`stream`、`files/upload` 仍可正常使用。
 
+### 17.9 数据概览
+
+| 方法 | 路径 | 请求/参数 | 返回 |
+|---|---|---|---|
+| GET | `/api/admin/dashboard` | — | `AdminDashboardView` |
+
+- `AdminDashboardView`：`todayGmv / todayOrders / todayPaidOrders /
+  pendingShipments / pendingRefunds / pendingMerchants / lowStockSkus /
+  totalUsers / activeMerchants / onSaleProducts / trend / pendingShipmentOrders /
+  pendingRefundOrders / pendingMerchantList / lowStockList`。
+- 今日成交额按 `paid_at` 当天、状态 `PAID / SHIPPED / COMPLETED / REFUNDING` 求和；
+  低库存阈值为 `stock <= 10`；待办列表各取最新 5 条。
+- `trend` 固定返回最近 7 天，没有成交的日期补 0。
+
 ---
 
 ## 18. 顾客聊天

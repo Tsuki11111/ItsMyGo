@@ -103,7 +103,8 @@ Spring Boot 单体 + Vue 3 前后端分离，经 **gRPC 接入 RAG 客服智能�
 `PENDING_PAYMENT / PAID / SHIPPED / COMPLETED`，老数据无需迁移。
 商品支持**多规格 SKU**（每个规格组合独立价格与库存），也支持「立即购买」直达结算。
 **多商户**：商家入驻后管理本店商品/订单，跨店购物车按店拆单、分别支付；
-**管理端**具备商户审核、分类维护、商品管理、发货与退款审核、平台券/店铺券、评价管理。
+**管理端**具备商户审核、分类维护、商品管理、发货与退款审核、平台券/店铺券、评价管理，
+以及**数据概览**（今日成交 / 待发货 / 待退款 / 待审核商户 / 低库存、近 7 天趋势）。
 **在线聊天**：商品详情 / 店铺主页 / 订单详情可「联系卖家」，按店建立会话；
 支持文本、图片、商品卡片、订单卡片，SSE 实时推送与未读角标、已读回执、商家在线状态，
 商家离线时可留言；平台自营店的会话由管理员在 `/admin/messages` 统一回复。
@@ -150,7 +151,7 @@ agent 侧地址默认 `http://127.0.0.1:8080`，需要改就在 `rag_helper/.env
 **提权后重新登录**。种子数据见 [sql/seed-data.sql](sql/seed-data.sql)，详见 [HANDOFF §3.4](HANDOFF.md)。
 
 **CI**：每次 push 自动在干净环境跑测试（[`.github/workflows/test.yml`](.github/workflows/test.yml)）。
-本地 210 条全绿，CI 跳过 3 条依赖 MinIO 的、跑 207 条（MinIO 已停止公开分发镜像，详见 [HANDOFF §5.12](HANDOFF.md)）。
+本地 211 条全绿，CI 跳过 3 条依赖 MinIO 的、跑 208 条（MinIO 已停止公开分发镜像，详见 [HANDOFF §5.12](HANDOFF.md)）。
 **测试跑在独立的库** `its_mygo_test`（Redis 用 db 1），和开发数据互不影响 —— 见 [HANDOFF §5.20](HANDOFF.md)。
 
 各里程碑的可验收产物见 [docs/decisions-ecommerce.md](docs/decisions-ecommerce.md) §4。
