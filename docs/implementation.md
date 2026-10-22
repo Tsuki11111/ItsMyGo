@@ -275,13 +275,17 @@ ON DUPLICATE KEY UPDATE quantity = quantity + #{quantity}
 **状态机集中在一个枚举里**（`OrderStatus.canTransitionTo`），不允许散落到各个 Service 里 `if`：
 
 ```
-待支付 ──支付──> 已支付 ──发货──> 已发货 ──确认收货──> 已完成
+待支付 ──支付──> 待发货 ──发货──> 待收货 ──确认收货──> 已完成
    │                 │
-   └──取消──> 已取消  └──取消──> 已取消        已发货之后不能取消，已完成/已取消是终态
+   └──取消──> 已取消  └──取消──> 已取消        待收货之后不能取消，已完成/已取消是终态
 ```
 
+**展示文案**：`PAID` 显示「待发货」，`SHIPPED` 显示「待收货」；枚举名、数据库存储值和
+接口 `status` 不变，老订单无需迁移。顾客端订单 Tab 按 `PAID` / `SHIPPED` 拆成
+「待发货」「待收货」。
+
 所有状态变更都走同一个 `transition(order, target, stampSetter)`：先问状态机准不准，
-不准就抛「订单当前是「待支付」，不能变成「已发货」」，然后才改状态和时间戳。
+不准就抛「订单当前是「待支付」，不能变成「待收货」」，然后才改状态和时间戳。
 **非法流转在这一处被挡住**，而不是在每个接口里各写一遍校验。
 
 **两种下单来源：购物车结算 / 立即购买**
@@ -361,7 +365,7 @@ concurrentPayOnlySucceedsOnce          ✓ 仍通过（被唯一索引兜住）
 **退款**走完整的状态流转，**不是直接改状态**：
 
 ```
-已支付 / 已发货 / 已完成 ──申请──> 退款中 ──同意──> 已退款（终态）
+待发货 / 待收货 / 已完成 ──申请──> 退款中 ──同意──> 已退款（终态）
                                     │
                                     └──驳回──> 回到申请前的状态
 ```
@@ -941,7 +945,7 @@ V23 给 `merchants` 加发货地址字段（详见 §3.22）。
 
 **会话模型**：一店 × 一客只有一条会话（`conversations.uk_customer_merchant`）。
 `last_message_id IS NULL` 的空会话不进列表。消息只追加，`messages.sender_type`
-为 `CUSTOMER` / `MERCHANT`，预留 `AGENT` 给 M6 客服复用。
+为 `CUSTOMER` / `MERCHANT`；`AGENT` 用于买小购代发的平台客服消息（M8 催发货）。
 
 **权限**：顾客侧任意已登录非 ADMIN（商家账号也可作为顾客联系别家店）；
 商家侧 `/api/merchant/chat/**` 必须有 MERCHANT 角色。会话参与者按
@@ -1159,8 +1163,8 @@ SUCCEEDED / FAILED`，另有 `CANCELLED` / `EXPIRED`。
 - 怎么用 / 参数 → `product-kb`
 - 订单 / 退款 / 已选定商品下单 → `order-service`
 
-> 注册名是 `order-service`（原 `order-query`）；rag_helper 的 Python 包仍为
-> `order_query_agent`，工具文件仍为 `order_query.py`，改名不影响对接协议。
+> 注册名是 `order-service`（原 `order-query`）；rag_helper 的 Python 包为
+> `order_service_agent`，工具文件为 `order_service.py`，改名不影响对接协议。
 
 **商品目录接口**（内部，`X-Agent-Ticket`）：
 
@@ -1262,6 +1266,43 @@ courierName / progress），Python order-service 工具在订单文本里输出
 
 **边界**：这是**确定性模拟**，不接承运商 API；真实项目要接快递100 / 快递鸟回调，
 并用承运商轨迹覆盖模拟状态。
+
+### 3.23 催发货动作（M8，2026-10-22）
+
+**目标**：用户在聊天里说「帮我催一下发货」，order-service 先校验订单处于待发货
+（`PAID`，已支付未发货），生成 `URGE_SHIPMENT` 待确认草稿；用户确认后 Java 触发
+agent 执行图，**由 agent 调 Java 发送工具**，Java 校验并落库为 AGENT 消息；
+agent 再回复用户「已完成 + 代商家致歉」。
+
+- `AgentActionType.URGE_SHIPMENT`；`prepareUrgeShipment` 只落 `PENDING_CONFIRM`，
+  业务参数（订单 id）来自服务端快照。
+- 仅 `PAID`（待发货）且 `shipped_at IS NULL` 可催；`PENDING_PAYMENT` / `SHIPPED`（待收货）/
+  `COMPLETED` / `REFUNDING` / `REFUNDED` / `CANCELLED` 一律拒绝并给可读原因。
+- 幂等与防打扰：同一订单已有未过期草稿时复用；成功发送后 10 分钟内再次催同一单返回 400；
+  双击确认由 `startExecution` CAS 保证只进入一次执行态。
+- **确认只 CAS 到 EXECUTING，不直接发消息**：`confirmUrgeShipment` 签发短期 tool ticket，
+  通过 gRPC metadata `x-agent-internal-event: urge-shipment-confirmed` 触发 agent；
+  最多等 20 秒，再返回动作最终状态。
+- **agent 执行图** `urge_shipment_graph.py`（LangGraph）：
+  1. `send_merchant_message` 调 `POST /internal/agent/actions/urge-shipment/send`；
+  2. Java 用 ticket 解析 userId/session，校验动作归属、`EXECUTING` 状态、订单仍是待发货；
+  3. `ChatService.sendAgentText` 写 `AGENT / TEXT` 消息（商家未读 +1、顾客不加未读）并推 SSE；
+  4. Redis `its-my-go:agent:urge-send:{actionNo}`（30 秒 TTL）防并发，
+     `finishExecution` CAS 保证只成功一次；
+  5. 图再 `compose_reply → save_reply`，把完成 / 失败 + 代商家致歉写为 assistant 历史。
+- 失败路径：发送工具返回错误时动作 FAILED，图仍写一条失败 + 致歉回复；
+  前端对 `SUCCEEDED` / `FAILED` 都刷新历史，失败卡片保留。
+- 无数据库迁移：`agent_actions.type` 是 VARCHAR，新增枚举值即可。
+- 前端 `AgentActionCard.vue` 增加第三种卡片：标题 / 图标 / 「确认催发货」按钮；
+  成功后卡片默认隐藏（与退款一致），失败卡片保留。
+- rag_helper：`order-service` 的 `prepare_urge_shipment` 工具；提示词要求先
+  `query_orders` 确认状态，草稿不等于已发送。确认后的发送由 agent 图执行，不由主模型自由发挥。
+
+**验证**：Java 210 条全绿（`AgentUrgeShipmentControllerTest` 3 条：agent 回调发送工具、
+冷却 / 幂等、状态与越权）；rag_helper `_check_urge_shipment_graph` PASS；
+前端 `npm run build` 通过。浏览器实测订单 770：确认后 agent 收到内部事件并调用发送工具，
+商家会话消息 `sender_type=AGENT`，agent 聊天随即出现「催发货已完成 + 代商家致歉」，
+动作 `SUCCEEDED`，卡片按预期隐藏。
 
 ---
 
@@ -1482,8 +1523,8 @@ frontend/
 
 | 子页 | 要点 |
 |---|---|
-| `orders` | 六个 Tab 本质是**同一个订单列表按状态筛**；Tab 存在 `?tab=` 里（刷新保持）；已完成订单的明细行有「评价 / 已评价」 |
-| 订单详情 | 按状态显示操作：待支付「立即支付 / 取消订单」、已支付「取消订单 / 申请退款」、已发货「确认收货 / 申请退款」、已完成「申请退款」；取消/退款会回滚库存并退回未过期券 |
+| `orders` | 七个 Tab 本质是**同一个订单列表按状态筛**；待发货 / 待收货分别对应 `PAID` / `SHIPPED`；Tab 存在 `?tab=` 里（刷新保持）；已完成订单的明细行有「评价 / 已评价」 |
+| 订单详情 | 按状态显示操作：待支付「立即支付 / 取消订单」、待发货「取消订单 / 申请退款」、待收货「确认收货 / 申请退款」、已完成「申请退款」；取消/退款会回滚库存并退回未过期券 |
 | `favorites` | 收藏卡片列表、取消收藏、分页；下架商品标「已下架」且不可点进详情 |
 | `footprints` | 按浏览时间倒序、分页、清空全部；同一商品只有一条 |
 | `coupons` | 未使用 / 已使用 / 已过期三个 Tab；「去领券中心」入口 |
@@ -1494,7 +1535,7 @@ frontend/
 
 - **路由守卫**：`meta.requiresAuth` + `beforeEach` 直接读 `getToken()`，不依赖 Pinia 安装时机；
   未登录跳 `/login?redirect=...`，登录后自动回来
-- 订单 Tab 的状态映射：待付款 `PENDING_PAYMENT`；已付款 `PAID,SHIPPED`；
+- 订单 Tab 的状态映射：待付款 `PENDING_PAYMENT`；待发货 `PAID`；待收货 `SHIPPED`；
   买过 `PAID,SHIPPED,COMPLETED,REFUNDING,REFUNDED`；退款售后 `REFUNDING,REFUNDED`；
   **待评价 `COMPLETED`**（评价系统还没有，页面上用 `el-alert` 明说）
 - **地址弹窗抽成了公共组件**（`components/AddressFormDialog.vue`），结算页和地址管理页共用 ——
@@ -1734,7 +1775,7 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 ⚠️ **顾客端订单操作入口已补齐**：订单详情页按状态显示
 「取消订单 / 确认收货 / 申请退款 / 立即支付」，与后端
 `OrderStatus.cancellable()` / `refundable()` 的口径一致：
-待支付和已支付可取消，已发货可确认收货，已支付/已发货/已完成可申请退款。
+待支付和待发货可取消，待收货可确认收货，待发货/待收货/已完成可申请退款。
 取消与退款会回滚库存，用券时未过期券自动退回。
 
 ⚠️ 管理端**不做商品的硬删除**（只提供上下架）：商品删掉会留下购物车、订单快照、

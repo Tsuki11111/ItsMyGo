@@ -53,12 +53,18 @@ Java 再按 `agent_sessions` 二次校验），消息页可切换历史会话、
 状态按时间推进，预计送达 = 实际送达；订单详情页有物流时间线与腾讯地图（需配 `VITE_TMAP_KEY`）；
 发货起点优先用商家配置的发货坐标，未定位时回退虚拟转运中心；商家在店铺资料页、
 平台在 `/admin/merchants` 都能设置（平台自营 id=1 同一入口）。agent 查订单能看到
-物流状态 / ETA。后端 **自动化测试 207 条**。
+物流状态 / ETA。
+**M8 催发货已完成（2026-10-22）**：order-service 新增 `prepare_urge_shipment`；
+仅 `PAID` 未发货可催，用户确认后 Java 触发 agent 执行图，**由 agent 调 Java 发送工具**，
+Java 校验并落库为 AGENT 消息；agent 再回复用户「已完成 + 代商家致歉」；
+10 分钟内不重复催同一单。
+**订单状态文案（2026-10-22）**：`PAID` / `SHIPPED` 的展示名改为「待发货 / 待收货」；
+枚举、数据库和接口 `status` 值不变，顾客端拆出「待发货 / 待收货」两个筛选 Tab。
+后端 **自动化测试 210 条**。
 
-**下一步：M8 催办动作** —— M7.5 物流已就绪；催发货可用订单状态 + `shipments` 状态，
-催退款还需要 `refund_applied_at`（当前 schema 还没有，M8 开工时补 **V24**，V23 已被
-发货地址占用）。
-通用动作层（`agent_actions` + 确认门）已就绪，后续接催发货 / 催退款只需加两种动作类型；
+**下一步：M8 催退款** —— 催发货链路已跑通；催退款还需要 `refund_applied_at`
+（当前 schema 还没有，开工时补 **V24**，V23 已被发货地址占用）。
+通用动作层（`agent_actions` + 确认门）已就绪，催退款只需再加一种动作类型；
 也可以做 M14 导购增强（商品对比 / 加入购物车）或商家侧动作。联调需要先启动
 rag_helper gRPC（8003）和 Java 后端（8080），并在 `.env` 配好 `AGENT_GRPC_KEY`；
 智能动作还可用 `AGENT_ACTIONS_ENABLED=false` 一键停。
@@ -82,8 +88,9 @@ rag_helper gRPC（8003）和 Java 后端（8080），并在 `.env` 配好 `AGENT
 用户中心后续、顾客端订单操作、多商户改造都已完成，本轮不再拆新页面
 （佣金 / 分账 / 商家结算、商家子账号、关注店铺明确不做）。
 
-1. **M8 催办动作（本轮按用户要求跳过）** — M6 / M7 / M9 / M10 已完成；通用动作层
-   （`agent_actions` + 确认门）已就绪，后续接催发货 / 催退款只需加两种动作类型。
+1. **M8 催退款** — 催发货已完成（M8，2026-10-22）；M6 / M7 / M9 / M10 也已完成。
+   通用动作层（`agent_actions` + 确认门）已就绪，催退款只需再加一种动作类型，
+   还需要补 `refund_applied_at`（V24）。
    写操作统一走「agent 提案 → Java 校验 → 用户确认 → 执行」。先读外部仓库
    `D:\PycharmProjects\rag_helper` 的 `evolution-plan.md` §5/§6 与 `proto/agent.proto`，
    对接契约以那边为准
@@ -1054,15 +1061,82 @@ reject 的是普通对象 `{status:121, message:"此key每日调用量已达到�
 把 `ship_*` 置空 / null，否则任何人都能看到商家的仓库地址和坐标。
 `MerchantApplyControllerTest` 已加断言防止回归。
 
+### 5.33 ★ 催发货动作的七个坑（2026-10-22 踩到 / 补齐）
+
+**① 确认时必须重新校验订单状态。** 用户看到卡片时订单是 `PAID`（待发货），点确认前商家
+可能已发货（待收货）；只在 prepare 校验会让待收货订单收到催单。agent 回调的发送工具
+`executeUrgeShipment` 重新查订单，非 `PAID` 直接失败且不发消息。
+
+**② 防重复要同时做 pending 复用 + 成功冷却。** 同一订单未过期草稿直接复用，避免 agent
+反复生成多张卡；成功发送后 10 分钟内拒绝再次催同一单，避免刷商家消息。双击确认由
+`startExecution` CAS 兜底，测试断言只产生一条 messages 记录。
+
+**③ 站内消息复用聊天链路，不要另起通知表。** agent 图通过
+`POST /internal/agent/actions/urge-shipment/send` 回调 Java；Java 的 `sendUrgeMessage`
+调 `ChatService.sendAgentText` 找/建会话、写 `messages`（senderType=AGENT）、
+加 `merchant_unread` 并推 SSE；平台自营店（merchantId=1）的未读由管理员在
+`/admin/messages` 消费。直接在 action 里插 messages 会漏掉未读和 SSE 推送。
+
+**④ AGENT 消息的未读方向不能按「CUSTOMER / 其他」分。** AGENT 是买小购替顾客发给商家的
+通知，应该加 `merchant_unread`、不加 `customer_unread`；`ChatWindow.mine` 也要排除 AGENT，
+否则顾客侧会把客服通知显示成「我发的」。测试断言 `merchant_unread = 1`。
+
+**⑤ 完成回复不要伪装成用户消息。** Java 用 gRPC metadata
+`x-agent-internal-event: urge-shipment-confirmed` 触发 agent；agent 不存用户消息、不跑主模型，
+只跑 `urge_shipment_graph`（`send_merchant_message → compose_reply → save_reply`）。
+浏览器消息无法伪造该 metadata。
+
+**⑥ 内部事件必须带 tool ticket。** `confirm` 用 `AgentToolTicketService.issue` 签发票据，
+经 gRPC metadata 下发给 agent；图回调 Java 发送工具时带回 `X-Agent-Ticket`。
+没有票据会被 `/internal/agent/**` 拒绝；票据同时绑定 userId/session。
+
+**⑦ `confirm` 不要加 `@Transactional`。** confirm 线程要等 agent 回调 HTTP 更新同一个动作行；
+如果 confirm 包事务并锁住该行，回调线程会等锁，形成互相等待。当前 confirm 不包事务，
+CAS 与执行更新各自提交。
+
 ---
 
 ## 6. 历史记录
 
+### 2026-10-22 · 订单状态文案改为待发货 / 待收货
+
+`OrderStatus.PAID` 展示名从「已支付」改为「待发货」，`SHIPPED` 从「已发货」改为「待收货」；
+枚举名、数据库存储值和接口 `status` 不变，无需迁移。顾客端订单 Tab 拆成
+「待发货（PAID）」「待收货（SHIPPED）」，管理端 / 商家端状态列和筛选下拉同步。
+后端测试断言已同步。
+
+### 2026-10-22 · M8 催发货
+
+**范围**：order-service 新增 `prepare_urge_shipment`；仅 `PAID` 未发货可催；
+用户确认后 Java 触发 agent 执行图，agent 调 Java 发送工具，Java 校验并落库为 AGENT 消息；
+agent 再回复用户「已完成 + 代商家致歉」；10 分钟冷却；确认时重新校验状态。
+
+**后端**：`AgentActionType.URGE_SHIPMENT`；prepare 只落 `PENDING_CONFIRM`，
+confirm 用 CAS 防双击，只触发 agent、不直接发消息；发送工具
+`POST /internal/agent/actions/urge-shipment/send` 用 tool ticket 鉴权，
+`sendUrgeMessage` 调 `ChatService.sendAgentText` 写 AGENT 消息，
+Redis 锁 + `finishExecution` CAS 防重复；`AgentGateway.internalEvent` 通过 gRPC metadata
+触发 agent；平台自营店由管理员接收。无数据库迁移。
+
+**前端**：`AgentActionCard.vue` 增加第三种卡片（标题 / 图标 / 「确认催发货」）；
+聊天消息对 AGENT 显示「买小购 · 平台客服」；确认后对 `SUCCEEDED` / `FAILED` 都刷新 agent 历史，
+显示完成或失败 + 致歉回复。
+
+**rag_helper**：`order-service` 新增 `prepare_urge_shipment` 工具；新增
+`urge_shipment_graph`（`send_merchant_message → compose_reply → save_reply`）与
+`urge-shipment-confirmed` 内部事件分支；离线检查 PASS。
+
+**验证**：Java 210 条全绿（新增 `AgentUrgeShipmentControllerTest` 3 条，含 agent 回调发送工具）；
+前端 `npm run build` 通过。浏览器实测订单 770：agent 收到内部事件并调用发送工具，
+商家会话消息 `sender_type=AGENT`，agent 聊天出现「催发货已完成 + 代商家致歉」，
+动作 SUCCEEDED，卡片隐藏。
+
 ### 2026-10-22 · 子智能体改名 order-query → order-service
 
 rag_helper `613d696` 把子智能体注册名从 `order-query` 改为 `order-service`
-（能力已从查订单扩展到地址、下单草稿、退款草稿）；Python 包 `order_query_agent`、
-工具文件 `order_query.py`、proto 字段都不变。ItsMyGo 文档与代码注释中的引用已同步。
+（能力已从查订单扩展到地址、下单草稿、退款草稿）；Python 包与工具文件随后补改为
+`order_service_agent` / `order_service.py`，`query_orders` 与 proto 字段不变。
+ItsMyGo 文档与代码注释中的引用已同步。
 
 ### 2026-10-21 · M7.6 商家 / 平台发货地址
 
@@ -1161,7 +1235,7 @@ Mongo `chat_message.products` 存档并在 GetHistory 返回。
   保留卡片作为「去支付」入口，支付完成后自动消失
 - `AgentChatPanel` 监听 `visibilitychange`，从订单页回来后重新拉动作
 - 测试补「支付后 actions 返回 PAID」；浏览器实测三张卡变为
-  「退款中 / 退款中 / 已支付」，支付后的去支付入口消失
+  「退款中 / 退款中 / 待发货」，支付后的去支付入口消失
 
 ### 2026-10-21 · 修复长执行流撑出聊天面板
 
@@ -1390,7 +1464,7 @@ Java 映射为 `traces[]`。重新生成 Python stub 时要修
 文本 + 图片 + 商品卡 + 订单卡；SSE 实时推送；未读角标、已读回执、在线状态、离线留言。
 
 **数据库（V19）**：`conversations`（唯一键 customer+merchant、双方未读/已读指针、
-最后消息预览）+ `messages`（sender_type 预留 AGENT、content_type、卡片 JSON 快照）。
+最后消息预览）+ `messages`（sender_type 含 AGENT、content_type、卡片 JSON 快照）。
 
 **后端**：`ChatService` / `ChatServiceImpl`、`ChatController`（`/api/chat`）+
 `MerchantChatController`（`/api/merchant/chat`，无创建会话接口）；
@@ -1467,8 +1541,8 @@ token merchantId 过滤；购物车视图带店铺信息；`OrderServiceImpl` �
 **范围**：订单详情页按状态显示操作按钮，复用后端已有接口，前端只加 API 封装与交互：
 
 - 待支付：立即支付 / 取消订单
-- 已支付：取消订单 / 申请退款
-- 已发货：确认收货 / 申请退款
+- 待发货：取消订单 / 申请退款
+- 待收货：确认收货 / 申请退款
 - 已完成：申请退款
 - 退款中 / 已退款 / 已取消：无操作
 
@@ -1478,7 +1552,7 @@ token merchantId 过滤；购物车视图带店铺信息；`OrderServiceImpl` �
 
 **验证**：浏览器完整走了两条链路 ——
 ① 新建待支付订单 → 取消 → 状态「已取消」；
-② 新建订单 → 支付（已支付，出现取消/退款）→ 管理端发货（已发货，出现确认收货/退款）
+② 新建订单 → 支付（待发货，出现取消/退款）→ 管理端发货（待收货，出现确认收货/退款）
 → 确认收货（已完成，出现退款与评价入口）→ 申请退款（退款中，无操作）
 → 管理端同意退款（已退款）。前端 `vue-tsc` 与 `vite build` 通过。
 

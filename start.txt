@@ -69,6 +69,10 @@ cd /d/PycharmProjects/rag_helper
 # 智能下单 / 退款（M9/M10）：agent 只准备草稿，用户在聊天卡片确认后 Java 才执行；
 # 一键停用：在 .env 设 AGENT_ACTIONS_ENABLED=false 并重启后端。
 #
+# 催发货（M8）：对待发货（已支付未发货）订单，直接对买小购说「帮我催一下订单 XXX 发货」；
+# 用户在确认卡片确认后，由买小购调用发送工具给商家发站内消息，并回复用户完成 + 代商家致歉；
+# 10 分钟内不重复催同一单。
+#
 # 前后端共用仓库根目录的 .env：后端由 spring.config.import 读取，
 # 前端由 vite.config.ts 的 envDir 读取；只有 VITE_ 前缀会进浏览器。
 #

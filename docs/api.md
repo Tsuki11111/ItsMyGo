@@ -72,8 +72,8 @@ Authorization: Bearer <token>
 | 值 | 含义 |
 |---|---|
 | `PENDING_PAYMENT` | 待支付 |
-| `PAID` | 已支付 |
-| `SHIPPED` | 已发货 |
+| `PAID` | 待发货 |
+| `SHIPPED` | 待收货 |
 | `COMPLETED` | 已完成 |
 | `CANCELLED` | 已取消（终态） |
 | `REFUNDING` | 退款中 |
@@ -91,7 +91,7 @@ Authorization: Bearer <token>
 
 | 字段 | 取值 |
 |---|---|
-| `senderType` | `CUSTOMER` / `MERCHANT` /（预留 `AGENT`） |
+| `senderType` | `CUSTOMER` / `MERCHANT` / `AGENT`（买小购代发的平台客服消息） |
 | `contentType` | `TEXT` / `IMAGE` / `PRODUCT` / `ORDER` |
 
 ### 1.6 权限标记
@@ -1054,6 +1054,8 @@ agent 服务在对话过程中需要实时数据时，会反向回调 Java 的�
 | GET | `/internal/agent/catalog/addresses` | `X-Agent-Ticket` | — | `AgentAddressView[]` |
 | POST | `/internal/agent/actions/order` | `X-Agent-Ticket` | `{addressId?, items:[{productId,skuId,quantity}]}` | `AgentActionView` |
 | POST | `/internal/agent/actions/refund` | `X-Agent-Ticket` | `{orderNo}` | `AgentActionView` |
+| POST | `/internal/agent/actions/urge-shipment` | `X-Agent-Ticket` | `{orderNo}` | `AgentActionView` |
+| POST | `/internal/agent/actions/urge-shipment/send` | `X-Agent-Ticket` | `{actionNo}` | `AgentActionView` |
 
 - 商品搜索：`sort` 取 `recommend`（默认，有货优先 + 销量/评分）/ `sales` /
   `price_asc` / `price_desc` / `newest`；`limit` 默认 5、上限 10。
@@ -1064,6 +1066,9 @@ agent 服务在对话过程中需要实时数据时，会反向回调 Java 的�
 - 商品搜索返回商品与 SKU（skuId / specText / price / stock），供 agent 落到具体规格。
 - 地址只返回当前票据用户自己的；动作准备接口只落 `PENDING_CONFIRM` 草稿，**不执行**。
 - 确认必须走 §19.4 的浏览器接口，agent 不能确认。
+- 催发货确认后，Java 用内部事件触发 agent；agent 用本轮票据回调
+  `/actions/urge-shipment/send`，Java 校验动作归属 / `EXECUTING` 状态 / 订单后，
+  才以 `senderType=AGENT` 落库。该接口只给 agent 用，浏览器不能直接调用。
 
 - 票据由 Java 在每次 `POST /api/agent/converse` 时签发：
   Redis `its-my-go:agent:tool-ticket:{uuid}`，TTL 10 分钟；
@@ -1080,7 +1085,7 @@ agent 服务在对话过程中需要实时数据时，会反向回调 Java 的�
 {
   "orderNo": "20261019151614788725",
   "status": "SHIPPED",
-  "statusLabel": "已发货",
+  "statusLabel": "待收货",
   "merchantName": "商家A数码店",
   "totalAmount": "66.00",
   "trackingNo": "SFMERCHANTA001",
@@ -1179,6 +1184,15 @@ agent 服务在对话过程中需要实时数据时，会反向回调 Java 的�
 
 退款动作的 `summary` 是 `{orderNo, merchantName, status, statusLabel, totalAmount, items, note}`；
 成功后的 `result` 是 `{orderId, orderNo, status, statusLabel, note}`。
+
+催发货动作（`type=URGE_SHIPMENT`）的 `summary` 是
+`{orderNo, merchantName, status, statusLabel, totalAmount, itemCount, items, note}`；
+成功后的 `result` 是
+`{orderId, orderNo, merchantName, status, statusLabel, messageId, note}`。
+只有待发货（`PAID`）且未发货的订单能催；成功发送后 10 分钟内不能重复催同一单；
+确认时会重新校验状态，商家已发货（待收货）则动作失败且不发送消息。
+商家会话收到的是 `senderType=AGENT` 的文本消息；同时 agent 会话会写入一条
+assistant 完成回复（「催发货已完成 + 代商家致歉」）。
 
 ---
 
