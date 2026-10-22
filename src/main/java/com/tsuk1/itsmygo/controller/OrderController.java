@@ -7,6 +7,7 @@ import com.tsuk1.itsmygo.dto.CreateOrderRequest;
 import com.tsuk1.itsmygo.dto.LogisticsView;
 import com.tsuk1.itsmygo.dto.OrderView;
 import com.tsuk1.itsmygo.dto.PageResponse;
+import com.tsuk1.itsmygo.dto.RefundRequest;
 import com.tsuk1.itsmygo.entity.Order;
 import com.tsuk1.itsmygo.security.CurrentUser;
 import com.tsuk1.itsmygo.service.OrderService;
@@ -94,7 +95,10 @@ public class OrderController {
 
     /** 申请退款：进入「退款中」，等管理员审核 */
     @PostMapping("/{id}/refund")
-    public Result<OrderView> applyRefund(@AuthenticationPrincipal CurrentUser user, @PathVariable Long id) {
-        return Result.ok(orderService.applyRefund(user.id(), id));
+    public Result<OrderView> applyRefund(@AuthenticationPrincipal CurrentUser user,
+                                         @PathVariable Long id,
+                                         @RequestBody(required = false) RefundRequest request) {
+        String reason = request == null ? "" : request.reason();
+        return Result.ok(orderService.applyRefund(user.id(), id, reason));
     }
 }

@@ -8,6 +8,7 @@ import com.tsuk1.itsmygo.dto.PageResponse;
 import com.tsuk1.itsmygo.dto.ShipRequest;
 import com.tsuk1.itsmygo.entity.Order;
 
+import java.time.LocalDate;
 import java.util.List;
 
 public interface OrderService {
@@ -61,6 +62,9 @@ public interface OrderService {
     /** 申请退款：待发货 / 待收货 / 已完成 的订单可申请 */
     OrderView applyRefund(Long userId, Long orderId);
 
+    /** 带退款原因；原因为空时按未填写处理 */
+    OrderView applyRefund(Long userId, Long orderId, String reason);
+
     // ── 管理端 ──
 
     /** 旧签名兼容 */
@@ -69,7 +73,17 @@ public interface OrderService {
     }
 
     /** 平台可按商户筛选 */
-    PageResponse<Order> pageForAdmin(int page, int size, String status, Long merchantId);
+    default PageResponse<Order> pageForAdmin(int page, int size, String status, Long merchantId) {
+        return pageForAdmin(page, size, status, merchantId, null, null, null);
+    }
+
+    /** 管理端订单列表：状态 / 商户 / 关键词（订单号/收货人/电话/运单号）/ 下单日期范围 */
+    PageResponse<Order> pageForAdmin(int page, int size, String status, Long merchantId,
+                                     String keyword, LocalDate dateFrom, LocalDate dateTo);
+
+    /** 导出用，最多 5000 条；筛选口径与 pageForAdmin 一致 */
+    List<Order> listForAdminExport(String status, Long merchantId, String keyword,
+                                   LocalDate dateFrom, LocalDate dateTo);
 
     OrderView detailForAdmin(Long orderId);
 

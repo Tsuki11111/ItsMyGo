@@ -234,6 +234,10 @@ export interface Order {
   phone: string
   address: string
   trackingNo: string
+  statusBeforeRefund: string | null
+  refundReason: string
+  refundAppliedAt: string | null
+  refundHandledAt: string | null
   paidAt: string | null
   shippedAt: string | null
   completedAt: string | null

@@ -5,6 +5,7 @@ import OrderDetailDrawer from './components/OrderDetailDrawer.vue'
 import {
   approveRefund,
   cancelExpiredOrders,
+  exportAdminOrders,
   fetchAdminMerchants,
   fetchAdminOrders,
   rejectRefund,
@@ -20,7 +21,10 @@ const page = ref(1)
 const size = ref(10)
 const status = ref('')
 const merchantId = ref<number | null>(null)
+const keyword = ref('')
+const dateRange = ref<[string, string] | null>(null)
 const loading = ref(false)
+const exporting = ref(false)
 
 const detailVisible = ref(false)
 const detailOrderId = ref<number | null>(null)
@@ -36,6 +40,9 @@ async function load() {
       size: size.value,
       status: status.value || undefined,
       merchantId: merchantId.value ?? undefined,
+      keyword: keyword.value.trim() || undefined,
+      dateFrom: dateRange.value?.[0],
+      dateTo: dateRange.value?.[1],
     })
     orders.value = result.records
     total.value = result.total
@@ -52,6 +59,30 @@ async function loadMerchants() {
 function search() {
   page.value = 1
   load()
+}
+
+function reset() {
+  status.value = ''
+  merchantId.value = null
+  keyword.value = ''
+  dateRange.value = null
+  page.value = 1
+  load()
+}
+
+async function exportCsv() {
+  exporting.value = true
+  try {
+    await exportAdminOrders({
+      status: status.value || undefined,
+      merchantId: merchantId.value ?? undefined,
+      keyword: keyword.value.trim() || undefined,
+      dateFrom: dateRange.value?.[0],
+      dateTo: dateRange.value?.[1],
+    })
+  } finally {
+    exporting.value = false
+  }
 }
 
 function onPageChange(next: number) {
@@ -188,6 +219,26 @@ onMounted(async () => {
           :value="option.value"
         />
       </el-select>
+      <el-input
+        v-model="keyword"
+        placeholder="订单号 / 收货人 / 电话 / 运单号"
+        clearable
+        style="width: 240px"
+        @keyup.enter="search"
+        @clear="search"
+      />
+      <el-date-picker
+        v-model="dateRange"
+        type="daterange"
+        value-format="YYYY-MM-DD"
+        start-placeholder="下单开始"
+        end-placeholder="下单结束"
+        style="width: 260px"
+        @change="search"
+      />
+      <el-button type="primary" @click="search">查询</el-button>
+      <el-button @click="reset">重置</el-button>
+      <el-button :loading="exporting" @click="exportCsv">导出 CSV</el-button>
     </div>
 
     <el-table v-loading="loading" :data="orders" border>
@@ -286,6 +337,7 @@ onMounted(async () => {
 
 .filters {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
   margin-bottom: 14px;

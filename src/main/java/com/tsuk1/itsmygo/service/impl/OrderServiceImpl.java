@@ -1,5 +1,6 @@
 package com.tsuk1.itsmygo.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.tsuk1.itsmygo.common.ResultCode;
@@ -43,6 +44,7 @@ import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -69,6 +71,8 @@ public class OrderServiceImpl implements OrderService {
     private static final DateTimeFormatter ORDER_NO_TIME = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
     /** 超时未支付自动取消的默认时长（分钟） */
     private static final int DEFAULT_CANCEL_EXPIRED_MINUTES = 30;
+    /** 管理端 CSV 导出的最大行数，避免一次拉爆内存 */
+    private static final int MAX_EXPORT_ROWS = 5000;
 
     private final OrderMapper orderMapper;
     private final OrderItemMapper orderItemMapper;
@@ -524,6 +528,12 @@ public class OrderServiceImpl implements OrderService {
     @Override
     @Transactional
     public OrderView applyRefund(Long userId, Long orderId) {
+        return applyRefund(userId, orderId, "");
+    }
+
+    @Override
+    @Transactional
+    public OrderView applyRefund(Long userId, Long orderId, String reason) {
         Order order = requireOwned(userId, orderId);
         OrderStatus current = OrderStatus.valueOf(order.getStatus());
         if (!current.refundable()) {
@@ -534,7 +544,14 @@ public class OrderServiceImpl implements OrderService {
         // 先记下申请前的状态 —— 管理员驳回时要回退到它。
         // 必须在 transition 之前设置：transition 内部的 updateById 会一并写进去。
         order.setStatusBeforeRefund(current.name());
+        order.setRefundReason(reason == null ? "" : reason.trim());
+        order.setRefundAppliedAt(LocalDateTime.now());
         transition(order, OrderStatus.REFUNDING, t -> { });
+        // updateById 不会把字段写成 null；重新申请时显式清掉上一次的处理时间
+        orderMapper.update(null, Wrappers.<Order>lambdaUpdate()
+                .eq(Order::getId, order.getId())
+                .set(Order::getRefundHandledAt, null));
+        order.setRefundHandledAt(null);
         return view(order);
     }
 
@@ -549,6 +566,7 @@ public class OrderServiceImpl implements OrderService {
             throw new BizException(ResultCode.BAD_REQUEST, "该订单没有待处理的退款申请");
         }
 
+        order.setRefundHandledAt(LocalDateTime.now());
         transition(order, OrderStatus.REFUNDED, t -> { });
 
         // 钱退回去了，货也要退回来
@@ -565,7 +583,11 @@ public class OrderServiceImpl implements OrderService {
         }
 
         order.setStatusBeforeRefund(null);
-        orderMapper.updateById(order);
+        // updateById 不会写 null：显式清掉申请前状态，同时落处理时间
+        orderMapper.update(null, Wrappers.<Order>lambdaUpdate()
+                .eq(Order::getId, order.getId())
+                .set(Order::getStatusBeforeRefund, null)
+                .set(Order::getRefundHandledAt, order.getRefundHandledAt()));
         // 退款通过后，物流模拟停止（已送达的保持已送达）
         shipmentService.cancelForOrder(order.getId());
         return view(order);
@@ -587,9 +609,13 @@ public class OrderServiceImpl implements OrderService {
             throw new BizException(ResultCode.INTERNAL_ERROR, "订单缺少退款前的状态，无法驳回");
         }
 
+        order.setRefundHandledAt(LocalDateTime.now());
         transition(order, OrderStatus.valueOf(before), t -> { });
         order.setStatusBeforeRefund(null);
-        orderMapper.updateById(order);
+        orderMapper.update(null, Wrappers.<Order>lambdaUpdate()
+                .eq(Order::getId, order.getId())
+                .set(Order::getStatusBeforeRefund, null)
+                .set(Order::getRefundHandledAt, order.getRefundHandledAt()));
         return view(order);
     }
 
@@ -660,14 +686,41 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
-    public PageResponse<Order> pageForAdmin(int page, int size, String status, Long merchantId) {
-        Page<Order> pageRequest = new Page<>(normalizePage(page), normalizeSize(size));
-        Page<Order> result = orderMapper.selectPage(pageRequest, Wrappers.<Order>lambdaQuery()
-                .eq(StringUtils.hasText(status), Order::getStatus, status)
-                .eq(merchantId != null, Order::getMerchantId, merchantId)
-                .orderByDesc(Order::getId));
+    public PageResponse<Order> pageForAdmin(int page, int size, String status, Long merchantId,
+                                            String keyword, LocalDate dateFrom, LocalDate dateTo) {
+        Page<Order> result = orderMapper.selectPage(
+                new Page<>(normalizePage(page), normalizeSize(size)),
+                adminOrderQuery(status, merchantId, keyword, dateFrom, dateTo));
         fillMerchantNames(result.getRecords());
         return PageResponse.of(result);
+    }
+
+    @Override
+    public List<Order> listForAdminExport(String status, Long merchantId, String keyword,
+                                          LocalDate dateFrom, LocalDate dateTo) {
+        List<Order> orders = orderMapper.selectList(
+                adminOrderQuery(status, merchantId, keyword, dateFrom, dateTo)
+                        .last("LIMIT " + MAX_EXPORT_ROWS));
+        fillMerchantNames(orders);
+        return orders;
+    }
+
+    private LambdaQueryWrapper<Order> adminOrderQuery(String status, Long merchantId,
+                                                      String keyword, LocalDate dateFrom,
+                                                      LocalDate dateTo) {
+        String kw = StringUtils.hasText(keyword) ? keyword.trim() : null;
+        return Wrappers.<Order>lambdaQuery()
+                .eq(StringUtils.hasText(status), Order::getStatus, status)
+                .eq(merchantId != null, Order::getMerchantId, merchantId)
+                .ge(dateFrom != null, Order::getCreatedAt,
+                        dateFrom == null ? null : dateFrom.atStartOfDay())
+                .lt(dateTo != null, Order::getCreatedAt,
+                        dateTo == null ? null : dateTo.plusDays(1).atStartOfDay())
+                .and(kw != null, wrapper -> wrapper.like(Order::getOrderNo, kw)
+                        .or().like(Order::getReceiver, kw)
+                        .or().like(Order::getPhone, kw)
+                        .or().like(Order::getTrackingNo, kw))
+                .orderByDesc(Order::getId);
     }
 
     @Override

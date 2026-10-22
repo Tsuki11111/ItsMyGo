@@ -58,6 +58,15 @@ public class Order {
     /** 申请退款前的状态，仅 REFUNDING 期间有值；驳回时回退到它 */
     private String statusBeforeRefund;
 
+    /** 退款原因（用户填写；空串表示未填写） */
+    private String refundReason;
+
+    /** 退款申请时间 */
+    private LocalDateTime refundAppliedAt;
+
+    /** 退款处理时间（同意 / 驳回） */
+    private LocalDateTime refundHandledAt;
+
     private LocalDateTime paidAt;
 
     private LocalDateTime shippedAt;

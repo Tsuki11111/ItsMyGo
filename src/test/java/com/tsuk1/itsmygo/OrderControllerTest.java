@@ -29,13 +29,16 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -701,15 +704,22 @@ class OrderControllerTest extends ApiTestBase {
         mockMvc.perform(post("/api/orders/" + orderId + "/pay").header("Authorization", bearer(token)));
         assertProductStock(token, productId, 3);
 
-        mockMvc.perform(post("/api/orders/" + orderId + "/refund").header("Authorization", bearer(token)))
-                .andExpect(jsonPath("$.data.statusLabel").value("退款中"));
+        mockMvc.perform(post("/api/orders/" + orderId + "/refund")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"商品有瑕疵\"}"))
+                .andExpect(jsonPath("$.data.statusLabel").value("退款中"))
+                .andExpect(jsonPath("$.data.order.refundReason").value("商品有瑕疵"))
+                .andExpect(jsonPath("$.data.order.refundAppliedAt").isNotEmpty());
 
         // 审核期间库存**还不能**回滚 —— 万一被驳回呢
         assertProductStock(token, productId, 3);
 
         mockMvc.perform(post("/api/admin/orders/" + orderId + "/refund/approve")
                         .header("Authorization", bearer(admin)))
-                .andExpect(jsonPath("$.data.statusLabel").value("已退款"));
+                .andExpect(jsonPath("$.data.statusLabel").value("已退款"))
+                .andExpect(jsonPath("$.data.order.refundReason").value("商品有瑕疵"))
+                .andExpect(jsonPath("$.data.order.refundHandledAt").isNotEmpty());
 
         // 钱退了，货也要退
         assertProductStock(token, productId, 5);
@@ -737,15 +747,48 @@ class OrderControllerTest extends ApiTestBase {
                 .content(objectMapper.writeValueAsString(new ShipRequest("SF999"))));
 
         // 从「待收货」申请退款
-        mockMvc.perform(post("/api/orders/" + orderId + "/refund").header("Authorization", bearer(token)))
-                .andExpect(jsonPath("$.data.statusLabel").value("退款中"));
+        mockMvc.perform(post("/api/orders/" + orderId + "/refund")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"不想要了\"}"))
+                .andExpect(jsonPath("$.data.statusLabel").value("退款中"))
+                .andExpect(jsonPath("$.data.order.refundReason").value("不想要了"));
 
         // 驳回后要回到「待收货」而不是别的什么状态
         mockMvc.perform(post("/api/admin/orders/" + orderId + "/refund/reject")
                         .header("Authorization", bearer(admin)))
-                .andExpect(jsonPath("$.data.statusLabel").value("待收货"));
+                .andExpect(jsonPath("$.data.statusLabel").value("待收货"))
+                .andExpect(jsonPath("$.data.order.refundHandledAt").isNotEmpty());
 
         assertProductStock(token, productId, 4);
+    }
+
+    @Test
+    void adminCanFilterOrdersAndExportCsv() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        String token = customerToken("c" + System.nanoTime());
+        long productId = createProduct(admin, "Filterable", "12.00", 5);
+        long addressId = createAddress(token);
+        addToCart(token, productId, 1);
+        long orderId = placeOrder(token, addressId);
+        String orderNo = orderMapper.selectById(orderId).getOrderNo();
+        String today = LocalDate.now().toString();
+
+        mockMvc.perform(get("/api/admin/orders")
+                        .header("Authorization", bearer(admin))
+                        .param("keyword", orderNo)
+                        .param("dateFrom", today)
+                        .param("dateTo", today))
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.records.length()").value(1))
+                .andExpect(jsonPath("$.data.records[0].orderNo").value(orderNo));
+
+        mockMvc.perform(get("/api/admin/orders/export")
+                        .header("Authorization", bearer(admin))
+                        .param("keyword", orderNo))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("订单号")))
+                .andExpect(content().string(containsString(orderNo)));
     }
 
     @Test

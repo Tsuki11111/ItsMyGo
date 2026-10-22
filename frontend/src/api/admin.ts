@@ -1,4 +1,4 @@
-import { del, get, post, postForm, put } from './http'
+import { del, download, get, post, postForm, put } from './http'
 import type {
   AdjustSkuStockPayload,
   AdminDashboardView,
@@ -112,10 +112,20 @@ export interface AdminOrderQuery {
   /** 单个状态枚举名；管理端接口不支持逗号分隔 */
   status?: string
   merchantId?: number
+  /** 订单号 / 收货人 / 电话 / 运单号 */
+  keyword?: string
+  /** 下单日期，YYYY-MM-DD */
+  dateFrom?: string
+  dateTo?: string
 }
 
 export function fetchAdminOrders(query: AdminOrderQuery): Promise<PageResponse<Order>> {
   return get<PageResponse<Order>>('/admin/orders', { ...query })
+}
+
+/** 导出当前筛选条件下的订单 CSV */
+export function exportAdminOrders(query: AdminOrderQuery): Promise<void> {
+  return download('/admin/orders/export', { ...query }, 'orders.csv')
 }
 
 export function fetchAdminOrder(id: number): Promise<OrderView> {

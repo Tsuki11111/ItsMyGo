@@ -493,7 +493,7 @@ public class AgentActionServiceImpl implements AgentActionService {
     private Object executeRefund(long userId, AgentAction action) {
         JsonNode payload = readTree(action.getPayloadJson());
         long orderId = payload.path("orderId").asLong();
-        OrderView view = orderService.applyRefund(userId, orderId);
+        OrderView view = orderService.applyRefund(userId, orderId, "通过买小购申请退款");
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("orderId", view.order().getId());
         result.put("orderNo", view.order().getOrderNo());

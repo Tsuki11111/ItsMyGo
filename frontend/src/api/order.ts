@@ -61,6 +61,6 @@ export function confirmOrder(id: number): Promise<OrderView> {
 }
 
 /** 申请退款：待发货 / 待收货 / 已完成可用，之后进入「退款中」等管理端审核 */
-export function applyRefund(id: number): Promise<OrderView> {
-  return post<OrderView>(`/orders/${id}/refund`)
+export function applyRefund(id: number, reason: string): Promise<OrderView> {
+  return post<OrderView>(`/orders/${id}/refund`, { reason })
 }

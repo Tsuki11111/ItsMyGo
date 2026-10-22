@@ -174,6 +174,25 @@ async function reject() {
           </el-descriptions-item>
         </el-descriptions>
 
+        <el-descriptions
+          v-if="view.order.refundReason || view.order.refundAppliedAt || view.order.refundHandledAt"
+          title="退款信息"
+          :column="2"
+          border
+          size="small"
+          class="block"
+        >
+          <el-descriptions-item label="退款原因" :span="2">
+            {{ view.order.refundReason || '未填写' }}
+          </el-descriptions-item>
+          <el-descriptions-item label="申请时间">
+            {{ formatTime(view.order.refundAppliedAt) }}
+          </el-descriptions-item>
+          <el-descriptions-item label="处理时间">
+            {{ formatTime(view.order.refundHandledAt) }}
+          </el-descriptions-item>
+        </el-descriptions>
+
         <el-descriptions title="收货信息" :column="1" border size="small" class="block">
           <el-descriptions-item label="收货人">{{ view.order.receiver }}</el-descriptions-item>
           <el-descriptions-item label="电话">{{ view.order.phone }}</el-descriptions-item>

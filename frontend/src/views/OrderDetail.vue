@@ -183,19 +183,32 @@ async function onConfirmReceipt() {
 
 async function onRefund() {
   if (!order.value) return
+  let reason = ''
   try {
-    await ElMessageBox.confirm(
-      '申请退款后订单将进入「退款中」，等待商家审核。确定申请吗？',
+    const result = await ElMessageBox.prompt(
+      '请填写退款原因，商家会据此处理（最多 200 字）',
       '申请退款',
-      { type: 'warning', confirmButtonText: '申请退款', cancelButtonText: '取消' },
+      {
+        inputType: 'textarea',
+        inputPlaceholder: '例如：商品有瑕疵 / 尺寸不合适 / 不想要了',
+        inputValidator: (value: string) => {
+          const text = (value || '').trim()
+          if (!text) return '请填写退款原因'
+          if (text.length > 200) return '退款原因最多 200 字'
+          return true
+        },
+        confirmButtonText: '提交申请',
+        cancelButtonText: '取消',
+      },
     )
+    reason = result.value.trim()
   } catch {
     return
   }
 
   acting.value = true
   try {
-    view.value = await applyRefund(order.value.id)
+    view.value = await applyRefund(order.value.id, reason)
     ElMessage.success('已提交退款申请')
   } catch {
     await load()
@@ -283,6 +296,26 @@ onMounted(load)
           <span class="line-sub">{{ order.phone }}</span>
         </p>
         <p class="line-sub">{{ order.address }}</p>
+      </section>
+
+      <!-- ── 退款信息 ── -->
+      <section
+        v-if="order.refundReason || order.refundAppliedAt || order.refundHandledAt"
+        class="block"
+      >
+        <h2 class="block-title">退款信息</h2>
+        <p class="line">
+          <span class="line-name">退款原因</span>
+          <span class="line-sub">{{ order.refundReason || '未填写' }}</span>
+        </p>
+        <p class="line">
+          <span class="line-name">申请时间</span>
+          <span class="line-sub">{{ formatTime(order.refundAppliedAt) }}</span>
+        </p>
+        <p v-if="order.refundHandledAt" class="line">
+          <span class="line-name">处理时间</span>
+          <span class="line-sub">{{ formatTime(order.refundHandledAt) }}</span>
+        </p>
       </section>
 
       <!-- ── 物流状态 ── -->

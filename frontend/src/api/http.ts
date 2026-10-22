@@ -120,3 +120,23 @@ export function put<T>(url: string, data?: unknown): Promise<T> {
 export function del<T>(url: string): Promise<T> {
   return request<T>({ url, method: 'DELETE' })
 }
+
+/** 下载文件（导出 CSV 等）：保留鉴权头，用 blob 触发浏览器保存。 */
+export async function download(
+  url: string,
+  params: Record<string, unknown> | undefined,
+  filename: string,
+): Promise<void> {
+  const response = await instance.get<Blob>(url, { params, responseType: 'blob' })
+  const contentType = (response.headers['content-type'] as string | undefined)
+    || 'application/octet-stream'
+  const blob = new Blob([response.data], { type: contentType })
+  const href = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = href
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.setTimeout(() => URL.revokeObjectURL(href), 0)
+}
