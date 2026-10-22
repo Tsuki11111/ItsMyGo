@@ -233,8 +233,8 @@ npm run dev          # → http://localhost:5173
 docker exec -i mysql sh -c 'mysql --default-character-set=utf8mb4 -utsuk1 -p"$MYSQL_PASSWORD" its_mygo' -e "UPDATE users SET role='ADMIN' WHERE username='testuser';"
 ```
 管理端入口：登录后顶栏用户面板里的「管理后台」，或直接访问 `/admin`。
-**种子数据**：[sql/seed-data.sql](sql/seed-data.sql)（**10 个分类、23 个商品**，
-型号取自 rag_helper 的产品手册语料）。导入方式：
+**种子数据**：[sql/seed-data.sql](sql/seed-data.sql)（**8 个分类、44 个商品**，
+每个型号对应 rag_helper/doc 下的一份产品手册）。导入方式：
 
 ```bash
 docker exec -i mysql sh -c 'mysql --default-character-set=utf8mb4 -utsuk1 -p"$MYSQL_PASSWORD" its_mygo' < sql/seed-data.sql
@@ -246,7 +246,7 @@ docker exec -i mysql sh -c 'mysql --default-character-set=utf8mb4 -utsuk1 -p"$MY
 **页面结构**（`views/ProductList.vue`）：首屏是「左品类栏 + 右轮播」两栏
 （`grid` 190px + 1fr，高 428px），下面才是商品网格。
 
-- 品类栏 11 项（全部 + 10 个分类），图标按**分类名映射**（`ICONS` 表，匹配不上用 `Box` 兜底）。
+- 品类栏 9 项（全部 + 8 个分类），图标按**分类名映射**（`ICONS` 表，匹配不上用 `Box` 兜底）。
   那个 428px 是量出来的：内容 `scrollHeight` 375 + 头部，少了就出滚动条
 - 轮播用 `el-carousel`，**它的 `height` 参数只认具体像素**，传 `100%` 会塌成空白 ——
   得用 `:deep(.el-carousel__container) { height: 100% }` 撑满
@@ -751,7 +751,7 @@ addressMapper.delete(null);
 
 ### 5.20 ★ 测试和开发共用一个库，互相踩（2026-10-16 记录并解决）
 
-**症状**：开发库里导入种子数据（10 个分类、23 个商品）之后，
+**症状**：开发库里导入种子数据之后，
 `CategoryControllerTest` / `ProductControllerTest` 有 5 条会失败 ——
 它们断言的是**全表条数**，以为库里只有自己造的那一条：
 
@@ -1139,6 +1139,19 @@ broker 注册后自动恢复。启动前用 `mqadmin clusterList` 和 `topic-ini
 ---
 
 ## 6. 历史记录
+
+### 2026-10-23 · 商品种子数据改为 rag_helper 手册型号
+
+**范围**：`sql/seed-data.sql` 重写，商品全部来自 `rag_helper/doc` 的 44 份产品手册，
+每个型号一件商品；分类调整为 8 个（新增「台式机」「平板电脑」，
+移除没有对应手册的耗材 / 键鼠 / 存储 / 配件线材）。
+
+**数据**：44 个商品、48 个 SKU；保留两件多规格演示商品 ——
+奔图 P3030（套餐二选一）、MateBook B3-420（内存 × 硬盘四组合）。
+导入时 MySQL 客户端必须带 `--default-character-set=utf8mb4`，否则中文入库乱码。
+
+**验证**：商品列表、分类栏、商品详情（含 P3030 规格选择）浏览器实测正常；
+导入后清 `its-my-go:category:tree` 并重启后端预热布隆过滤器。
 
 ### 2026-10-22 · RocketMQ 超时关单（M17）
 
