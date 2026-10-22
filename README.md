@@ -31,6 +31,7 @@ Spring Boot 单体 + Vue 3 前后端分离，经 **gRPC 接入 RAG 客服智能�
 | 表结构迁移 | Flyway 12.4.0 —— **须用 `spring-boot-starter-flyway`**，详见 [HANDOFF §5.1](HANDOFF.md) |
 | 安全 | Spring Security 7 + JWT（jjwt 0.13.0，HS256，密码 BCrypt）—— ✅ 已接入 |
 | 对象存储 | MinIO 8.5.17 —— 复用本机共用容器，bucket `its-mygo-product-images`，✅ 已接商品图上传 |
+| 消息队列 | RocketMQ 5.3.2（namesrv / broker / proxy）+ 官方 gRPC 客户端 5.2.2 —— 超时未支付订单自动取消，✅ 已接 |
 | 客服链路 | 原生 `grpc-java` + `protobuf-maven-plugin`（不用 starter，Boot 4 未适配） |
 | API 文档 | springdoc-openapi |
 | 前端 | Vue 3 + Vite + TypeScript + Element Plus + Pinia + Vue Router |
@@ -74,6 +75,10 @@ Spring Boot 单体 + Vue 3 前后端分离，经 **gRPC 接入 RAG 客服智能�
 
 > `mysql` 容器**没有 restart policy**，Docker Desktop 重启后需手动 `docker start mysql`。
 
+**RocketMQ 是本项目自有容器**（不是共用中间件），用根目录
+`docker-compose.rocketmq.yml` 启动（namesrv / broker / proxy / 一次性 topic-init），
+应用连 proxy 的 `localhost:8081`。
+
 ## 进度
 
 | 阶段 | 状态 |
@@ -98,9 +103,12 @@ Spring Boot 单体 + Vue 3 前后端分离，经 **gRPC 接入 RAG 客服智能�
 | **M11–M13 AI 导购与商品卡** | ✅ **完成（2026-10-21）** —— 商品搜索支持筛选 / 排序 / 评分 / 库存；关键词不足时语义检索；聊天里渲染商品卡（历史可恢复） |
 | **M15 管理后台数据概览** | ✅ **完成（2026-10-22）** —— 今日成交 / 待办指标、近 7 天成交折线图、四块待办列表；`/admin` 默认进入看板 |
 | **M16 订单与售后增强** | ✅ **完成（2026-10-22）** —— 订单关键词与下单日期筛选、CSV 导出；退款原因与申请 / 处理时间记录与展示 |
+| **M17 RocketMQ 超时关单** | ✅ **完成（2026-10-22）** —— 下单后发延迟消息，30 分钟未支付自动取消并回滚库存 / 退券；数据库扫描兜底，MQ 不可用不影响下单 |
 
 **交易闭环已通**：浏览商品 → 加购 → 下单（扣库存）→ 支付 → 发货 → 收货，
 以及取消、超时自动取消、退款（申请 → 审核 → 回滚库存）。
+**超时关单（M17）**：下单事务提交后发 RocketMQ 延迟消息，30 分钟未支付自动取消、
+回滚库存并退券；消费端按订单状态幂等，数据库扫描兜底，MQ 不可用也不影响下单。
 **订单状态**对外显示为：待支付 → 待发货 → 待收货 → 已完成；底层枚举仍是
 `PENDING_PAYMENT / PAID / SHIPPED / COMPLETED`，老数据无需迁移。
 商品支持**多规格 SKU**（每个规格组合独立价格与库存），也支持「立即购买」直达结算。
@@ -139,6 +147,9 @@ agent 查订单时能看到「运输中 / 派送中 / 预计 X 送达」。
 
 两个终端：后端 `./mvnw spring-boot:run`，前端 `cd frontend && npm run dev`，
 然后开 http://localhost:5173（演示账号 `testuser` / `123456`）。
+要验证 MQ 超时关单，先 `docker compose -f docker-compose.rocketmq.yml up -d`
+（namesrv/broker/proxy/topic-init）；不启动时在 `.env` 设
+`ORDER_TIMEOUT_MQ_ENABLED=false`，数据库扫描兜底仍会关单。
 客服对话还需要启动外部 agent 服务（第三个终端）：
 `cd D:/PycharmProjects/rag_helper && .venv/Scripts/python.exe -m app.agent.api.grpc_service`；
 并把 `rag_helper/admin-key.txt` **第一行**的密钥填进本项目 `.env` 的 `AGENT_GRPC_KEY`。
@@ -155,7 +166,7 @@ agent 侧地址默认 `http://127.0.0.1:8080`，需要改就在 `rag_helper/.env
 **提权后重新登录**。种子数据见 [sql/seed-data.sql](sql/seed-data.sql)，详见 [HANDOFF §3.4](HANDOFF.md)。
 
 **CI**：每次 push 自动在干净环境跑测试（[`.github/workflows/test.yml`](.github/workflows/test.yml)）。
-本地 212 条全绿，CI 跳过 3 条依赖 MinIO 的、跑 209 条（MinIO 已停止公开分发镜像，详见 [HANDOFF §5.12](HANDOFF.md)）。
+本地 223 条全绿，CI 跳过 3 条依赖 MinIO 的、跑 220 条（MinIO 已停止公开分发镜像，详见 [HANDOFF §5.12](HANDOFF.md)）。
 **测试跑在独立的库** `its_mygo_test`（Redis 用 db 1），和开发数据互不影响 —— 见 [HANDOFF §5.20](HANDOFF.md)。
 
 各里程碑的可验收产物见 [docs/decisions-ecommerce.md](docs/decisions-ecommerce.md) §4。

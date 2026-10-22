@@ -387,7 +387,8 @@ concurrentPayOnlySucceedsOnce          ✓ 仍通过（被唯一索引兜住）
 看起来执行成功、实际没清掉。
 
 **超时取消**（`cancelExpired`）：批量取消超过 N 分钟未支付的订单并回滚库存。
-先做成管理端手动触发，将来挂 `@Scheduled` 即可（多实例下要加分布式锁）。
+管理端仍保留手动触发入口；M17 起另外挂了两条自动链路：
+**RocketMQ 延迟消息准时关单 + 数据库定时扫描兜底**，见 §3.26。
 
 ⚠️ **时间基准必须用数据库的 `NOW()`**：
 
@@ -1354,6 +1355,56 @@ Java 全量 211 条；前端 `npm run build` 通过；浏览器实测 `/admin` �
 接口实测 `/api/admin/orders?keyword=...&dateFrom=...&dateTo=...` 与
 `/api/admin/orders/export?...`（返回带 BOM 的 CSV）；浏览器实测筛选、导出与
 退款订单详情抽屉。
+
+### 3.26 RocketMQ 延迟消息与超时关单（M17，2026-10-22）
+
+**为什么用 gRPC 客户端而不是 `rocketmq-client`**：Spring Boot 4.1.1 的依赖管理把
+Netty 锁在 **4.2.17**，Lettuce 7.5.2 已使用 4.2 API；RocketMQ remoting 客户端 5.3.2
+编译于 Netty **4.1.114**，直接引入会让 RocketMQ 跑在 4.2 上（或全局降级 Netty 破坏 Redis），
+两条路都不可靠。因此使用官方 `rocketmq-client-java:5.2.2`（gRPC，依赖
+`grpc-netty-shaded`，与应用 Netty 隔离），broker / proxy 仍是 5.3.2。
+
+```
+下单事务提交后
+  └─ OrderTimeoutPublisher (afterCommit)
+       └─ gRPC Producer ──> proxy :8081 ──> broker
+                                              │ 定时消息（30 分钟后投递）
+                                              ▼
+                                     OrderTimeoutConsumer
+                                              │
+                              OrderService.cancelIfExpired(orderId, minutes)
+                              ├─ id + PENDING_PAYMENT + created_at < NOW()-N
+                              ├─ CAS 转 CANCELLED
+                              └─ restoreStock / restoreCoupon
+
+兜底：OrderTimeoutScanJob（默认每 5 分钟）
+  └─ Redis 锁 → cancelExpired(minutes)
+```
+
+要点：
+
+- **发送时机**：`doCreate` 收集本次创建的订单，调用 `OrderTimeoutPublisher.publishAfterCommit`；
+  有事务同步时挂 `afterCommit`，没有则立即发送。发送失败只记日志，下单不受影响。
+- **延迟**：`MessageBuilder.setDeliveryTimestamp(now + minutes)`；topic
+  `its-my-go-order-timeout` 必须带 `message.type=DELAY`，否则 broker 会报
+  “message type not match with topic accept message types”。
+- **消费幂等**：`cancelIfExpired` 先用数据库 `NOW()` 查“仍未支付且已超时”，
+  再走现有 `transition` CAS；已支付 / 已取消 / 未到时间 / 重复消息都返回 false 并 ack。
+  只有数据库异常才返回 `RECONSUME_LATER`。
+- **topic 初始化**：5.x gRPC 客户端启动时要求 topic 路由已存在，broker 的
+  `autoCreateTopicEnable` 不够；compose 里用一次性 `topic-init` 服务执行
+  `mqadmin updateTopic ... -a +message.type=DELAY`。
+- **兜底扫描**：`@Scheduled(fixedDelay)` + Redis `SETNX` 锁
+  `its-my-go:order-timeout:scan-lock`（TTL 240s，Lua 比对 token 释放）；
+  多实例只跑一个，Redis 故障时跳过本轮。测试 profile 关闭扫描。
+- **开关**：`ORDER_TIMEOUT_MQ_ENABLED`、`ORDER_TIMEOUT_SCAN_ENABLED`；
+  MQ 关闭或 proxy 未启动时，生产者 / 消费者 `start()` 只记 warn，应用照常启动。
+- **无数据库迁移**；取消动作完全复用现有库存 / 券回滚。
+
+**验证**：11 条新增测试（publisher 3、consumer 4、scan 3、`cancelIfExpired` 幂等 1）
+通过；真实环境下单后 60 秒订单 `CANCELLED`，日志出现
+`RocketMQ 定时关单成功: orderId=778`；关掉扫描、仅靠 MQ 也能关单；
+管理端手动 `cancel-expired` 仍能清理存量。
 
 ---
 

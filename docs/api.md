@@ -841,6 +841,8 @@ Authorization: Bearer <token>
 | POST | `/api/admin/orders/cancel-expired` | `minutes=30` | `number`（取消数量） |
 
 - 平台保留全平台订单的查看、发货、退款审核权限。
+- 超时未支付订单会由 RocketMQ 延迟消息自动取消（默认 30 分钟），数据库扫描兜底；
+  `cancel-expired` 仍保留，用于手动清理存量 / 调整阈值。
 - `keyword` 同时匹配订单号 / 收货人 / 电话 / 运单号；`dateFrom` / `dateTo` 为
   `YYYY-MM-DD`，按下单时间过滤（含首尾两天）。
 - `export` 返回 `text/csv;charset=UTF-8`，带 UTF-8 BOM（Excel 中文不乱码），

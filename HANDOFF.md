@@ -65,8 +65,10 @@ Java 校验并落库为 AGENT 消息；agent 再回复用户「已完成 + 代�
 **订单与售后增强也已完成（2026-10-22，M16）**：管理端订单支持关键词（订单号 / 收货人 /
 电话 / 运单号）与下单日期区间筛选、按当前条件导出 CSV（带 BOM，最多 5000 条）；
 退款新增原因与申请 / 处理时间（V24），顾客申请时必须填写，管理端与顾客端都展示「退款信息」。
+**M17 RocketMQ 超时关单已完成（2026-10-22）**：下单事务提交后发延迟消息，默认 30 分钟
+未支付自动取消并回滚库存 / 退券；消费端幂等，数据库扫描兜底，MQ 不可用不影响下单。
 接下来按「用户与操作审计 → 商户与商品运营」继续补。
-后端 **自动化测试 212 条**。
+后端 **自动化测试 223 条**。
 
 **下一步：用户与操作审计**（用户已选）—— 用户列表 / 状态、操作审计等。
 M8 催退款仍可做：`refund_applied_at` 已由 V24 补上，通用动作层
@@ -1101,9 +1103,65 @@ reject 的是普通对象 `{status:121, message:"此key每日调用量已达到�
 如果 confirm 包事务并锁住该行，回调线程会等锁，形成互相等待。当前 confirm 不包事务，
 CAS 与执行更新各自提交。
 
+### 5.34 ★ RocketMQ 超时关单的七个坑（2026-10-22 踩到 / 补齐）
+
+**① 不要用 `rocketmq-client` remoting 客户端。** Boot 4.1.1 把 Netty 锁在 4.2.17
+（Lettuce 7.5.2 已用 4.2 API），而 RocketMQ remoting 5.3.2 编译于 Netty 4.1.114；
+直接引入有二进制不兼容风险，全局降 Netty 又会破坏 Redis。改用官方 gRPC 客户端
+`rocketmq-client-java:5.2.2`（`grpc-netty-shaded`）+ proxy 容器。
+
+**② gRPC 客户端启动时要求 topic 已有路由。** broker 的 `autoCreateTopicEnable=true`
+不够：Producer/PushConsumer 在 `build()` 阶段就 fetch topic route，不存在直接启动失败。
+compose 里加了一次性 `topic-init` 服务显式建 topic。
+
+**③ topic 必须声明 `message.type=DELAY`。** 普通 topic 发定时消息会报
+`actualMessageType=DELAY, acceptMessageTypes=[NORMAL]`。建 topic 要带
+`-a +message.type=DELAY`；`topic-init` 每次 `up` 都会重跑，**必须一直带着这个参数**，
+否则会把已有 topic 的类型重置回 NORMAL。
+
+**④ 命名卷默认 root 所有，broker 镜像却是 `rocketmq` 用户。** 表现为启动即 NPE
+（`ScheduleMessageService.configFilePath`），根因是写不进 `/home/rocketmq/store`。
+本地 compose 给 broker 加 `user: "0:0"`；生产应改卷权限而不是 root 跑。
+
+**⑤ proxy 可能比 broker 先就绪。** `depends_on` 只保证启动顺序，不保证 broker 注册完成；
+proxy 会先报 `create system broadcast topic ... failed`，`restart: unless-stopped` 会等
+broker 注册后自动恢复。启动前用 `mqadmin clusterList` 和 `topic-init` 状态确认。
+
+**⑥ 发送失败不能影响下单，也不能只靠 MQ。** 消息在事务 `afterCommit` 后发；
+发送异常全部 catch + warn；没有 outbox，进程崩溃或 broker 挂掉会丢消息，
+所以保留 `OrderTimeoutScanJob` 做最终兜底。消费端按 `status + DB NOW()` 幂等，
+重复消息只会 ack。
+
+**⑦ 测试与 CI 不能依赖 RocketMQ。** `application-test.yml` 关掉
+`itsmygo.order-timeout.mq-enabled` 与 `scan-enabled`；MQ 装配用
+`@ConditionalOnProperty`，测试上下文不会创建客户端。CI 仍只起 MySQL + Redis。
+
 ---
 
 ## 6. 历史记录
+
+### 2026-10-22 · RocketMQ 超时关单（M17）
+
+**范围**：下单后发 RocketMQ 延迟消息，默认 30 分钟未支付自动取消；保留数据库扫描兜底，
+管理端手动入口不变。无 Flyway 迁移。
+
+**后端**：
+- `rocketmq-client-java:5.2.2`（gRPC，经 proxy 8081）+ `RocketMqConfig`；
+  broker / namesrv / proxy 镜像 5.3.2。
+- `OrderTimeoutPublisher` 在事务 `afterCommit` 发送；单条失败只 warn。
+- `OrderService.cancelIfExpired(orderId, minutes)`：按 `id + PENDING_PAYMENT +
+  created_at < NOW()-N` 查询，CAS 取消 + 回滚库存 / 券；重复消息幂等。
+- `OrderTimeoutScanJob`：默认每 5 分钟，Redis SETNX 锁 + TTL，调现有 `cancelExpired`。
+- 配置：`ORDER_TIMEOUT_*`、`ROCKETMQ_*`；测试 profile 关闭 MQ 与扫描。
+
+**部署**：新增 `docker-compose.rocketmq.yml`（namesrv/broker/proxy/topic-init）、
+`docker/rocketmq/broker.conf`；`start.txt` 增加 0.5 节；`.env.example` 增加变量；
+`CLAUDE.md` 说明 RocketMQ 是本项目自有容器。
+
+**验证**：新增 11 条测试；全量 223 条全绿；真实环境订单 778 在下单 60 秒后被 MQ 消费者
+取消；关闭扫描、仅靠 MQ 也能关单；手动 `cancel-expired` 可清理存量。
+
+**下一步（用户已选）**：用户与操作审计 → 商户与商品运营。
 
 ### 2026-10-22 · 订单与售后增强（M16）
 
