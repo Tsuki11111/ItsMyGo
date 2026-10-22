@@ -169,6 +169,37 @@ public class ChatServiceImpl implements ChatService {
 
     @Override
     @Transactional
+    public ChatMessageView sendAgentText(long customerUserId, long merchantId, String text) {
+        if (!StringUtils.hasText(text)) {
+            throw new BizException(ResultCode.BAD_REQUEST, "消息内容不能为空");
+        }
+        Merchant merchant = merchantMapper.selectById(merchantId);
+        if (merchant == null || !Merchant.ACTIVE.equals(merchant.getStatus())) {
+            throw new BizException(ResultCode.NOT_FOUND, "店铺不存在或已停用");
+        }
+        if (merchant.getOwnerUserId() == null
+                && merchant.getId() != Merchant.PLATFORM_MERCHANT_ID) {
+            throw new BizException(ResultCode.BAD_REQUEST, "店铺暂未绑定商家账号");
+        }
+        conversationMapper.insertIgnore(customerUserId, merchantId);
+        Conversation conversation = conversationMapper.selectOne(Wrappers.<Conversation>lambdaQuery()
+                .eq(Conversation::getCustomerUserId, customerUserId)
+                .eq(Conversation::getMerchantId, merchantId));
+        if (conversation == null) {
+            throw new BizException(ResultCode.INTERNAL_ERROR, "会话创建失败");
+        }
+        String content = text.trim();
+        if (content.length() > MAX_TEXT_LENGTH) {
+            content = content.substring(0, MAX_TEXT_LENGTH);
+        }
+        // sender_user_id 仍记发起顾客（表非空），展示与未读由 sender_type=AGENT 决定
+        ChatMessage message = appendMessage(conversation, customerUserId,
+                ChatMessage.SENDER_AGENT, ChatMessage.TYPE_TEXT, content, null);
+        return toMessageView(message);
+    }
+
+    @Override
+    @Transactional
     public long customerRead(CurrentUser user, Long conversationId, Long lastMessageId) {
         requireNotAdmin(user);
         Conversation conversation = requireCustomerConversation(conversationId, user.id());
@@ -384,9 +415,11 @@ public class ChatServiceImpl implements ChatService {
         String preview = preview(contentType, content);
         conversationMapper.updateLastMessage(conversation.getId(), message.getId(), preview,
                 message.getCreatedAt());
-        boolean fromCustomer = Conversation.SIDE_CUSTOMER.equals(senderType);
+        // MERCHANT 消息加顾客未读；CUSTOMER / AGENT 都加商家未读
+        // （AGENT 是买小购替顾客发给商家的通知，顾客自己不需要未读）
+        boolean fromMerchant = ChatMessage.SENDER_MERCHANT.equals(senderType);
         conversationMapper.addUnread(conversation.getId(),
-                fromCustomer ? 0 : 1, fromCustomer ? 1 : 0);
+                fromMerchant ? 1 : 0, fromMerchant ? 0 : 1);
 
         Long conversationId = conversation.getId();
         Long messageId = message.getId();

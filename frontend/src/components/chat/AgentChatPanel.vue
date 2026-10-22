@@ -166,6 +166,12 @@ function onActionUpdated(updated: AgentActionView) {
   const index = actions.value.findIndex((item) => item.actionNo === updated.actionNo)
   if (index >= 0) actions.value[index] = updated
   else actions.value.push(updated)
+  // 催发货由 agent 执行：成功/失败后 Java 都写了一条回复，刷新历史把它显示出来
+  if (updated.type === 'URGE_SHIPMENT'
+      && (updated.status === 'SUCCEEDED' || updated.status === 'FAILED')
+      && sessionId.value) {
+    void loadHistory(sessionId.value)
+  }
 }
 
 /** 商品卡上的「让买小购下单」：把商品名与规格带回对话，由导购/订单子 agent 继续 */

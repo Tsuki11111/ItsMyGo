@@ -22,6 +22,12 @@ public interface ChatService {
 
     ChatMessageView customerSend(CurrentUser user, Long conversationId, SendChatMessageRequest request);
 
+    /**
+     * 客服动作内部调用：以「买小购」身份给店铺发一条文本消息（催发货等）。
+     * senderType=AGENT，店铺侧未读 +1；不走浏览器发送接口，但同样推 SSE。
+     */
+    ChatMessageView sendAgentText(long customerUserId, long merchantId, String text);
+
     /** @return 标记已读后，该身份在全平台的未读总数（用于更新角标） */
     long customerRead(CurrentUser user, Long conversationId, Long lastMessageId);
 

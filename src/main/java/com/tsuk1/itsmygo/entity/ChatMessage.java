@@ -14,7 +14,7 @@ public class ChatMessage {
 
     public static final String SENDER_CUSTOMER = "CUSTOMER";
     public static final String SENDER_MERCHANT = "MERCHANT";
-    /** 预留给 M6 客服智能体，本期不产生 */
+    /** 买小购客服消息（催发货等）；sender_user_id 仍记发起顾客 */
     public static final String SENDER_AGENT = "AGENT";
 
     public static final String TYPE_TEXT = "TEXT";

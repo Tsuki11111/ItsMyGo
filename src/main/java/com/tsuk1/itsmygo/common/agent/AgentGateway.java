@@ -23,6 +23,15 @@ public interface AgentGateway {
     Iterator<Event> converse(long userId, String sessionId, String message, Duration deadline,
                              String toolTicket);
 
+    /**
+     * Java 动作完成后的内部事件（不来自浏览器）。agent 侧不跑主模型，只执行对应完成图。
+     *
+     * @param event   例如 urge-shipment-confirmed
+     * @param payload JSON 字符串（订单号、店铺名等）
+     */
+    Iterator<Event> internalEvent(long userId, String sessionId, String event,
+                                  String payload, String toolTicket, Duration deadline);
+
     boolean stop(long userId, String sessionId, String runId);
 
     List<HistoryMessage> history(long userId, String sessionId, int limit);

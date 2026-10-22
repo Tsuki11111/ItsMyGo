@@ -21,6 +21,7 @@ const orderCard = computed(() =>
     ? (props.message.card as ChatOrderCard | null)
     : null,
 )
+const isAgent = computed(() => props.message.senderType === 'AGENT')
 
 function formatTime(value: string): string {
   const date = new Date(value)
@@ -35,7 +36,8 @@ function formatTime(value: string): string {
 </script>
 
 <template>
-  <div class="message-row" :class="{ mine }">
+  <div class="message-row" :class="{ mine, agent: isAgent }">
+    <span v-if="isAgent" class="agent-label">买小购 · 平台客服</span>
     <div class="bubble" :class="{ 'card-bubble': message.contentType !== 'TEXT' }">
       <p v-if="message.contentType === 'TEXT'" class="text">{{ message.content }}</p>
 
@@ -100,6 +102,23 @@ function formatTime(value: string): string {
 
 .message-row.mine {
   align-items: flex-end;
+}
+
+.message-row.agent {
+  align-items: center;
+}
+
+.agent-label {
+  margin-bottom: 2px;
+  font-size: 11px;
+  color: var(--c-pink);
+}
+
+.message-row.agent .bubble {
+  max-width: 82%;
+  background: #fff7fa;
+  border-color: #f2cede;
+  box-shadow: 0 2px 8px rgba(214, 51, 108, 0.06);
 }
 
 .bubble {

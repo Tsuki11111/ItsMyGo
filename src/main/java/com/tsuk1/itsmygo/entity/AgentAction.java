@@ -22,7 +22,7 @@ public class AgentAction {
 
     private String sessionId;
 
-    /** 关联业务对象：退款动作存订单 id；下单动作为空 */
+    /** 关联业务对象：退款 / 催发货动作存订单 id；下单动作为空 */
     private Long targetId;
 
     /** 见 {@link AgentActionType} */

@@ -36,6 +36,9 @@ public class AgentGrpcClient implements AgentGateway {
     /** 本轮工具票据：agent 回调 Java 内部工具接口时带回，Java 据此解析 userId */
     private static final Metadata.Key<String> TOOL_TICKET =
             Metadata.Key.of("x-agent-tool-ticket", ASCII_STRING_MARSHALLER);
+    /** Java 动作完成后的内部事件；浏览器无法设置，只有持有 API key 的 Java 能发 */
+    private static final Metadata.Key<String> INTERNAL_EVENT =
+            Metadata.Key.of("x-agent-internal-event", ASCII_STRING_MARSHALLER);
 
     private static final Duration SHORT_RPC_DEADLINE = Duration.ofSeconds(15);
 
@@ -72,6 +75,21 @@ public class AgentGrpcClient implements AgentGateway {
     }
 
     @Override
+    public Iterator<Event> internalEvent(long userId, String sessionId, String event,
+                                         String payload, String toolTicket, Duration deadline) {
+        Metadata metadata = metadata(userId, toolTicket);
+        metadata.put(INTERNAL_EVENT, event);
+        AgentServiceGrpc.AgentServiceBlockingStub stub =
+                AgentServiceGrpc.newBlockingStub(channel)
+                        .withInterceptors(MetadataUtils.newAttachHeadersInterceptor(metadata))
+                        .withDeadlineAfter(deadline.toMillis(), TimeUnit.MILLISECONDS);
+        return stub.converse(ConverseRequest.newBuilder()
+                .setSessionId(sessionId == null ? "" : sessionId)
+                .setMessage(payload == null ? "" : payload)
+                .build());
+    }
+
+    @Override
     public boolean stop(long userId, String sessionId, String runId) {
         AgentServiceGrpc.AgentServiceBlockingStub stub = stub(userId)
                 .withDeadlineAfter(SHORT_RPC_DEADLINE.toMillis(), TimeUnit.MILLISECONDS);
@@ -105,6 +123,12 @@ public class AgentGrpcClient implements AgentGateway {
     }
 
     private AgentServiceGrpc.AgentServiceBlockingStub stub(long userId, String toolTicket) {
+        return AgentServiceGrpc.newBlockingStub(channel)
+                .withInterceptors(MetadataUtils.newAttachHeadersInterceptor(
+                        metadata(userId, toolTicket)));
+    }
+
+    private Metadata metadata(long userId, String toolTicket) {
         Metadata metadata = new Metadata();
         // 客户端同名 metadata 不会被转发：这是 Java 新构造的 Metadata，由 Java 独占
         metadata.put(AUTHORIZATION, "Bearer " + properties.key());
@@ -112,8 +136,7 @@ public class AgentGrpcClient implements AgentGateway {
         if (StringUtils.hasText(toolTicket)) {
             metadata.put(TOOL_TICKET, toolTicket);
         }
-        return AgentServiceGrpc.newBlockingStub(channel)
-                .withInterceptors(MetadataUtils.newAttachHeadersInterceptor(metadata));
+        return metadata;
     }
 
     @PreDestroy

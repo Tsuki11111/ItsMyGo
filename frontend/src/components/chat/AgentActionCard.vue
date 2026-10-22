@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { RefreshLeft, ShoppingCart } from '@element-plus/icons-vue'
+import { RefreshLeft, Bell, ShoppingCart } from '@element-plus/icons-vue'
 import { cancelAgentAction, confirmAgentAction } from '@/api/agent'
 import type {
   AgentActionView,
@@ -9,6 +9,8 @@ import type {
   AgentOrderSummary,
   AgentRefundResult,
   AgentRefundSummary,
+  AgentUrgeShipmentResult,
+  AgentUrgeShipmentSummary,
 } from '@/api/types'
 
 type TagType = 'success' | 'info' | 'warning' | 'danger'
@@ -18,17 +20,39 @@ const emit = defineEmits<{ updated: [action: AgentActionView] }>()
 
 const busy = ref(false)
 const isOrder = computed(() => props.action.type === 'CREATE_ORDER')
+const isUrge = computed(() => props.action.type === 'URGE_SHIPMENT')
+const isRefund = computed(() => props.action.type === 'APPLY_REFUND')
 const pending = computed(() => props.action.status === 'PENDING_CONFIRM')
 const canAct = computed(() => pending.value && !busy.value)
 const orderSummary = computed(() => props.action.summary as AgentOrderSummary)
 const refundSummary = computed(() => props.action.summary as AgentRefundSummary)
+const urgeSummary = computed(() => props.action.summary as AgentUrgeShipmentSummary)
 const orderResult = computed(() => props.action.result as AgentOrderResult | null)
 const refundResult = computed(() => props.action.result as AgentRefundResult | null)
+const urgeResult = computed(() => props.action.result as AgentUrgeShipmentResult | null)
 const hasPendingPayment = computed(() =>
   !!orderResult.value?.orders.some((order) => order.status === 'PENDING_PAYMENT'),
 )
 
 const title = computed(() => {
+  if (isUrge.value) {
+    switch (props.action.status) {
+      case 'PENDING_CONFIRM':
+        return '催发货待确认'
+      case 'EXECUTING':
+        return '正在通知商家'
+      case 'SUCCEEDED':
+        return '已通知商家发货'
+      case 'FAILED':
+        return '催发货失败'
+      case 'CANCELLED':
+        return '催发货已取消'
+      case 'EXPIRED':
+        return '催发货已过期'
+      default:
+        return '催发货'
+    }
+  }
   const order = isOrder.value
   switch (props.action.status) {
     case 'PENDING_CONFIRM':
@@ -93,7 +117,11 @@ async function confirm() {
     const updated = await confirmAgentAction(props.action.actionNo)
     emit('updated', updated)
     if (updated.status === 'SUCCEEDED') {
-      ElMessage.success(isOrder.value ? '下单成功，请尽快支付' : '退款申请已提交')
+      ElMessage.success(
+        isOrder.value ? '下单成功，请尽快支付'
+          : isUrge.value ? '已通知商家发货'
+            : '退款申请已提交',
+      )
     } else if (updated.status === 'EXPIRED') {
       ElMessage.warning('确认已过期，请重新发起')
     } else if (updated.status === 'FAILED') {
@@ -125,7 +153,11 @@ async function cancel() {
   <section class="action-card" :class="{ done: !pending }">
     <header class="action-head">
       <span class="action-icon">
-        <el-icon><ShoppingCart v-if="isOrder" /><RefreshLeft v-else /></el-icon>
+        <el-icon>
+          <ShoppingCart v-if="isOrder" />
+          <Bell v-else-if="isUrge" />
+          <RefreshLeft v-else />
+        </el-icon>
       </span>
       <div class="action-title">
         <p class="action-name">{{ title }}</p>
@@ -175,6 +207,19 @@ async function cancel() {
       <p v-if="pending" class="note">{{ orderSummary.note }}</p>
     </template>
 
+    <template v-else-if="isUrge">
+      <div class="refund-head">
+        <span>订单 {{ urgeSummary.orderNo }}</span>
+        <el-tag size="small" type="info">{{ urgeSummary.statusLabel }}</el-tag>
+      </div>
+      <div class="refund-head">
+        <span>{{ urgeSummary.merchantName || '店铺' }}</span>
+        <span>实付 ¥{{ urgeSummary.totalAmount }}</span>
+      </div>
+      <p class="note">共 {{ urgeSummary.itemCount }} 件商品</p>
+      <p v-if="pending" class="note">{{ urgeSummary.note }}</p>
+    </template>
+
     <template v-else>
       <div class="refund-head">
         <span>订单 {{ refundSummary.orderNo }}</span>
@@ -215,7 +260,12 @@ async function cancel() {
         </p>
         <p v-if="hasPendingPayment" class="note">{{ orderResult.note }}</p>
       </template>
-      <template v-else-if="!isOrder && refundResult">
+      <template v-else-if="isUrge && urgeResult">
+        <p class="result-line">
+          {{ urgeResult.note }}（当前状态：{{ urgeResult.statusLabel }}）
+        </p>
+      </template>
+      <template v-else-if="isRefund && refundResult">
         <p class="result-line">
           <template v-if="refundResult.status === 'REFUNDING'">
             {{ refundResult.note }}（当前状态：{{ refundResult.statusLabel }}）
@@ -239,7 +289,7 @@ async function cancel() {
         :disabled="!canAct"
         @click="confirm"
       >
-        {{ isOrder ? '确认下单' : '确认提交退款申请' }}
+        {{ isOrder ? '确认下单' : isUrge ? '确认催发货' : '确认提交退款申请' }}
       </el-button>
       <el-button size="small" :disabled="!canAct" @click="cancel">取消</el-button>
     </div>

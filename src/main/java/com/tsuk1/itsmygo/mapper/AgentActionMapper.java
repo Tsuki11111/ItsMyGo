@@ -19,4 +19,20 @@ public interface AgentActionMapper extends BaseMapper<AgentAction> {
     @Update("UPDATE agent_actions SET status = 'EXECUTING', confirmed_at = NOW(), updated_at = NOW() "
             + "WHERE action_no = #{actionNo} AND user_id = #{userId} AND status = 'PENDING_CONFIRM'")
     int startExecution(@Param("actionNo") String actionNo, @Param("userId") Long userId);
+
+    /** agent 工具执行成功：只有 EXECUTING 能落结果，防重复执行 */
+    @Update("UPDATE agent_actions SET status = 'SUCCEEDED', result_json = #{resultJson}, "
+            + "error_message = '', executed_at = NOW(), updated_at = NOW() "
+            + "WHERE action_no = #{actionNo} AND user_id = #{userId} AND status = 'EXECUTING'")
+    int finishExecution(@Param("actionNo") String actionNo,
+                        @Param("userId") Long userId,
+                        @Param("resultJson") String resultJson);
+
+    /** agent 工具执行失败：只有 EXECUTING 能落失败，避免覆盖已完成动作 */
+    @Update("UPDATE agent_actions SET status = 'FAILED', error_message = #{errorMessage}, "
+            + "executed_at = NOW(), updated_at = NOW() "
+            + "WHERE action_no = #{actionNo} AND user_id = #{userId} AND status = 'EXECUTING'")
+    int failExecution(@Param("actionNo") String actionNo,
+                      @Param("userId") Long userId,
+                      @Param("errorMessage") String errorMessage);
 }

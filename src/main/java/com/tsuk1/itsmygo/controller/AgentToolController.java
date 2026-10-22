@@ -14,6 +14,8 @@ import com.tsuk1.itsmygo.dto.agent.AgentOrderView;
 import com.tsuk1.itsmygo.dto.agent.AgentProductSearchRequest;
 import com.tsuk1.itsmygo.dto.agent.AgentProductView;
 import com.tsuk1.itsmygo.dto.agent.AgentRefundDraftRequest;
+import com.tsuk1.itsmygo.dto.agent.AgentUrgeShipmentExecuteRequest;
+import com.tsuk1.itsmygo.dto.agent.AgentUrgeShipmentRequest;
 import com.tsuk1.itsmygo.service.AgentActionService;
 import com.tsuk1.itsmygo.service.AgentCatalogService;
 import com.tsuk1.itsmygo.service.OrderService;
@@ -125,6 +127,28 @@ public class AgentToolController {
         AgentToolTicketService.Identity identity = requireIdentity(ticket);
         return Result.ok(actionService.prepareRefund(
                 identity.userId(), identity.sessionId(), request));
+    }
+
+    @PostMapping("/actions/urge-shipment")
+    public Result<AgentActionView> prepareUrgeShipment(
+            @RequestHeader(value = "X-Agent-Ticket", required = false) String ticket,
+            @RequestBody(required = false) AgentUrgeShipmentRequest request) {
+        AgentToolTicketService.Identity identity = requireIdentity(ticket);
+        return Result.ok(actionService.prepareUrgeShipment(
+                identity.userId(), identity.sessionId(), request));
+    }
+
+    /** agent 在用户确认后调用：Java 重新校验并真正给商家发 AGENT 消息 */
+    @PostMapping("/actions/urge-shipment/send")
+    public Result<AgentActionView> executeUrgeShipment(
+            @RequestHeader(value = "X-Agent-Ticket", required = false) String ticket,
+            @RequestBody(required = false) AgentUrgeShipmentExecuteRequest request) {
+        AgentToolTicketService.Identity identity = requireIdentity(ticket);
+        if (request == null || request.actionNo() == null || request.actionNo().isBlank()) {
+            throw new BizException(ResultCode.BAD_REQUEST, "缺少动作号");
+        }
+        return Result.ok(actionService.executeUrgeShipment(
+                identity.userId(), identity.sessionId(), request.actionNo().trim()));
     }
 
     private AgentToolTicketService.Identity requireIdentity(String ticket) {

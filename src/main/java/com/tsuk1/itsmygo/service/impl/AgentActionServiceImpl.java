@@ -1,15 +1,20 @@
 package com.tsuk1.itsmygo.service.impl;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import agent.v1.Event;
 import com.tsuk1.itsmygo.common.ResultCode;
 import com.tsuk1.itsmygo.common.agent.AgentActionProperties;
+import com.tsuk1.itsmygo.common.agent.AgentGateway;
+import com.tsuk1.itsmygo.common.agent.AgentToolTicketService;
 import com.tsuk1.itsmygo.common.exception.BizException;
 import com.tsuk1.itsmygo.dto.CheckoutView;
 import com.tsuk1.itsmygo.dto.CreateOrderRequest;
+import com.tsuk1.itsmygo.dto.ChatMessageView;
 import com.tsuk1.itsmygo.dto.OrderView;
 import com.tsuk1.itsmygo.dto.agent.AgentActionView;
 import com.tsuk1.itsmygo.dto.agent.AgentOrderDraftRequest;
 import com.tsuk1.itsmygo.dto.agent.AgentRefundDraftRequest;
+import com.tsuk1.itsmygo.dto.agent.AgentUrgeShipmentRequest;
 import com.tsuk1.itsmygo.entity.Address;
 import com.tsuk1.itsmygo.entity.AgentAction;
 import com.tsuk1.itsmygo.entity.AgentActionStatus;
@@ -27,6 +32,7 @@ import com.tsuk1.itsmygo.mapper.OrderMapper;
 import com.tsuk1.itsmygo.mapper.ProductMapper;
 import com.tsuk1.itsmygo.mapper.ProductSkuMapper;
 import com.tsuk1.itsmygo.service.AgentActionService;
+import com.tsuk1.itsmygo.service.ChatService;
 import com.tsuk1.itsmygo.service.OrderService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -41,6 +47,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -65,6 +72,8 @@ import java.util.stream.Collectors;
 public class AgentActionServiceImpl implements AgentActionService {
 
     private static final String TOKEN_PREFIX = "its-my-go:agent:action-token:";
+    private static final String URGE_SEND_LOCK_PREFIX = "its-my-go:agent:urge-send:";
+    private static final int URGE_COOLDOWN_MINUTES = 10;
 
     private final AgentActionMapper actionMapper;
     private final AddressMapper addressMapper;
@@ -73,6 +82,9 @@ public class AgentActionServiceImpl implements AgentActionService {
     private final MerchantMapper merchantMapper;
     private final OrderMapper orderMapper;
     private final OrderService orderService;
+    private final ChatService chatService;
+    private final AgentGateway agentGateway;
+    private final AgentToolTicketService ticketService;
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
     private final AgentActionProperties properties;
@@ -84,6 +96,9 @@ public class AgentActionServiceImpl implements AgentActionService {
                                   MerchantMapper merchantMapper,
                                   OrderMapper orderMapper,
                                   OrderService orderService,
+                                  ChatService chatService,
+                                  AgentGateway agentGateway,
+                                  AgentToolTicketService ticketService,
                                   StringRedisTemplate redis,
                                   ObjectMapper objectMapper,
                                   AgentActionProperties properties) {
@@ -94,6 +109,9 @@ public class AgentActionServiceImpl implements AgentActionService {
         this.merchantMapper = merchantMapper;
         this.orderMapper = orderMapper;
         this.orderService = orderService;
+        this.chatService = chatService;
+        this.agentGateway = agentGateway;
+        this.ticketService = ticketService;
         this.redis = redis;
         this.objectMapper = objectMapper;
         this.properties = properties;
@@ -269,6 +287,84 @@ public class AgentActionServiceImpl implements AgentActionService {
         return toView(action);
     }
 
+    @Override
+    public AgentActionView prepareUrgeShipment(long userId, String sessionId,
+                                               AgentUrgeShipmentRequest request) {
+        requireEnabled();
+        if (request == null || !StringUtils.hasText(request.orderNo())) {
+            throw new BizException(ResultCode.BAD_REQUEST, "请指定要催发货的订单号");
+        }
+        String orderNo = request.orderNo().trim();
+        List<OrderView> found = orderService.findForAgent(userId, orderNo, null, 1);
+        if (found.isEmpty()) {
+            throw new BizException(ResultCode.NOT_FOUND, "订单不存在");
+        }
+        OrderView view = found.get(0);
+        Order order = view.order();
+        if (order.getMerchantId() == null) {
+            throw new BizException(ResultCode.BAD_REQUEST, "订单缺少店铺信息，暂时无法催发货");
+        }
+        OrderStatus status = parseStatus(order.getStatus());
+        if (order.getShippedAt() != null || status == OrderStatus.SHIPPED) {
+            throw new BizException(ResultCode.BAD_REQUEST,
+                    "订单已是待收货状态，无需催单；物流状态可在订单详情页查看");
+        }
+        if (status == OrderStatus.PENDING_PAYMENT) {
+            throw new BizException(ResultCode.BAD_REQUEST,
+                    "订单还未支付，请先完成支付后再催发货");
+        }
+        if (status != OrderStatus.PAID) {
+            throw new BizException(ResultCode.BAD_REQUEST,
+                    "当前订单状态（" + status.label() + "）不可催发货");
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        AgentAction latest = actionMapper.selectOne(Wrappers.<AgentAction>lambdaQuery()
+                .eq(AgentAction::getUserId, userId)
+                .eq(AgentAction::getType, AgentActionType.URGE_SHIPMENT.name())
+                .eq(AgentAction::getTargetId, order.getId())
+                .in(AgentAction::getStatus,
+                        AgentActionStatus.PENDING_CONFIRM.name(),
+                        AgentActionStatus.SUCCEEDED.name())
+                .orderByDesc(AgentAction::getId)
+                .last("LIMIT 1"));
+        if (latest != null) {
+            if (AgentActionStatus.PENDING_CONFIRM.name().equals(latest.getStatus())
+                    && latest.getExpiresAt() != null && latest.getExpiresAt().isAfter(now)) {
+                return toView(latest);
+            }
+            LocalDateTime sentAt = latest.getExecutedAt() == null
+                    ? latest.getUpdatedAt() : latest.getExecutedAt();
+            if (AgentActionStatus.SUCCEEDED.name().equals(latest.getStatus())
+                    && sentAt != null
+                    && sentAt.isAfter(now.minusMinutes(URGE_COOLDOWN_MINUTES))) {
+                throw new BizException(ResultCode.BAD_REQUEST,
+                        "刚刚已经催过发货了，请 " + URGE_COOLDOWN_MINUTES + " 分钟后再试");
+            }
+        }
+
+        List<OrderItem> items = view.items() == null ? List.of() : view.items();
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("orderNo", order.getOrderNo());
+        summary.put("merchantName", nullToEmpty(order.getMerchantName()));
+        summary.put("status", order.getStatus());
+        summary.put("statusLabel", view.statusLabel());
+        summary.put("totalAmount", money(order.getTotalAmount()));
+        summary.put("itemCount", items.stream()
+                .mapToInt(item -> item.getQuantity() == null ? 0 : item.getQuantity()).sum());
+        summary.put("items", items.stream().map(this::itemView).toList());
+        summary.put("note", "确认后买小购会以平台客服身份给商家发送一条催发货消息；"
+                + "平台自营店由平台客服接收。");
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("orderId", order.getId());
+
+        AgentAction action = newAction(userId, sessionId, AgentActionType.URGE_SHIPMENT,
+                payload, summary, order.getId());
+        actionMapper.insert(action);
+        return toView(action);
+    }
+
     // ── 确认 / 取消 / 列表 ──
 
     @Override
@@ -302,10 +398,16 @@ public class AgentActionServiceImpl implements AgentActionService {
             return toView(requireOwned(userId, actionNo));
         }
         action.setStatus(AgentActionStatus.EXECUTING.name());
+        if (AgentActionType.URGE_SHIPMENT.name().equals(action.getType())) {
+            // 催发货不在这里直接发：触发 agent 图，由 agent 调用发送工具回调 Java
+            return confirmUrgeShipment(userId, action);
+        }
         try {
             Object result = switch (AgentActionType.valueOf(action.getType())) {
                 case CREATE_ORDER -> executeOrder(userId, action);
                 case APPLY_REFUND -> executeRefund(userId, action);
+                case URGE_SHIPMENT -> throw new BizException(
+                        ResultCode.INTERNAL_ERROR, "催发货由 agent 工具执行");
             };
             action.setStatus(AgentActionStatus.SUCCEEDED.name());
             action.setResultJson(json(result));
@@ -401,6 +503,129 @@ public class AgentActionServiceImpl implements AgentActionService {
         return result;
     }
 
+    @Override
+    public AgentActionView executeUrgeShipment(long userId, String sessionId, String actionNo) {
+        requireEnabled();
+        AgentAction action = requireOwned(userId, actionNo);
+        if (!AgentActionType.URGE_SHIPMENT.name().equals(action.getType())) {
+            throw new BizException(ResultCode.BAD_REQUEST, "动作类型不匹配");
+        }
+        if (StringUtils.hasText(sessionId) && StringUtils.hasText(action.getSessionId())
+                && !sessionId.equals(action.getSessionId())) {
+            throw new BizException(ResultCode.NOT_FOUND, "动作不存在");
+        }
+        if (AgentActionStatus.SUCCEEDED.name().equals(action.getStatus())) {
+            return toView(action);
+        }
+        if (!AgentActionStatus.EXECUTING.name().equals(action.getStatus())) {
+            throw new BizException(ResultCode.BAD_REQUEST, "动作不在执行状态");
+        }
+
+        String lockKey = URGE_SEND_LOCK_PREFIX + actionNo;
+        Boolean locked = redis.opsForValue()
+                .setIfAbsent(lockKey, "1", Duration.ofSeconds(30));
+        if (!Boolean.TRUE.equals(locked)) {
+            AgentAction fresh = requireOwned(userId, actionNo);
+            if (AgentActionStatus.SUCCEEDED.name().equals(fresh.getStatus())) {
+                return toView(fresh);
+            }
+            throw new BizException(ResultCode.BAD_REQUEST, "催发货正在执行，请稍后");
+        }
+        try {
+            Map<String, Object> result = sendUrgeMessage(userId, action);
+            if (actionMapper.finishExecution(actionNo, userId, json(result)) == 0) {
+                AgentAction fresh = requireOwned(userId, actionNo);
+                if (AgentActionStatus.SUCCEEDED.name().equals(fresh.getStatus())) {
+                    return toView(fresh);
+                }
+                throw new BizException(ResultCode.BAD_REQUEST, "动作状态已变化，请刷新后重试");
+            }
+            return toView(requireOwned(userId, actionNo));
+        } catch (BizException e) {
+            actionMapper.failExecution(actionNo, userId, truncate(e.getMessage(), 255));
+            throw e;
+        } catch (Exception e) {
+            log.error("催发货执行失败: {}", actionNo, e);
+            actionMapper.failExecution(actionNo, userId, "催发货执行失败，请稍后重试");
+            throw new BizException(ResultCode.INTERNAL_ERROR, "催发货执行失败，请稍后重试");
+        } finally {
+            redis.delete(lockKey);
+        }
+    }
+
+    private Map<String, Object> sendUrgeMessage(long userId, AgentAction action) {
+        JsonNode payload = readTree(action.getPayloadJson());
+        long orderId = payload.path("orderId").asLong();
+        Order order = orderMapper.selectById(orderId);
+        if (order == null || !userIdEquals(userId, order.getUserId())) {
+            throw new BizException(ResultCode.NOT_FOUND, "订单不存在");
+        }
+        OrderStatus status = parseStatus(order.getStatus());
+        if (order.getShippedAt() != null || status != OrderStatus.PAID) {
+            String label = order.getShippedAt() != null
+                    ? OrderStatus.SHIPPED.label() : status.label();
+            throw new BizException(ResultCode.BAD_REQUEST,
+                    "当前订单状态（" + label + "）不可催发货");
+        }
+        if (order.getMerchantId() == null) {
+            throw new BizException(ResultCode.BAD_REQUEST, "订单缺少店铺信息，暂时无法催发货");
+        }
+        Merchant merchant = merchantMapper.selectById(order.getMerchantId());
+        String orderNo = nullToEmpty(order.getOrderNo());
+        String content = "【催发货】订单 " + orderNo
+                + " 已支付，当前待发货。买家希望尽快发货，麻烦您尽快安排；"
+                + "给您带来不便，敬请谅解。—— 买小购";
+        ChatMessageView message = chatService.sendAgentText(
+                userId, order.getMerchantId(), content);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("orderId", order.getId());
+        result.put("orderNo", orderNo);
+        result.put("merchantName", merchant == null ? "" : nullToEmpty(merchant.getName()));
+        result.put("status", order.getStatus());
+        result.put("statusLabel", status.label());
+        result.put("messageId", message.id());
+        result.put("note", "催发货消息已发送给商家，请留意商家回复。");
+        return result;
+    }
+
+    /**
+     * 确认后不直接发消息：发 gRPC 内部事件触发 agent 图；
+     * agent 调 /actions/urge-shipment/send 回调 Java，由 {@link #executeUrgeShipment}
+     * 校验并落库。这里只等 agent 结束，然后把动作的最终状态返回给浏览器。
+     */
+    private AgentActionView confirmUrgeShipment(long userId, AgentAction action) {
+        if (!agentGateway.configured() || !StringUtils.hasText(action.getSessionId())) {
+            actionMapper.failExecution(action.getActionNo(), userId,
+                    "客服智能体不可用，暂时无法催发货");
+            return toView(requireOwned(userId, action.getActionNo()));
+        }
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("actionNo", action.getActionNo());
+        String ticket = ticketService.issue(userId, action.getSessionId());
+        try {
+            Iterator<Event> events = agentGateway.internalEvent(userId, action.getSessionId(),
+                    "urge-shipment-confirmed", json(payload), ticket, Duration.ofSeconds(20));
+            while (events.hasNext()) {
+                Event event = events.next();
+                if (event.hasError()) {
+                    log.warn("催发货 agent 执行报错: {}", event.getError().getMessage());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("催发货 agent 调用失败: {}", action.getActionNo(), e);
+            actionMapper.failExecution(action.getActionNo(), userId,
+                    "催发货执行失败，请稍后重试");
+        }
+        AgentAction fresh = requireOwned(userId, action.getActionNo());
+        if (AgentActionStatus.EXECUTING.name().equals(fresh.getStatus())) {
+            actionMapper.failExecution(fresh.getActionNo(), userId,
+                    "催发货执行超时，请重新发起");
+            fresh = requireOwned(userId, action.getActionNo());
+        }
+        return toView(fresh);
+    }
+
     // ── 辅助 ──
 
     private AgentAction newAction(long userId, String sessionId, AgentActionType type,
@@ -487,7 +712,8 @@ public class AgentActionServiceImpl implements AgentActionService {
                     }
                 }
             }
-        } else if (AgentActionType.APPLY_REFUND.name().equals(action.getType())) {
+        } else if (AgentActionType.APPLY_REFUND.name().equals(action.getType())
+                || AgentActionType.URGE_SHIPMENT.name().equals(action.getType())) {
             Long id = toLong(map.get("orderId"));
             if (id != null) {
                 orderIds.add(id);
@@ -530,7 +756,8 @@ public class AgentActionServiceImpl implements AgentActionService {
                     }
                 }
             }
-        } else if (AgentActionType.APPLY_REFUND.name().equals(action.getType())) {
+        } else if (AgentActionType.APPLY_REFUND.name().equals(action.getType())
+                || AgentActionType.URGE_SHIPMENT.name().equals(action.getType())) {
             applyOrderStatus(map, currentOrders.get(toLong(map.get("orderId"))));
         }
     }
