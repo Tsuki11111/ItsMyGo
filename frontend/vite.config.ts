@@ -2,7 +2,12 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
 
+// 前后端共用仓库根目录的 .env；Vite 只把 VITE_ 前缀的变量暴露给浏览器。
+const envDir = fileURLToPath(new URL('..', import.meta.url))
+
 export default defineConfig({
+  envDir,
+  envPrefix: 'VITE_',
   plugins: [vue()],
   resolve: {
     alias: {

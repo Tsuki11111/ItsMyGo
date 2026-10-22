@@ -292,7 +292,7 @@ onBeforeUnmount(() => {
     <div v-if="mapError" class="map-fallback">
       <p>{{ mapError }}</p>
       <p class="map-hint">
-        在 <code>frontend/.env.local</code> 配置 <code>VITE_TMAP_KEY</code> 后显示腾讯地图
+        在仓库根目录 <code>.env</code> 配置 <code>VITE_TMAP_KEY</code> 后显示腾讯地图
       </p>
     </div>
     <div v-show="!mapError" ref="mapEl" class="map-canvas"></div>
