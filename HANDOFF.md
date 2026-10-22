@@ -1083,7 +1083,7 @@ reject 的是普通对象 `{status:121, message:"此key每日调用量已达到�
 
 **⑤ 完成回复不要伪装成用户消息。** Java 用 gRPC metadata
 `x-agent-internal-event: urge-shipment-confirmed` 触发 agent；agent 不存用户消息、不跑主模型，
-只跑 `urge_shipment_graph`（`send_merchant_message → compose_reply → save_reply`）。
+只跑 rag_helper 的 `main_graph.py`（`send_merchant_message → compose_reply → save_reply`）。
 浏览器消息无法伪造该 metadata。
 
 **⑥ 内部事件必须带 tool ticket。** `confirm` 用 `AgentToolTicketService.issue` 签发票据，
@@ -1123,7 +1123,7 @@ Redis 锁 + `finishExecution` CAS 防重复；`AgentGateway.internalEvent` 通�
 显示完成或失败 + 致歉回复。
 
 **rag_helper**：`order-service` 新增 `prepare_urge_shipment` 工具；新增
-`urge_shipment_graph`（`send_merchant_message → compose_reply → save_reply`）与
+`main_graph.py`（`send_merchant_message → compose_reply → save_reply`）与
 `urge-shipment-confirmed` 内部事件分支；离线检查 PASS。
 
 **验证**：Java 210 条全绿（新增 `AgentUrgeShipmentControllerTest` 3 条，含 agent 回调发送工具）；

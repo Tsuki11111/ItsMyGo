@@ -1283,7 +1283,7 @@ agent 再回复用户「已完成 + 代商家致歉」。
 - **确认只 CAS 到 EXECUTING，不直接发消息**：`confirmUrgeShipment` 签发短期 tool ticket，
   通过 gRPC metadata `x-agent-internal-event: urge-shipment-confirmed` 触发 agent；
   最多等 20 秒，再返回动作最终状态。
-- **agent 执行图** `urge_shipment_graph.py`（LangGraph）：
+- **agent 执行图** `main_graph.py`（LangGraph，`nodes/` + `state.py` + `tools/`）：
   1. `send_merchant_message` 调 `POST /internal/agent/actions/urge-shipment/send`；
   2. Java 用 ticket 解析 userId/session，校验动作归属、`EXECUTING` 状态、订单仍是待发货；
   3. `ChatService.sendAgentText` 写 `AGENT / TEXT` 消息（商家未读 +1、顾客不加未读）并推 SSE；
