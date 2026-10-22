@@ -79,7 +79,7 @@ async function ship() {
     view.value = props.merchant
       ? await shipMerchantOrder(view.value.order.id, trackingNo)
       : await shipOrder(view.value.order.id, { trackingNo })
-    ElMessage.success('已发货')
+    ElMessage.success('已发货，等待买家收货')
     emit('changed')
   } finally {
     acting.value = false

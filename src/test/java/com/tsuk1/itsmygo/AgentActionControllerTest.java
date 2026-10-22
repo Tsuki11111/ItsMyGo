@@ -116,7 +116,7 @@ class AgentActionControllerTest extends ApiTestBase {
                         .param("sessionId", "sess-test"))
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data[0].result.orders[0].status").value("PAID"))
-                .andExpect(jsonPath("$.data[0].result.orders[0].statusLabel").value("已支付"));
+                .andExpect(jsonPath("$.data[0].result.orders[0].statusLabel").value("待发货"));
     }
 
     @Test

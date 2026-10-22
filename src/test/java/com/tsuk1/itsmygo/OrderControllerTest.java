@@ -357,14 +357,14 @@ class OrderControllerTest extends ApiTestBase {
         long orderId = placeOrder(token, addressId);
 
         mockMvc.perform(post("/api/orders/" + orderId + "/pay").header("Authorization", bearer(token)))
-                .andExpect(jsonPath("$.data.statusLabel").value("已支付"))
+                .andExpect(jsonPath("$.data.statusLabel").value("待发货"))
                 .andExpect(jsonPath("$.data.order.paidAt").isNotEmpty());
 
         mockMvc.perform(post("/api/admin/orders/" + orderId + "/ship")
                         .header("Authorization", bearer(admin))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new ShipRequest("SF123456"))))
-                .andExpect(jsonPath("$.data.statusLabel").value("已发货"))
+                .andExpect(jsonPath("$.data.statusLabel").value("待收货"))
                 .andExpect(jsonPath("$.data.order.trackingNo").value("SF123456"));
 
         mockMvc.perform(post("/api/orders/" + orderId + "/confirm").header("Authorization", bearer(token)))
@@ -390,7 +390,7 @@ class OrderControllerTest extends ApiTestBase {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new ShipRequest("SF1"))))
                 .andExpect(jsonPath("$.code").value(400))
-                .andExpect(jsonPath("$.message").value("订单当前是「待支付」，不能变成「已发货」"));
+                .andExpect(jsonPath("$.message").value("订单当前是「待支付」，不能变成「待收货」"));
 
         // 未发货不能确认收货
         mockMvc.perform(post("/api/orders/" + orderId + "/confirm").header("Authorization", bearer(token)))
@@ -674,7 +674,7 @@ class OrderControllerTest extends ApiTestBase {
         long orderId = placeOrder(token, addressId);
 
         mockMvc.perform(post("/api/orders/" + orderId + "/pay").header("Authorization", bearer(token)))
-                .andExpect(jsonPath("$.data.statusLabel").value("已支付"));
+                .andExpect(jsonPath("$.data.statusLabel").value("待发货"));
 
         Payment payment = paymentMapper.selectOne(
                 Wrappers.<Payment>lambdaQuery().eq(Payment::getOrderId, orderId));
@@ -736,14 +736,14 @@ class OrderControllerTest extends ApiTestBase {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(new ShipRequest("SF999"))));
 
-        // 从「已发货」申请退款
+        // 从「待收货」申请退款
         mockMvc.perform(post("/api/orders/" + orderId + "/refund").header("Authorization", bearer(token)))
                 .andExpect(jsonPath("$.data.statusLabel").value("退款中"));
 
-        // 驳回后要回到「已发货」而不是别的什么状态
+        // 驳回后要回到「待收货」而不是别的什么状态
         mockMvc.perform(post("/api/admin/orders/" + orderId + "/refund/reject")
                         .header("Authorization", bearer(admin)))
-                .andExpect(jsonPath("$.data.statusLabel").value("已发货"));
+                .andExpect(jsonPath("$.data.statusLabel").value("待收货"));
 
         assertProductStock(token, productId, 4);
     }

@@ -50,17 +50,17 @@ export function payOrder(id: number): Promise<OrderView> {
   return post<OrderView>(`/orders/${id}/pay`)
 }
 
-/** 取消订单：待支付 / 已支付可用；会回滚库存，用券时未过期券会退回 */
+/** 取消订单：待支付 / 待发货可用；会回滚库存，用券时未过期券会退回 */
 export function cancelOrder(id: number): Promise<OrderView> {
   return post<OrderView>(`/orders/${id}/cancel`)
 }
 
-/** 确认收货：仅已发货可用 */
+/** 确认收货：仅待收货可用 */
 export function confirmOrder(id: number): Promise<OrderView> {
   return post<OrderView>(`/orders/${id}/confirm`)
 }
 
-/** 申请退款：已支付 / 已发货 / 已完成可用，之后进入「退款中」等管理端审核 */
+/** 申请退款：待发货 / 待收货 / 已完成可用，之后进入「退款中」等管理端审核 */
 export function applyRefund(id: number): Promise<OrderView> {
   return post<OrderView>(`/orders/${id}/refund`)
 }

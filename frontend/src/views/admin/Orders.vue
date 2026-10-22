@@ -89,7 +89,7 @@ async function ship(row: Order) {
   }
 
   await shipOrder(row.id, { trackingNo })
-  ElMessage.success('已发货')
+  ElMessage.success('已发货，等待买家收货')
   await load()
 }
 

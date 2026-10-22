@@ -31,12 +31,12 @@ let logisticsTimer: number | undefined
 
 const order = computed(() => view.value?.order ?? null)
 const payable = computed(() => order.value?.status === 'PENDING_PAYMENT')
-/** 待支付 / 已支付可取消；已发货之后只能走退款 */
+/** 待支付 / 待发货可取消；待收货之后只能走退款 */
 const cancelable = computed(() =>
   order.value?.status === 'PENDING_PAYMENT' || order.value?.status === 'PAID',
 )
 const confirmable = computed(() => order.value?.status === 'SHIPPED')
-/** 付过钱且还没退过：已支付 / 已发货 / 已完成 */
+/** 付过钱且还没退过：待发货 / 待收货 / 已完成 */
 const refundable = computed(() =>
   ['PAID', 'SHIPPED', 'COMPLETED'].includes(order.value?.status ?? ''),
 )

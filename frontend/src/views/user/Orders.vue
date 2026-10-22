@@ -10,13 +10,14 @@ const route = useRoute()
 const router = useRouter()
 
 /**
- * 六个入口本质是**同一个订单列表按状态筛**。
+ * 七个入口本质是**同一个订单列表按状态筛**。
  * 「买过」= 付过款且没取消；「待评价」在没有评价系统前只能映射到已完成订单，页面上会明说。
  */
 const TABS = [
   { key: 'all', label: '全部', status: undefined as string | undefined },
   { key: 'pending', label: '待付款', status: 'PENDING_PAYMENT' },
-  { key: 'paid', label: '已付款', status: 'PAID,SHIPPED' },
+  { key: 'to_ship', label: '待发货', status: 'PAID' },
+  { key: 'to_receive', label: '待收货', status: 'SHIPPED' },
   { key: 'bought', label: '买过', status: 'PAID,SHIPPED,COMPLETED,REFUNDING,REFUNDED' },
   { key: 'aftersale', label: '退款/售后', status: 'REFUNDING,REFUNDED' },
   { key: 'review', label: '待评价', status: 'COMPLETED' },

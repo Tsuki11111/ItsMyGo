@@ -58,7 +58,7 @@ public interface OrderService {
 
     OrderView confirmReceipt(Long userId, Long orderId);
 
-    /** 申请退款：已支付 / 已发货 / 已完成 的订单可申请 */
+    /** 申请退款：待发货 / 待收货 / 已完成 的订单可申请 */
     OrderView applyRefund(Long userId, Long orderId);
 
     // ── 管理端 ──

@@ -9,8 +9,8 @@ export type OrderStatusTag = 'primary' | 'success' | 'warning' | 'info' | 'dange
 
 const STATUS_MAP: Record<string, { label: string; tag: OrderStatusTag }> = {
   PENDING_PAYMENT: { label: '待支付', tag: 'warning' },
-  PAID: { label: '已支付', tag: 'primary' },
-  SHIPPED: { label: '已发货', tag: 'primary' },
+  PAID: { label: '待发货', tag: 'primary' },
+  SHIPPED: { label: '待收货', tag: 'primary' },
   COMPLETED: { label: '已完成', tag: 'success' },
   CANCELLED: { label: '已取消', tag: 'info' },
   REFUNDING: { label: '退款中', tag: 'warning' },
@@ -28,8 +28,8 @@ export function orderStatusTag(status: string): OrderStatusTag {
 /** 管理端筛选下拉用；管理端接口只接受单个状态名 */
 export const ORDER_STATUS_OPTIONS = [
   { value: 'PENDING_PAYMENT', label: '待支付' },
-  { value: 'PAID', label: '已支付' },
-  { value: 'SHIPPED', label: '已发货' },
+  { value: 'PAID', label: '待发货' },
+  { value: 'SHIPPED', label: '待收货' },
   { value: 'COMPLETED', label: '已完成' },
   { value: 'CANCELLED', label: '已取消' },
   { value: 'REFUNDING', label: '退款中' },

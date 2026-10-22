@@ -90,7 +90,7 @@ class AgentToolControllerTest extends ApiTestBase {
                 .andExpect(jsonPath("$.data.length()").value(1))
                 .andExpect(jsonPath("$.data[0].orderNo").value(orderNo))
                 .andExpect(jsonPath("$.data[0].status").value("PAID"))
-                .andExpect(jsonPath("$.data[0].statusLabel").value("已支付"))
+                .andExpect(jsonPath("$.data[0].statusLabel").value("待发货"))
                 .andExpect(jsonPath("$.data[0].totalAmount").value("199.00"))
                 .andExpect(jsonPath("$.data[0].trackingNo").value("SF1234567890"))
                 .andExpect(jsonPath("$.data[0].items[0].productName").value("测试商品"))
