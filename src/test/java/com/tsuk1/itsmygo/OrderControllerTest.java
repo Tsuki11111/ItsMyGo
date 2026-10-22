@@ -1,6 +1,7 @@
 package com.tsuk1.itsmygo;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.tsuk1.itsmygo.common.order.OrderTimeoutPublisher;
 import com.tsuk1.itsmygo.dto.AddressRequest;
 import com.tsuk1.itsmygo.dto.CartAddRequest;
 import com.tsuk1.itsmygo.dto.CategoryRequest;
@@ -20,6 +21,7 @@ import com.tsuk1.itsmygo.mapper.PaymentMapper;
 import com.tsuk1.itsmygo.mapper.ProductMapper;
 import com.tsuk1.itsmygo.mapper.ReviewMapper;
 import com.tsuk1.itsmygo.mapper.UserCouponMapper;
+import com.tsuk1.itsmygo.service.OrderService;
 import com.tsuk1.itsmygo.service.ShipmentService;
 import com.tsuk1.itsmygo.service.StockService;
 import com.tsuk1.itsmygo.service.impl.OrderServiceImpl;
@@ -72,6 +74,9 @@ class OrderControllerTest extends ApiTestBase {
     private UserCouponMapper userCouponMapper;
     @Autowired
     private MerchantMapper merchantMapper;
+
+    @Autowired
+    private OrderService orderService;
 
     private long createProduct(String adminToken, String name, String price, int stock) throws Exception {
         String catBody = mockMvc.perform(post("/api/admin/categories")
@@ -607,7 +612,7 @@ class OrderControllerTest extends ApiTestBase {
         OrderServiceImpl service = new OrderServiceImpl(orderMapper, countingMapper, cartItemMapper,
                 productMapper, productSkuMapper, addressMapper, paymentMapper, stockService,
                 redisTemplate, reviewMapper, userCouponMapper, merchantMapper,
-                Mockito.mock(ShipmentService.class));
+                Mockito.mock(ShipmentService.class), Mockito.mock(OrderTimeoutPublisher.class));
 
         PageResponse<OrderView> result = service.pageForCustomer(
                 currentUserId(token), 1, 10, 3);
@@ -868,6 +873,32 @@ class OrderControllerTest extends ApiTestBase {
 
         mockMvc.perform(get("/api/orders/" + orderId).header("Authorization", bearer(token)))
                 .andExpect(jsonPath("$.data.statusLabel").value("已取消"));
+        assertProductStock(token, productId, 8);
+    }
+
+    /** MQ 单条消费的幂等取消：未超时不取消，超时只取消一次，库存不会重复回补 */
+    @Test
+    void cancelIfExpiredIsIdempotent() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        String token = customerToken("c" + System.nanoTime());
+        long productId = createProduct(admin, "MqExpire", "20.00", 8);
+        long addressId = createAddress(token);
+        addToCart(token, productId, 3);
+        long orderId = placeOrder(token, addressId);
+
+        assertProductStock(token, productId, 5);
+        assertThat(orderService.cancelIfExpired(orderId, 30)).isFalse();
+
+        orderMapper.update(null, Wrappers.<Order>lambdaUpdate()
+                .eq(Order::getId, orderId)
+                .setSql("created_at = DATE_SUB(NOW(), INTERVAL 2 HOUR)"));
+
+        assertThat(orderService.cancelIfExpired(orderId, 30)).isTrue();
+        assertThat(orderMapper.selectById(orderId).getStatus()).isEqualTo("CANCELLED");
+        assertProductStock(token, productId, 8);
+
+        // 重复消费同一个消息：订单已取消，不能再回补一次库存
+        assertThat(orderService.cancelIfExpired(orderId, 30)).isFalse();
         assertProductStock(token, productId, 8);
     }
 

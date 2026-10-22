@@ -1,0 +1,86 @@
+# RocketMQ 5.3.2：namesrv + broker + proxy
+#
+# 只给本项目使用，资源名全部以 its-my-go 开头，避免和本机其他项目/中间件冲突。
+# 应用侧用 5.x gRPC 客户端连 proxy 的 8081 端口（不是 namesrv 的 9876）。
+name: its-my-go-rocketmq
+
+services:
+  namesrv:
+    image: apache/rocketmq:5.3.2
+    container_name: its-my-go-rocketmq-namesrv
+    command: sh mqnamesrv
+    environment:
+      JAVA_OPT_EXT: "-Xms256m -Xmx256m -Xmn128m"
+    ports:
+      - "9876:9876"
+    networks:
+      - its-my-go-rocketmq-net
+    restart: unless-stopped
+
+  broker:
+    image: apache/rocketmq:5.3.2
+    container_name: its-my-go-rocketmq-broker
+    # 命名卷默认是 root 所有；RocketMQ 镜像以 rocketmq 用户运行，写不进 store/logs。
+    # 本地开发用 root 跑最简单（生产不要照抄）。
+    user: "0:0"
+    depends_on:
+      - namesrv
+    command: sh mqbroker -c /home/rocketmq/broker.conf
+    environment:
+      JAVA_OPT_EXT: "-Xms512m -Xmx512m -Xmn256m"
+    volumes:
+      - ./docker/rocketmq/broker.conf:/home/rocketmq/broker.conf:ro
+      - its-my-go-rocketmq-broker-store:/home/rocketmq/store
+      - its-my-go-rocketmq-broker-logs:/home/rocketmq/logs
+    ports:
+      - "10909:10909"
+      - "10911:10911"
+      - "10912:10912"
+    networks:
+      - its-my-go-rocketmq-net
+    restart: unless-stopped
+
+  proxy:
+    image: apache/rocketmq:5.3.2
+    container_name: its-my-go-rocketmq-proxy
+    depends_on:
+      - namesrv
+      - broker
+    command: sh mqproxy -n its-my-go-rocketmq-namesrv:9876
+    environment:
+      JAVA_OPT_EXT: "-Xms512m -Xmx512m -Xmn256m"
+    ports:
+      - "8081:8081"
+    networks:
+      - its-my-go-rocketmq-net
+    restart: unless-stopped
+
+  # 一次性建 topic：5.x gRPC 客户端启动时要求 topic 已有路由，
+  # broker 的 autoCreateTopicEnable 不足以让客户端订阅一个不存在的 topic。
+  topic-init:
+    image: apache/rocketmq:5.3.2
+    container_name: its-my-go-rocketmq-topic-init
+    depends_on:
+      - broker
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        until sh mqadmin updateTopic -n its-my-go-rocketmq-namesrv:9876 \
+          -c DefaultCluster -t its-my-go-order-timeout \
+          -a +message.type=DELAY; do
+          echo "waiting for broker..."
+          sleep 2
+        done
+    networks:
+      - its-my-go-rocketmq-net
+    restart: "no"
+
+volumes:
+  its-my-go-rocketmq-broker-store:
+    name: its-my-go-rocketmq-broker-store
+  its-my-go-rocketmq-broker-logs:
+    name: its-my-go-rocketmq-broker-logs
+
+networks:
+  its-my-go-rocketmq-net:
+    name: its-my-go-rocketmq-net

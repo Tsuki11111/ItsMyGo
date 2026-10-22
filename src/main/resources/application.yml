@@ -52,6 +52,20 @@ itsmygo:
   # 虚拟物流：ETA = 最终送达时间；默认 120 分钟后送达（本地演示用，可调成 2 分钟看完整轨迹）
   logistics:
     delivery-minutes: ${LOGISTICS_DELIVERY_MINUTES:120}
+  # 超时未支付订单：MQ 定时消息准时关单 + 数据库扫描兜底
+  order-timeout:
+    minutes: ${ORDER_TIMEOUT_MINUTES:30}
+    mq-enabled: ${ORDER_TIMEOUT_MQ_ENABLED:true}
+    scan-enabled: ${ORDER_TIMEOUT_SCAN_ENABLED:true}
+    scan-interval-ms: ${ORDER_TIMEOUT_SCAN_INTERVAL_MS:300000}
+    scan-lock-ttl-seconds: ${ORDER_TIMEOUT_SCAN_LOCK_TTL_SECONDS:240}
+  # RocketMQ 5.x gRPC 客户端（经 proxy 的 8081 端口，不走 9876 remoting）
+  rocketmq:
+    endpoints: ${ROCKETMQ_ENDPOINTS:127.0.0.1:8081}
+    topic: its-my-go-order-timeout
+    producer-group: its-my-go-order-timeout-producer
+    consumer-group: its-my-go-order-timeout-consumer
+    request-timeout-seconds: ${ROCKETMQ_REQUEST_TIMEOUT_SECONDS:3}
 
 # MyBatis-Plus 的 SQL 是运行时生成的，不开日志根本看不见
 logging:

@@ -113,4 +113,10 @@ public interface OrderService {
      * @return 实际取消的订单数
      */
     int cancelExpired(int minutes);
+
+    /**
+     * 若该订单仍未支付且已超过 {@code minutes} 分钟，则取消并回滚库存 / 退券。
+     * 用于 MQ 单条消息消费，幂等：已支付、已取消或未到时间都返回 false。
+     */
+    boolean cancelIfExpired(Long orderId, int minutes);
 }

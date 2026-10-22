@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.tsuk1.itsmygo.common.ResultCode;
 import com.tsuk1.itsmygo.common.exception.BizException;
+import com.tsuk1.itsmygo.common.order.OrderTimeoutPublisher;
 import com.tsuk1.itsmygo.dto.CheckoutView;
 import com.tsuk1.itsmygo.dto.CreateOrderRequest;
 import com.tsuk1.itsmygo.dto.LogisticsView;
@@ -87,6 +88,7 @@ public class OrderServiceImpl implements OrderService {
     private final UserCouponMapper userCouponMapper;
     private final MerchantMapper merchantMapper;
     private final ShipmentService shipmentService;
+    private final OrderTimeoutPublisher orderTimeoutPublisher;
 
     public OrderServiceImpl(OrderMapper orderMapper, OrderItemMapper orderItemMapper,
                             CartItemMapper cartItemMapper, ProductMapper productMapper,
@@ -94,7 +96,8 @@ public class OrderServiceImpl implements OrderService {
                             PaymentMapper paymentMapper, StockService stockService,
                             StringRedisTemplate redisTemplate, ReviewMapper reviewMapper,
                             UserCouponMapper userCouponMapper, MerchantMapper merchantMapper,
-                            ShipmentService shipmentService) {
+                            ShipmentService shipmentService,
+                            OrderTimeoutPublisher orderTimeoutPublisher) {
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
         this.cartItemMapper = cartItemMapper;
@@ -108,6 +111,7 @@ public class OrderServiceImpl implements OrderService {
         this.userCouponMapper = userCouponMapper;
         this.merchantMapper = merchantMapper;
         this.shipmentService = shipmentService;
+        this.orderTimeoutPublisher = orderTimeoutPublisher;
     }
 
     /**
@@ -263,6 +267,7 @@ public class OrderServiceImpl implements OrderService {
             }
 
             List<OrderView> views = new ArrayList<>(groups.size());
+            List<Order> createdOrders = new ArrayList<>(groups.size());
             for (Map.Entry<Long, List<OrderLine>> entry : groups.entrySet()) {
                 Long merchantId = entry.getKey();
                 BigDecimal goodsTotal = groupTotals.get(merchantId);
@@ -287,6 +292,7 @@ public class OrderServiceImpl implements OrderService {
                         + address.getDistrict() + address.getDetail());
                 order.setTrackingNo("");
                 orderMapper.insert(order);
+                createdOrders.add(order);
 
                 // 券的使用是条件更新：期间被别的订单用掉/过期就 0 行，整单回滚
                 if (coupon != null
@@ -324,6 +330,8 @@ public class OrderServiceImpl implements OrderService {
                         .eq(CartItem::getSelected, 1));
             }
 
+            // 事务提交后才发延迟消息；发送失败只记日志，扫描兜底
+            orderTimeoutPublisher.publishAfterCommit(createdOrders);
             return CheckoutView.of(views);
         } catch (RuntimeException e) {
             releaseReserved.run();
@@ -639,22 +647,53 @@ public class OrderServiceImpl implements OrderService {
 
         int cancelled = 0;
         for (Order order : expired) {
-            try {
-                transition(order, OrderStatus.CANCELLED, order::setCancelledAt);
-                restoreStock(order);
-                restoreCoupon(order);
+            if (cancelPendingOrder(order)) {
                 cancelled++;
-            } catch (RuntimeException e) {
-                // 单个失败不影响其他的（典型情况：刚好在这一刻被人支付了）。
-                // 这里 catch 住了不会标记 rollback-only —— transition 是同类内部调用、
-                // 不走事务代理，异常没有穿过任何 @Transactional 边界。
-                log.warn("取消超时订单失败: orderNo={} err={}", order.getOrderNo(), e.getMessage());
             }
         }
         if (cancelled > 0) {
             log.info("已取消 {} 笔超时未支付订单（阈值 {} 分钟）", cancelled, window);
         }
         return cancelled;
+    }
+
+    @Override
+    @Transactional
+    public boolean cancelIfExpired(Long orderId, int minutes) {
+        int window = minutes > 0 ? minutes : DEFAULT_CANCEL_EXPIRED_MINUTES;
+        Order order = orderMapper.selectOne(Wrappers.<Order>lambdaQuery()
+                .eq(Order::getId, orderId)
+                .eq(Order::getStatus, OrderStatus.PENDING_PAYMENT.name())
+                .apply("created_at < DATE_SUB(NOW(), INTERVAL {0} MINUTE)", window));
+        if (order == null) {
+            return false;
+        }
+        try {
+            transition(order, OrderStatus.CANCELLED, order::setCancelledAt);
+        } catch (BizException e) {
+            // 查询后被支付 / 被取消：CAS 失败，直接 ack 这条消息
+            log.warn("取消超时订单失败: orderNo={} err={}", order.getOrderNo(), e.getMessage());
+            return false;
+        }
+        // 库存 / 券回滚失败要让异常冒出去，事务回滚并让 MQ 重投；
+        // 不能吞掉后 ack 一条「状态已取消但库存没退」的消息
+        restoreStock(order);
+        restoreCoupon(order);
+        return true;
+    }
+
+    /** 单笔取消：条件更新状态 + 回滚库存 / 券；并发下被支付或被别的线程取消时返回 false。 */
+    private boolean cancelPendingOrder(Order order) {
+        try {
+            transition(order, OrderStatus.CANCELLED, order::setCancelledAt);
+            restoreStock(order);
+            restoreCoupon(order);
+            return true;
+        } catch (RuntimeException e) {
+            // 典型情况：刚好在这一刻被人支付了
+            log.warn("取消超时订单失败: orderNo={} err={}", order.getOrderNo(), e.getMessage());
+            return false;
+        }
     }
 
     @Override
