@@ -93,7 +93,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             throw new BizException(ResultCode.TOO_MANY_REQUESTS, "该会话正在回复中，请稍候");
         }
 
-        // 本轮工具票据：agent 的 order-query 工具回调 /internal/agent/** 时带回。
+        // 本轮工具票据：agent 的 order-service 工具回调 /internal/agent/** 时带回。
         // 只放 metadata，不下发浏览器，也不进模型上下文。
         String toolTicket = toolTicketService.issue(user.id(), sessionId);
 

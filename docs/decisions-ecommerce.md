@@ -252,7 +252,7 @@ M0 第一阶段必须先实测；不通过则切 Spring Data JPA，**其余选�
 **proto 文件是唯一凭据**：`rag_helper/proto/agent.proto` 已定稿且
 `option java_multiple_files = true`，Java 侧直接由它生成 stub。
 
-**反向链路（P1）**：agent 的 `order-query` subagent 将来要调 Java 的订单查询接口。
+**反向链路（P1）**：agent 的 `order-service` subagent 将来要调 Java 的订单查询接口。
 Java 需**预留一个内网订单查询 API**，入参含 `user_id` + 订单号。
 
 ---

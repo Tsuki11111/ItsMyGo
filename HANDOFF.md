@@ -40,7 +40,7 @@
 消息页固定卡片可真实对话，Java 经 gRPC 调 rag_helper，SSE 回传答案、执行流、图片与用量；
 支持停止、历史恢复、会话归属校验；**多用户会话已双向隔离**（agent 按 user_id 过滤，
 Java 再按 `agent_sessions` 二次校验），消息页可切换历史会话、跨设备续聊。
-**M7 真实订单查询已接通（2026-10-21）**：order-query 不再返回 mock，agent 通过 Java
+**M7 真实订单查询已接通（2026-10-21）**：order-service 不再返回 mock，agent 通过 Java
 内部接口 `/internal/agent/orders/query` 查当前用户的真实订单；每次 Converse 由 Java
 签发 10 分钟票据（gRPC metadata 下发，不进模型上下文），Java 只认票据里的 userId。
 **M9/M10 智能下单与退款申请已完成（2026-10-21）**：agent 能搜索商品、准备订单草稿、
@@ -154,13 +154,15 @@ src/main/java/com/tsuk1/itsmygo/
 - 配置文件是 `src/main/resources/application.yml` —— **原来的 `application.properties` 已删除**
 - 凭据放项目根目录的 **`.env`**，由 `application.yml` 的
   `spring.config.import: optional:file:.env[.properties]` 引入
+- 前端 Vite 也读同一个 `.env`：`vite.config.ts` 的 `envDir` 指向仓库根目录，
+  `envPrefix` 限定 `VITE_`，后端密钥不会被注入浏览器
 - `.env` 已被 `.gitignore` 排除；仓库里只留 `.env.example`
 - 变量名：`DB_USERNAME`、`DB_PASSWORD`
 
 ### 3.3 数据库
 
 - 开发库 `its_mygo`、测试库 `its_mygo_test`（都在共用的 `mysql` 容器里，为什么要分开见 §5.20）
-- 迁移脚本在 `src/main/resources/db/migration/`，**当前 schema 版本 v21**
+- 迁移脚本在 `src/main/resources/db/migration/`，**当前 schema 版本 v23**
 - 已建表：`merchants`（V16，默认商户 id=1 平台自营）、`users`（V1，V3 加 `role`，
   V12 加 `avatar`，**V16 加 `merchant_id`**）、`addresses`（V2）、`categories`（V4）、
   `products`（V5，V9 加 `has_specs`，**V17 加 `merchant_id`**）、
@@ -1017,8 +1019,9 @@ HTTP 失败、401、业务错误都返回可读字符串，让主 agent 能正�
 **③ MySQL DATETIME 是秒精度。** 测试里构造的 `eta` 带纳秒，写库后会被舍入，
 `delivered_at` 和内存里的 `eta` 可能差 1 秒。测试时间戳用 `.withNano(0)`。
 
-**④ 腾讯地图 Key 是 Web 端（JavaScript API GL）Key。** 放 `frontend/.env.local`
-的 `VITE_TMAP_KEY`；在腾讯位置服务控制台把域名限制到 localhost / 部署域名。
+**④ 腾讯地图 Key 是 Web 端（JavaScript API GL）Key。** 放仓库根目录 `.env`
+的 `VITE_TMAP_KEY`（前后端共用；Vite 通过 `envDir` 读取根目录，只暴露 `VITE_` 前缀）；
+在腾讯位置服务控制台把域名限制到 localhost / 部署域名。
 `TMap.service.Geocoder` 需要 Key 开通 WebServiceAPI 权限；没开通时地图仍能显示，
 收货地址退回城市中心兜底。没有 Key 时页面显示配置提示，时间线不受影响。
 
@@ -1054,6 +1057,12 @@ reject 的是普通对象 `{status:121, message:"此key每日调用量已达到�
 ---
 
 ## 6. 历史记录
+
+### 2026-10-22 · 子智能体改名 order-query → order-service
+
+rag_helper `613d696` 把子智能体注册名从 `order-query` 改为 `order-service`
+（能力已从查订单扩展到地址、下单草稿、退款草稿）；Python 包 `order_query_agent`、
+工具文件 `order_query.py`、proto 字段都不变。ItsMyGo 文档与代码注释中的引用已同步。
 
 ### 2026-10-21 · M7.6 商家 / 平台发货地址
 
@@ -1094,12 +1103,12 @@ status / shipped_at / eta / delivered_at）。
 阶段按秒推进；到点写 `delivered_at = eta`）；`OrderServiceImpl.doShip` 创建运单、
 `doApproveRefund` 取消未送达运单；`GET /api/orders/{id}/logistics`；
 老订单按 `shipped_at` 懒生成。`AgentOrderView` 增加 `logistics` 摘要，
-Python order-query 工具输出物流状态 / ETA / 快递公司。
+Python order-service 工具输出物流状态 / ETA / 快递公司。
 
 **前端**：`LogisticsPanel.vue`（状态、ETA、快递员、四段时间线）+
 `LogisticsMap.vue`（腾讯地图 JS API GL：`TMap.Map` / `MultiPolyline` / `MultiMarker`，
 Geocoder 解析地址 + 平滑曲线 + 按 progress 插值快递员；Geocoder 失败按城市中心兜底）；
-订单详情页 30 秒轮询，送达 / 取消后停止；`frontend/.env.example` 增加
+订单详情页 30 秒轮询，送达 / 取消后停止；根目录 `.env.example` 增加
 `VITE_TMAP_KEY`。
 
 **验证**：Java **205 条全绿**（新增 `OrderLogisticsControllerTest` 3 条：
@@ -1185,7 +1194,7 @@ cancel / list）、`AgentCatalogService`（商品搜索 / 地址）、`AgentTool
 **前端**：`AgentActionCard.vue` 订单 / 退款两类卡片；`AgentChatPanel.vue` 在
 `done` 与历史加载时拉动作，确认 / 取消就地更新；订单成功给「去支付」链接。
 
-**Python**：`order-query` 子 agent 增加 `search_products` / `list_addresses` /
+**Python**：`order-service` 子 agent 增加 `search_products` / `list_addresses` /
 `prepare_order` / `prepare_refund`；共享 `its_mygo_client`；主 agent prompt 明确
 「草稿不等于成功、必须让用户确认」。
 
@@ -1199,7 +1208,7 @@ cancel / list）、`AgentCatalogService`（商品搜索 / 地址）、`AgentTool
 
 ### 2026-10-21 · M7 真实订单查询接通（双仓库）
 
-**范围**：买小购的 order-query 从固定 mock 换成 Java 的真实订单接口；
+**范围**：买小购的 order-service 从固定 mock 换成 Java 的真实订单接口；
 agent 能按订单号或最近订单查询**当前登录用户自己的**订单状态、商品、金额与物流单号。
 
 **路线**：选 A（agent 回调 Java 内部接口），不是把订单预注入 ConverseRequest。
@@ -1230,7 +1239,7 @@ agent 能按订单号或最近订单查询**当前登录用户自己的**订单�
 已同步到 `rag_helper/evolution-plan.md` §6 与两边 HANDOFF / README / implementation。
 
 **E2E**：重启 8080 + 8003，用 `testuser` 问「我的订单现在都到哪一步了」——
-执行流出现 `delegate order-query → tool query_orders`，final 返回 5 笔真实订单
+执行流出现 `delegate order-service → tool query_orders`，final 返回 5 笔真实订单
 （含店铺、金额、物流单号），且主动说明「只能查、退款/取消请去订单页」。
 
 **坑**：见 §5.27，最要紧的是 ContextVar 不跨 `threading.Thread`，票据必须在
@@ -1318,7 +1327,7 @@ Java 映射为 `traces[]`。重新生成 Python stub 时要修
 浏览器实测：流式答案 + trace + usage、停止、刷新恢复历史、跨用户 404、
 停掉 agent 显示 `AGENT_UNAVAILABLE`、恢复后正常。
 
-**边界**：M6 不接真实订单（agent 的 order-query 仍是 mock），M7 再做 Java 订单查询接口。
+**边界**：M6 不接真实订单（agent 的 order-service 仍是 mock），M7 再做 Java 订单查询接口。
 
 ### 2026-10-20 · 客服智能体更名为「买小购」
 

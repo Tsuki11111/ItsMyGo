@@ -1060,7 +1060,7 @@ Python 的 ErrorEvent 只给用户通用文案，原始 message 记日志。
 ```
 浏览器 → Java（/api/agent/**）→ gRPC 8003 → agent
                                   ↑
-          Java /internal/agent/orders/query ← agent 的 order-query 工具
+          Java /internal/agent/orders/query ← agent 的 order-service 工具
 ```
 
 **为什么是 agent 回调 Java，而不是把订单预注入请求**：下单草稿、退款申请这类
@@ -1072,7 +1072,7 @@ Python 的 ErrorEvent 只给用户通用文案，原始 message 记日志。
   `its-my-go:agent:tool-ticket:{uuid}`，TTL 10 分钟（硬约束：共用 Redis 的 key 必须带 TTL）
 - `AgentGrpcClient` 把它放进 gRPC metadata `x-agent-tool-ticket`；**proto 不变**
 - Python 的 gRPC 层读出后经 `run_main_agent(tool_ticket=...)` 放进 ContextVar；
-  order-query 工具回调 Java 时带回 `X-Agent-Ticket`
+  order-service 工具回调 Java 时带回 `X-Agent-Ticket`
 - Java 只认票据里的 userId —— **模型不参与身份**，prompt injection 也传不了别人的 id
 
 **接口**：`POST /internal/agent/orders/query`，`SecurityConfig` 放行
@@ -1090,7 +1090,7 @@ Python 的 ErrorEvent 只给用户通用文案，原始 message 记日志。
 
 **验证**：Java 新增 `AgentToolControllerTest` 4 条 + `AgentControllerTest`
 票据下发 1 条，全量 194 条全绿；rag_helper 回归 51/51（新增「订单查询：票据与格式化」）；
-浏览器实测「我的订单现在都到哪一步了」→ 执行流出现 delegate order-query →
+浏览器实测「我的订单现在都到哪一步了」→ 执行流出现 delegate order-service →
 tool query_orders → final 输出 5 笔真实订单。
 
 ### 3.20 智能下单与退款申请的动作层（M9/M10，V21）
@@ -1153,11 +1153,14 @@ SUCCEEDED / FAILED`，另有 `CANCELLED` / `EXPIRED`。
 ### 3.21 AI 导购、商品搜索与商品卡（M11–M13，2026-10-21）
 
 **拓扑**：主 agent 新增 `product-guide` 子 agent（rag_helper），与
-`product-kb`（产品手册）、`order-query`（订单 / 下单 / 退款）分工：
+`product-kb`（产品手册）、`order-service`（订单 / 下单 / 退款）分工：
 
 - 想买 / 推荐 / 预算 / 用途 → `product-guide`
 - 怎么用 / 参数 → `product-kb`
-- 订单 / 退款 / 已选定商品下单 → `order-query`
+- 订单 / 退款 / 已选定商品下单 → `order-service`
+
+> 注册名是 `order-service`（原 `order-query`）；rag_helper 的 Python 包仍为
+> `order_query_agent`，工具文件仍为 `order_query.py`，改名不影响对接协议。
 
 **商品目录接口**（内部，`X-Agent-Ticket`）：
 
@@ -1231,7 +1234,7 @@ DashScope embedding 生成向量，内存余弦排序；缓存 TTL 300 秒。关
 收货地址只给订单详情页画地图，**不进入 agent 上下文**。
 
 **agent**：`AgentOrderView` 增加 `logistics` 摘要（status / statusLabel / eta / carrier /
-courierName / progress），Python order-query 工具在订单文本里输出
+courierName / progress），Python order-service 工具在订单文本里输出
 「物流：运输中，预计 … 送达（买够速运 / 王师傅）」。
 
 **前端**：订单详情页新增「物流状态」区块：
@@ -1246,8 +1249,8 @@ courierName / progress），Python order-query 工具在订单文本里输出
 - `ShipAddressDialog.vue`：省市区级联 + 详细地址 + 「解析坐标」；
   商家资料页与管理端商户列表共用，平台自营行同样有入口；
   修改地址后未重新解析时，保存会自动清空旧坐标，避免物流起点仍指向旧地址；
-- 腾讯 Key 放 `frontend/.env.local` 的 `VITE_TMAP_KEY`；
-  未配置时显示配置提示，时间线仍可用；
+- 腾讯 Key 放仓库根目录 `.env` 的 `VITE_TMAP_KEY`；Vite 通过 `envDir` 读取根目录，
+  只暴露 `VITE_` 前缀；未配置时显示配置提示，时间线仍可用；
 - 发货后每 30 秒刷新一次，送达 / 取消后停止轮询。
 
 **验证**：Java 207 条全绿（新增 `OrderLogisticsControllerTest` 2 条：
@@ -1268,7 +1271,7 @@ courierName / progress），Python order-query 工具在订单文本里输出
 
 ```
 frontend/
-├── vite.config.ts          # /api 代理到 8080（`API_TARGET` 可覆盖）；端口读 `PORT` 环境变量（预览工具靠它挑空闲端口）
+├── vite.config.ts          # envDir 指向仓库根目录（前后端共用 .env，只暴露 VITE_ 前缀）；/api 代理到 8080（`API_TARGET` 可覆盖）；端口读 `PORT` 环境变量（预览工具靠它挑空闲端口）
 ├── src/
 │   ├── api/
 │   │   ├── http.ts         # axios 封装 + 拦截器 + **登录凭据的存取**（token 的唯一归属地）
