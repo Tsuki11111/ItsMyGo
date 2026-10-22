@@ -59,9 +59,10 @@ const router = createRouter({
     {
       path: '/admin',
       component: () => import('@/views/admin/AdminLayout.vue'),
-      redirect: '/admin/categories',
+      redirect: '/admin/dashboard',
       meta: { requiresAdmin: true },
       children: [
+        { path: 'dashboard', name: 'admin-dashboard', component: () => import('@/views/admin/Dashboard.vue') },
         { path: 'categories', name: 'admin-categories', component: () => import('@/views/admin/Categories.vue') },
         { path: 'messages/:conversationId?', name: 'admin-messages', component: () => import('@/views/admin/Messages.vue') },
         { path: 'products', name: 'admin-products', component: () => import('@/views/admin/Products.vue') },

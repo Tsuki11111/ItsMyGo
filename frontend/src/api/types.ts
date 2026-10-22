@@ -534,6 +534,55 @@ export interface AdminMerchantView extends MerchantView {
   ownerUsername: string
 }
 
+export interface AdminDashboardTrendPoint {
+  date: string
+  amount: string
+  orders: number
+}
+
+export interface AdminDashboardPendingOrder {
+  id: number
+  orderNo: string
+  merchantName: string
+  totalAmount: string
+  statusLabel: string
+  createdAt: string
+}
+
+export interface AdminDashboardPendingMerchant {
+  id: number
+  name: string
+  contactName: string
+  createdAt: string
+}
+
+export interface AdminDashboardLowStock {
+  productId: number
+  productName: string
+  image: string
+  skuId: number
+  specText: string
+  stock: number
+}
+
+export interface AdminDashboardView {
+  todayGmv: string
+  todayOrders: number
+  todayPaidOrders: number
+  pendingShipments: number
+  pendingRefunds: number
+  pendingMerchants: number
+  lowStockSkus: number
+  totalUsers: number
+  activeMerchants: number
+  onSaleProducts: number
+  trend: AdminDashboardTrendPoint[]
+  pendingShipmentOrders: AdminDashboardPendingOrder[]
+  pendingRefundOrders: AdminDashboardPendingOrder[]
+  pendingMerchantList: AdminDashboardPendingMerchant[]
+  lowStockList: AdminDashboardLowStock[]
+}
+
 /** 入驻申请 / 店铺资料修改 */
 export interface MerchantPayload {
   name: string

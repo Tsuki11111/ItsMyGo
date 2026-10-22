@@ -1,6 +1,7 @@
 import { del, get, post, postForm, put } from './http'
 import type {
   AdjustSkuStockPayload,
+  AdminDashboardView,
   AdminMerchantView,
   AdminReviewView,
   CategoryNode,
@@ -19,6 +20,13 @@ import type {
   ShipPayload,
   SkuSavePayload,
 } from './types'
+
+// ── 数据概览 ──
+
+/** 管理端数据概览：指标 + 待办 + 近 7 天成交 */
+export function fetchAdminDashboard(): Promise<AdminDashboardView> {
+  return get<AdminDashboardView>('/admin/dashboard')
+}
 
 // ── 分类 ──
 

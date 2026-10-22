@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ChatDotRound, ChatLineRound, Discount, Goods, Menu as MenuIcon, Shop, Tickets } from '@element-plus/icons-vue'
+import { ChatDotRound, ChatLineRound, DataBoard, Discount, Goods, Menu as MenuIcon, Shop, Tickets } from '@element-plus/icons-vue'
 import { useChatStore } from '@/stores/chat'
 import { useUserStore } from '@/stores/user'
 
@@ -12,6 +12,7 @@ const userStore = useUserStore()
 const chatStore = useChatStore()
 
 const MENU = [
+  { path: '/admin/dashboard', label: '数据概览', icon: DataBoard },
   { path: '/admin/messages', label: '平台消息', icon: ChatLineRound },
   { path: '/admin/categories', label: '分类管理', icon: MenuIcon },
   { path: '/admin/merchants', label: '商户管理', icon: Shop },
@@ -24,7 +25,7 @@ const MENU = [
 /** 子路由激活时高亮对应菜单；/admin 本身由路由 redirect 兜住 */
 const activeMenu = computed(() => {
   const hit = MENU.find((item) => route.path.startsWith(item.path))
-  return hit?.path ?? '/admin/categories'
+  return hit?.path ?? '/admin/dashboard'
 })
 
 function logout() {
