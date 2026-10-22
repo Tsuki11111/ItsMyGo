@@ -254,6 +254,9 @@ Authorization: Bearer <token>
 | `receiver` / `phone` / `address` | string | 收货信息快照 |
 | `trackingNo` | string | 物流单号 |
 | `statusBeforeRefund` | string/null | 退款前状态 |
+| `refundReason` | string | 退款原因（≤200 字，未申请过为空串） |
+| `refundAppliedAt` | datetime/null | 退款申请时间 |
+| `refundHandledAt` | datetime/null | 退款处理（同意 / 驳回）时间 |
 | `paidAt/shippedAt/completedAt/cancelledAt/createdAt/updatedAt` | datetime | 时间 |
 
 **OrderItem**：`id, orderId, productId, skuId, productName, productImage, specText, unitPrice, quantity, subtotal, createdAt, reviewed(可选)`
@@ -564,7 +567,7 @@ Authorization: Bearer <token>
 | POST | `/api/orders/{id}/pay` | 登录 | — | `OrderView` |
 | POST | `/api/orders/{id}/cancel` | 登录 | — | `OrderView` |
 | POST | `/api/orders/{id}/confirm` | 登录 | — | `OrderView` |
-| POST | `/api/orders/{id}/refund` | 登录 | — | `OrderView` |
+| POST | `/api/orders/{id}/refund` | 登录 | `RefundRequest` | `OrderView` |
 
 - 只能操作自己的订单，越权一律 404。
 - 下单限流 10 次/分钟/用户。
@@ -574,6 +577,9 @@ Authorization: Bearer <token>
 - 支付是模拟支付：直接改状态为 `PAID` 并写支付流水。
 - 取消会回滚库存；使用了未过期优惠券会自动退回。
 - 申请退款要求状态为 `PAID` / `SHIPPED` / `COMPLETED`，进入 `REFUNDING` 等审核。
+- `RefundRequest`：`{ "reason": "商品有瑕疵" }`，`reason` 最多 200 字；
+  顾客端强制填写，后端允许为空（智能体代申请 / 老客户端）；
+  申请后订单回显 `refundReason / refundAppliedAt`，审核后回显 `refundHandledAt`。
 - 下单失败会回补 Redis 预扣库存；令牌一次性消费，防重复提交。
 
 **LogisticsView（虚拟物流）**
@@ -826,7 +832,8 @@ Authorization: Bearer <token>
 
 | 方法 | 路径 | 请求/参数 | 返回 |
 |---|---|---|---|
-| GET | `/api/admin/orders` | `page=1, size=10, status?, merchantId?` | `PageResponse<Order>` |
+| GET | `/api/admin/orders` | `page=1, size=10, status?, merchantId?, keyword?, dateFrom?, dateTo?` | `PageResponse<Order>` |
+| GET | `/api/admin/orders/export` | 同上（不分页，最多 5000 条） | CSV 文件 |
 | GET | `/api/admin/orders/{id}` | — | `OrderView` |
 | POST | `/api/admin/orders/{id}/ship` | `{trackingNo}` | `OrderView` |
 | POST | `/api/admin/orders/{id}/refund/approve` | — | `OrderView` |
@@ -834,6 +841,11 @@ Authorization: Bearer <token>
 | POST | `/api/admin/orders/cancel-expired` | `minutes=30` | `number`（取消数量） |
 
 - 平台保留全平台订单的查看、发货、退款审核权限。
+- `keyword` 同时匹配订单号 / 收货人 / 电话 / 运单号；`dateFrom` / `dateTo` 为
+  `YYYY-MM-DD`，按下单时间过滤（含首尾两天）。
+- `export` 返回 `text/csv;charset=UTF-8`，带 UTF-8 BOM（Excel 中文不乱码），
+  列：订单号、下单时间、支付时间、状态、店铺、用户 ID、收货人、电话、金额、
+  优惠、物流单号、退款原因、退款申请时间、退款处理时间。
 - `cancel-expired` 当前是手动触发；传 `minutes` 表示取消创建超过该分钟数且未支付的订单。
 
 ### 17.5 优惠券

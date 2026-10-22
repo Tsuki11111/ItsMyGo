@@ -376,6 +376,16 @@ concurrentPayOnlySucceedsOnce          ✓ 仍通过（被唯一索引兜住）
 2. **审核期间库存不动** —— 万一被驳回呢。只有**同意**时才 `restoreStock`
 3. **同意退款时同步把支付流水置为 `REFUNDED`** —— 那才是退款真正的凭据
 
+**退款记录（V24）**：申请时记录原因（≤200 字，`RefundRequest`；顾客端强制填写，
+后端允许为空以兼容智能体代申请与老客户端），同时写入 `refund_reason` 与
+`refund_applied_at`；同意 / 驳回时写 `refund_handled_at`。
+被驳回后再次申请会**清空上次的处理时间**。`refund_reason` 默认空串，
+迁移时把存量 `REFUNDING / REFUNDED` 订单的 `refund_applied_at` 从 `updated_at` 回填，
+`refund_handled_at` 只回填已退款订单。
+`status_before_refund` 和 `refund_handled_at` 的「清空」都必须用
+`LambdaUpdateWrapper.set(..., null)` —— `updateById` 会忽略 null 字段，
+看起来执行成功、实际没清掉。
+
 **超时取消**（`cancelExpired`）：批量取消超过 N 分钟未支付的订单并回滚库存。
 先做成管理端手动触发，将来挂 `@Scheduled` 即可（多实例下要加分布式锁）。
 
@@ -1324,6 +1334,27 @@ agent 再回复用户「已完成 + 代商家致歉」。
 **验证**：`AdminDashboardControllerTest` 1 条（指标、7 天趋势、待发货/待退款、低库存）；
 Java 全量 211 条；前端 `npm run build` 通过；浏览器实测 `/admin` 默认进入看板。
 
+### 3.25 订单筛选、CSV 导出与退款记录（M16，2026-10-22）
+
+- `GET /api/admin/orders` 增加 `keyword` 与 `dateFrom` / `dateTo`：
+  - `keyword` 同时匹配**订单号 / 收货人 / 电话 / 运单号**（`LIKE %keyword%`）；
+  - 日期按**下单时间**过滤，`dateFrom` / `dateTo` 是 `LocalDate`，SQL 用
+    `created_at >= dateFrom 00:00` 与 `created_at < dateTo + 1 天`，含首尾两天；
+  - 与 `status` / `merchantId` 可任意组合，查询与导出共用同一套条件。
+- `GET /api/admin/orders/export`：同步写出 CSV，响应 `text/csv;charset=UTF-8`，
+  第一行状态用中文标签。三个必踩的点：
+  1. **写 UTF-8 BOM**（`writer.write(0xFEFF)`），否则 Excel 打开中文乱码；
+  2. 字段按 RFC 4180 转义（含逗号 / 引号 / 换行时整体加引号，内部引号翻倍）；
+  3. 最多 5000 行（`listForAdminExport` 里 `LIMIT 5000`），避免一次导出拖垮内存。
+- 前端 `http.ts` 增加 `download()`：`responseType: 'blob'`，用 blob URL 创建临时 `<a>`
+  触发下载（文件名由调用方给，导出固定 `orders.csv`）；`Orders.vue` 增加关键词、
+  下单日期区间、查询 / 重置 / 导出 CSV。
+
+**验证**：`OrderControllerTest` 30 条（含管理端筛选 + CSV 导出）；Java 全量 212 条全绿；
+接口实测 `/api/admin/orders?keyword=...&dateFrom=...&dateTo=...` 与
+`/api/admin/orders/export?...`（返回带 BOM 的 CSV）；浏览器实测筛选、导出与
+退款订单详情抽屉。
+
 ---
 
 ## 4. 前端（`frontend/`）
@@ -1544,7 +1575,7 @@ frontend/
 | 子页 | 要点 |
 |---|---|
 | `orders` | 七个 Tab 本质是**同一个订单列表按状态筛**；待发货 / 待收货分别对应 `PAID` / `SHIPPED`；Tab 存在 `?tab=` 里（刷新保持）；已完成订单的明细行有「评价 / 已评价」 |
-| 订单详情 | 按状态显示操作：待支付「立即支付 / 取消订单」、待发货「取消订单 / 申请退款」、待收货「确认收货 / 申请退款」、已完成「申请退款」；取消/退款会回滚库存并退回未过期券 |
+| 订单详情 | 按状态显示操作：待支付「立即支付 / 取消订单」、待发货「取消订单 / 申请退款」、待收货「确认收货 / 申请退款」、已完成「申请退款」；**申请退款必须填写原因**（textarea，最多 200 字），提交后页面多出「退款信息」块（原因 / 申请时间 / 处理时间）；取消/退款会回滚库存并退回未过期券 |
 | `favorites` | 收藏卡片列表、取消收藏、分页；下架商品标「已下架」且不可点进详情 |
 | `footprints` | 按浏览时间倒序、分页、清空全部；同一商品只有一条 |
 | `coupons` | 未使用 / 已使用 / 已过期三个 Tab；「去领券中心」入口 |
@@ -1599,7 +1630,7 @@ frontend/
 |---|---|
 | `Categories.vue` | `el-table` 树形（`row-key="id"` + `tree-props`）；父分类下拉用 `el-tree-select`，**必须剔除自己及全部后代**（后端只拦了「自己设自己」）；启停用 `@change` 调更新接口，成功后重拉树 |
 | `Products.vue` | 分类 + 关键词筛选、分页；**不做硬删除**，只提供上下架（避免购物车/订单/统计的孤儿数据）；商品表单里的主图用 `ImageUpload` 上传 |
-| `Orders.vue` | 状态单选筛选（**管理端接口只支持单个枚举，不支持逗号**）、分页；详情用 `OrderDetailDrawer`；发货填单号、退款同意/驳回、取消超时未支付订单 |
+| `Orders.vue` | 店铺 / 状态 / **关键词（订单号 / 收货人 / 电话 / 运单号）** / **下单日期区间**筛选；状态单选（**管理端接口只支持单个枚举，不支持逗号**）、分页；**导出 CSV**（与筛选同参）；详情用 `OrderDetailDrawer`；发货填单号、退款同意/驳回、取消超时未支付订单 |
 | `Coupons.vue` | 券模板列表、新增/编辑、启停；**不提供删除**；编辑时总量不能小于已领数；可建平台券或指定店铺券 |
 | `Reviews.vue` | 评价列表、按展示状态/店铺筛选、显示/隐藏开关；**不删除评价** |
 
@@ -1629,7 +1660,8 @@ frontend/
 
 **订单列表没有 `statusLabel`**：管理端接口返回原始 `Order`，所以状态中文映射放在
 `utils/orderStatus.ts`（顾客端用的是后端给的 `statusLabel`，不需要它）。
-详情抽屉打开时才单独请求 `GET /api/admin/orders/{id}` 拿明细。
+详情抽屉打开时才单独请求 `GET /api/admin/orders/{id}` 拿明细；
+抽屉里的「退款信息」块与顾客订单详情一致，只在有退款原因 / 申请时间 / 处理时间时显示。
 
 ### 4.12 消息中心（`components/chat/`）
 
