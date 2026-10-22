@@ -206,9 +206,9 @@ onBeforeUnmount(() => badgeStore.stopPolling())
 
 .topbar-inner {
   /* 和 .page 保持同一个宽度，否则顶栏和内容会错开 */
-  max-width: 1440px;
+  max-width: 1680px;
   margin: 0 auto;
-  padding: 14px 24px;
+  padding: 14px 16px;
   display: flex;
   align-items: center;
   gap: 32px;
@@ -366,9 +366,9 @@ onBeforeUnmount(() => badgeStore.stopPolling())
 }
 
 .page {
-  max-width: 1440px;
+  max-width: 1680px;
   margin: 0 auto;
-  padding: 24px;
+  padding: 16px;
 }
 
 /* 管理端自带侧边栏和页头，不再套顾客端的宽度与留白 */

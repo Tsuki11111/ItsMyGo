@@ -454,9 +454,35 @@ onBeforeUnmount(() => observer?.disconnect())
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 18px;
+  /* 大屏固定一行 6 个；间距比原来的 18px 收紧 */
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
   min-height: 120px;
+}
+
+/* 中等屏幕退到 5 个一行：卡片反而比 6 列时更大 */
+@media (max-width: 1099px) {
+  .grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 899px) {
+  .grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 699px) {
+  .grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 519px) {
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .card {
