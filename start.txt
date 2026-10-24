@@ -24,27 +24,24 @@ echo "MySQL 已就绪"
 
 
 # ─────────────────────────────────────────────
-# 0.5 RocketMQ（可选，本项目自有容器）
+# 0.5 RabbitMQ（可选，本项目自有容器）
 # ─────────────────────────────────────────────
-# 超时未支付订单自动取消：应用连 proxy 的 8081（gRPC），namesrv 的 9876 只给 broker/proxy 用。
-# 不启动 MQ 时在 .env 设 ORDER_TIMEOUT_MQ_ENABLED=false，数据库扫描兜底仍会关单。
+# 超时未支付订单自动取消：延迟队列 TTL 到期后死信到工作队列。
+# 先在根目录 .env 填 RABBITMQ_USERNAME / RABBITMQ_PASSWORD（compose 会校验）。
+# 不启动 MQ 时设 ORDER_TIMEOUT_MQ_ENABLED=false，数据库扫描兜底仍会关单。
 cd /c/Users/28470/IdeaProjects/ItsMyGo
-docker compose -f docker-compose.rocketmq.yml up -d
-docker ps --filter "name=^its-my-go-rocketmq" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+docker compose -f docker-compose.rabbitmq.yml up -d
+docker ps --filter "name=^its-my-go-rabbitmq" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 
-# 等 broker 注册成功（有 broker-a 输出即可）：
-docker exec its-my-go-rocketmq-broker sh mqadmin clusterList -n its-my-go-rocketmq-namesrv:9876
+# 管理台：http://localhost:15672（账号密码就是 .env 里的 RABBITMQ_*）
 
-# 等 topic-init 建完 topic（状态 Exited (0) 再启动后端；gRPC 客户端启动时要求 topic 已存在）：
-docker ps -a --filter "name=^its-my-go-rocketmq-topic-init" --format "table {{.Names}}\t{{.Status}}"
-
-# topic 由 compose 里的一次性 topic-init 服务自动创建（消息类型 DELAY）；手工补建（可选）：
-# docker exec its-my-go-rocketmq-broker sh mqadmin updateTopic \
-#   -n its-my-go-rocketmq-namesrv:9876 -c DefaultCluster -t its-my-go-order-timeout \
-#   -a +message.type=DELAY
+# 改了 ORDER_TIMEOUT_MINUTES 后，旧延迟队列的 x-message-ttl 不会自动更新：
+# docker exec its-my-go-rabbitmq rabbitmqctl delete_queue its-my-go-order-timeout-delay-queue
 
 # 停止（保留数据卷）：
-# docker compose -f docker-compose.rocketmq.yml down
+# docker compose -f docker-compose.rabbitmq.yml down
+# 重置账号 / 清空消息（会删卷）：
+# docker compose -f docker-compose.rabbitmq.yml down -v
 
 
 # ─────────────────────────────────────────────
@@ -134,8 +131,8 @@ cd /d/PycharmProjects/rag_helper
 # 如果确实要停：
 # docker stop mysql redis minio
 
-# RocketMQ 是本项目自有的，可以随时停（保留数据卷）：
-# docker compose -f docker-compose.rocketmq.yml down
+# RabbitMQ 是本项目自有的，可以随时停（保留数据卷）：
+# docker compose -f docker-compose.rabbitmq.yml down
 
 
 # ─────────────────────────────────────────────

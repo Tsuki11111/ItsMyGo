@@ -58,6 +58,9 @@ Java 再按 `agent_sessions` 二次校验），消息页可切换历史会话、
 仅 `PAID` 未发货可催，用户确认后 Java 触发 agent 执行图，**由 agent 调 Java 发送工具**，
 Java 校验并落库为 AGENT 消息；agent 再回复用户「已完成 + 代商家致歉」；
 10 分钟内不重复催同一单。
+**M8 催退款已完成（2026-10-23）**：对 `REFUNDING`（退款中）订单，新增 `URGE_REFUND`
+动作与 `urge-refund-confirmed` 内部事件；同样由 agent 调发送工具，Java 重新校验
+仍为退款中后发 AGENT 消息；已退款 / 已驳回不可催，10 分钟冷却。
 **订单状态文案（2026-10-22）**：`PAID` / `SHIPPED` 的展示名改为「待发货 / 待收货」；
 枚举、数据库和接口 `status` 值不变，顾客端拆出「待发货 / 待收货」两个筛选 Tab。
 **管理后台数据概览已完成（2026-10-22）**：`/admin/dashboard` 成为后台默认页，
@@ -65,15 +68,14 @@ Java 校验并落库为 AGENT 消息；agent 再回复用户「已完成 + 代�
 **订单与售后增强也已完成（2026-10-22，M16）**：管理端订单支持关键词（订单号 / 收货人 /
 电话 / 运单号）与下单日期区间筛选、按当前条件导出 CSV（带 BOM，最多 5000 条）；
 退款新增原因与申请 / 处理时间（V24），顾客申请时必须填写，管理端与顾客端都展示「退款信息」。
-**M17 RocketMQ 超时关单已完成（2026-10-22）**：下单事务提交后发延迟消息，默认 30 分钟
+**M17 RabbitMQ 超时关单已完成（2026-10-23）**：下单事务提交后发延迟消息，默认 30 分钟
 未支付自动取消并回滚库存 / 退券；消费端幂等，数据库扫描兜底，MQ 不可用不影响下单。
 接下来按「用户与操作审计 → 商户与商品运营」继续补。
-后端 **自动化测试 223 条**。
+后端 **自动化测试 228 条**。
 
 **下一步：用户与操作审计**（用户已选）—— 用户列表 / 状态、操作审计等。
-M8 催退款仍可做：`refund_applied_at` 已由 V24 补上，通用动作层
-（`agent_actions` + 确认门）也已就绪，催退款只需再加一种动作类型。
-也可以做 M14 导购增强（商品对比 / 加入购物车）或商家侧动作。联调需要先启动
+M8 催退款已完成（2026-10-23）；通用动作层（`agent_actions` + 确认门）可继续承载
+商家侧动作。也可以做 M14 导购增强（商品对比 / 加入购物车）或商家侧动作。联调需要先启动
 rag_helper gRPC（8003）和 Java 后端（8080），并在 `.env` 配好 `AGENT_GRPC_KEY`；
 智能动作还可用 `AGENT_ACTIONS_ENABLED=false` 一键停。
 
@@ -1092,7 +1094,7 @@ reject 的是普通对象 `{status:121, message:"此key每日调用量已达到�
 
 **⑤ 完成回复不要伪装成用户消息。** Java 用 gRPC metadata
 `x-agent-internal-event: urge-shipment-confirmed` 触发 agent；agent 不存用户消息、不跑主模型，
-只跑 rag_helper 的 `main_graph.py`（`send_merchant_message → compose_reply → save_reply`）。
+只跑 rag_helper 的 `shipment_graph.py`（`send_merchant_message → compose_reply → save_reply`）。
 浏览器消息无法伪造该 metadata。
 
 **⑥ 内部事件必须带 tool ticket。** `confirm` 用 `AgentToolTicketService.issue` 签发票据，
@@ -1103,42 +1105,104 @@ reject 的是普通对象 `{status:121, message:"此key每日调用量已达到�
 如果 confirm 包事务并锁住该行，回调线程会等锁，形成互相等待。当前 confirm 不包事务，
 CAS 与执行更新各自提交。
 
-### 5.34 ★ RocketMQ 超时关单的七个坑（2026-10-22 踩到 / 补齐）
+### 5.34 ★ RabbitMQ 超时关单的七个坑（2026-10-23 踩到 / 补齐）
 
-**① 不要用 `rocketmq-client` remoting 客户端。** Boot 4.1.1 把 Netty 锁在 4.2.17
-（Lettuce 7.5.2 已用 4.2 API），而 RocketMQ remoting 5.3.2 编译于 Netty 4.1.114；
-直接引入有二进制不兼容风险，全局降 Netty 又会破坏 Redis。改用官方 gRPC 客户端
-`rocketmq-client-java:5.2.2`（`grpc-netty-shaded`）+ proxy 容器。
+**① 延迟要用队列级 TTL，不要用逐消息 TTL。** 本项目所有订单共用同一个超时分钟数，
+延迟队列统一 `x-message-ttl`，先进先过期，不会出现「短 TTL 消息排在长 TTL 消息后面」
+的队头阻塞。将来若不同订单要不同超时，才考虑 delayed-message-exchange 插件。
 
-**② gRPC 客户端启动时要求 topic 已有路由。** broker 的 `autoCreateTopicEnable=true`
-不够：Producer/PushConsumer 在 `build()` 阶段就 fetch topic route，不存在直接启动失败。
-compose 里加了一次性 `topic-init` 服务显式建 topic。
+**② 队列参数不可变。** 修改 `ORDER_TIMEOUT_MINUTES` 后，已存在的延迟队列
+`x-message-ttl` 不会更新，声明会报 `PRECONDITION_FAILED`；启动日志能看到，
+监听器无法就绪。处理方式是删掉延迟队列再重启：
 
-**③ topic 必须声明 `message.type=DELAY`。** 普通 topic 发定时消息会报
-`actualMessageType=DELAY, acceptMessageTypes=[NORMAL]`。建 topic 要带
-`-a +message.type=DELAY`；`topic-init` 每次 `up` 都会重跑，**必须一直带着这个参数**，
-否则会把已有 topic 的类型重置回 NORMAL。
+```bash
+docker exec its-my-go-rabbitmq rabbitmqctl delete_queue its-my-go-order-timeout-delay-queue
+```
 
-**④ 命名卷默认 root 所有，broker 镜像却是 `rocketmq` 用户。** 表现为启动即 NPE
-（`ScheduleMessageService.configFilePath`），根因是写不进 `/home/rocketmq/store`。
-本地 compose 给 broker 加 `user: "0:0"`；生产应改卷权限而不是 root 跑。
+**③ 不要依赖 guest 从 Docker 端口连进来。** RabbitMQ 的 guest 默认只允许本机，
+经 Docker 端口映射的来源地址不是 loopback，会被拒。compose 必须用
+`RABBITMQ_DEFAULT_USER/PASS` 建独立账号；账号从 `.env` 读，不写进仓库。
+数据卷首次初始化后才建用户，改账号要 `down -v` 重置。
 
-**⑤ proxy 可能比 broker 先就绪。** `depends_on` 只保证启动顺序，不保证 broker 注册完成；
-proxy 会先报 `create system broadcast topic ... failed`，`restart: unless-stopped` 会等
-broker 注册后自动恢复。启动前用 `mqadmin clusterList` 和 `topic-init` 状态确认。
+**④ 发送失败不能影响下单，也不能只靠 MQ。** 消息在事务 `afterCommit` 后发；
+`RabbitMqOrderTimeoutSender` 捕获所有异常只 warn；没有 outbox，进程崩溃或
+RabbitMQ 挂掉会丢消息，所以保留 `OrderTimeoutScanJob` 做最终兜底。
+消费端按 `status + DB NOW()` 幂等，重复消息只会 ack。
+MQ 到期时刻可能正好等于阈值，`cancelIfExpired` 用 `<=` 避免差几毫秒漏关。
 
-**⑥ 发送失败不能影响下单，也不能只靠 MQ。** 消息在事务 `afterCommit` 后发；
-发送异常全部 catch + warn；没有 outbox，进程崩溃或 broker 挂掉会丢消息，
-所以保留 `OrderTimeoutScanJob` 做最终兜底。消费端按 `status + DB NOW()` 幂等，
-重复消息只会 ack。
+**⑤ 消费失败不要无限 requeue。** 数据库等临时异常抛
+`AmqpRejectAndDontRequeueException`，消息直接 reject，不进入热循环重投；
+扫描会在下一轮兜底。若将来要求消息不丢，再加失败 DLQ + 有限重试。
 
-**⑦ 测试与 CI 不能依赖 RocketMQ。** `application-test.yml` 关掉
-`itsmygo.order-timeout.mq-enabled` 与 `scan-enabled`；MQ 装配用
-`@ConditionalOnProperty`，测试上下文不会创建客户端。CI 仍只起 MySQL + Redis。
+**⑥ 应用启动不能依赖 RabbitMQ 就绪。** 拓扑声明和监听器由 Spring AMQP
+后台重连；RabbitMQ 没起来时应用照常启动，发送走 catch + 扫描兜底。
+`connection-timeout=3s` 限制 `afterCommit` 的最长阻塞。
+
+**⑦ 测试与 CI 不能依赖 RabbitMQ。** `application-test.yml` 关掉
+`itsmygo.order-timeout.mq-enabled` 与 `scan-enabled`，并设
+`spring.rabbitmq.listener.simple.auto-startup=false`；MQ 装配用
+`@ConditionalOnProperty`，测试上下文不会创建拓扑或监听器。CI 仍只起 MySQL + Redis。
+
+### 5.35 ★ 催退款的五个坑（2026-10-23 踩到 / 补齐）
+
+**① 只认 REFUNDING，不能把「可退款」当「退款中」。** `PAID/SHIPPED/COMPLETED`
+只是能申请退款，还没提交；催退款必须等订单进入 `REFUNDING`。已 `REFUNDED` 直接提示
+「商家已处理退款，无需再催」，不写商家消息。
+
+**② 商家可能在确认前抢先处理。** prepare 只是快照；确认后 agent 调发送工具时，
+Java 的 `sendUrgeRefundMessage` 会重新查订单，只有仍是 `REFUNDING` 才发消息。
+已退款 / 已驳回 → 动作 FAILED，agent 回复失败 + 致歉。
+
+**③ 复用催发货的执行骨架，但别共用冷却/锁。** 两类催办共用 `UrgeKind` 的
+confirm/execute 逻辑，事件名、Redis 锁前缀、错误文案各自独立：
+`urge-refund-confirmed`、`its-my-go:agent:urge-refund-send:`。催发货的
+`urge-shipment-confirmed` 和旧错误文案保持不变，用原测试锁定。
+
+**④ summary 里要带退款原因和申请时间。** 用户确认卡片需要看到「催的是什么退款」；
+`refundAppliedAt` 为空时回退 `updatedAt`，避免老数据卡片空白。
+
+**⑤ 冷却与幂等是四层，不是一层。** 未过期草稿复用、成功后 10 分钟冷却、
+Redis 执行锁、`finishExecution` CAS；双击确认不会重复发商家消息。
 
 ---
 
 ## 6. 历史记录
+
+### 2026-10-23 · 催退款（M8 二期）
+
+**范围**：`REFUNDING` 订单可在聊天里让买小购催商家处理退款；交互与催发货一致：
+prepare 草稿 → 用户确认 → Java 内部事件 `urge-refund-confirmed` → agent 执行图调
+Java 发送工具 → Java 重新校验退款中并以 AGENT 身份发商家消息 → agent 回复完成/致歉。
+
+**后端**：`AgentActionType.URGE_REFUND`；Dtos `AgentUrgeRefund*`；`AgentActionServiceImpl`
+抽出 `UrgeKind` 复用 confirm/execute/send；`prepareUrgeRefund` 仅 REFUNDING，
+summary 带退款原因/申请时间，成功后 10 分钟冷却；`AgentToolController` 增加
+`/internal/agent/actions/urge-refund` 与 `/send`。
+
+**agent**：order-service 新增 `prepare_urge_refund`；新增 `refund_graph.py`
+（发送 → 回复 → 保存）；`_run_internal_event` 支持两种事件；提示词与回归同步。
+
+**前端**：`URGE_REFUND` 类型、摘要/结果、催退款卡片与刷新逻辑。
+
+**验证**：新增 `AgentUrgeRefundControllerTest` 3 条；原催发货测试保持全绿；
+agent 两个离线自测通过；前端构建通过。
+
+### 2026-10-23 · 超时关单由 RocketMQ 迁移到 RabbitMQ
+
+**范围**：删除 RocketMQ 依赖、gRPC 客户端、namesrv/broker/proxy/topic-init compose
+与 broker.conf；改用 Spring AMQP + RabbitMQ 4-management，延迟用 TTL + 死信队列。
+数据库扫描兜底、afterCommit 发送、`cancelIfExpired` 幂等逻辑保持不变。
+
+**后端**：新增 `OrderTimeoutRabbitConfig`、`OrderTimeoutRabbitTopology`、
+`RabbitMqOrderTimeoutSender`；重写 `OrderTimeoutConsumer` 为 `@RabbitListener`；
+删除 `RocketMqConfig` / `RocketMqProperties` / `RocketMqOrderTimeoutSender`。
+
+**部署**：新增 `docker-compose.rabbitmq.yml`（5672 / 15672，命名卷/网络）；
+账号从 `.env` 的 `RABBITMQ_USERNAME/PASSWORD` 读取；`start.txt` 0.5 节改为 RabbitMQ；
+旧的 RocketMQ compose 与容器/卷在验证后清理。
+
+**验证**：新增 sender 2 条测试；全量测试通过；真实环境下单后 60 秒订单被 RabbitMQ
+消费者取消。队列参数（TTL）变更需要先删延迟队列，见 §5.34。
 
 ### 2026-10-23 · 商品种子数据改为 rag_helper 手册型号
 
@@ -1153,7 +1217,7 @@ broker 注册后自动恢复。启动前用 `mqadmin clusterList` 和 `topic-ini
 **验证**：商品列表、分类栏、商品详情（含 P3030 规格选择）浏览器实测正常；
 导入后清 `its-my-go:category:tree` 并重启后端预热布隆过滤器。
 
-### 2026-10-22 · RocketMQ 超时关单（M17）
+### 2026-10-22 · RocketMQ 超时关单（M17，已被 RabbitMQ 迁移取代）
 
 **范围**：下单后发 RocketMQ 延迟消息，默认 30 分钟未支付自动取消；保留数据库扫描兜底，
 管理端手动入口不变。无 Flyway 迁移。
@@ -1244,7 +1308,7 @@ Redis 锁 + `finishExecution` CAS 防重复；`AgentGateway.internalEvent` 通�
 显示完成或失败 + 致歉回复。
 
 **rag_helper**：`order-service` 新增 `prepare_urge_shipment` 工具；新增
-`main_graph.py`（`send_merchant_message → compose_reply → save_reply`）与
+`shipment_graph.py`（`send_merchant_message → compose_reply → save_reply`）与
 `urge-shipment-confirmed` 内部事件分支；离线检查 PASS。
 
 **验证**：Java 210 条全绿（新增 `AgentUrgeShipmentControllerTest` 3 条，含 agent 回调发送工具）；

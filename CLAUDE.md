@@ -72,10 +72,11 @@ Java 是**调用方**；agent 只在内网、只允许本单体访问。
 
 `mysql` 容器里还有 `dw` / `meta` / `pharma_db` 三个**别的项目**的库，**不要动**。
 
-**RocketMQ 是唯一的例外**：它是本项目自有的超时关单中间件，由根目录
-`docker-compose.rocketmq.yml` 管理（namesrv / broker / proxy / 一次性 topic-init），
-**不属于共用容器**。容器、网络、卷都显式以 `its-my-go-rocketmq` 开头；
-应用连 proxy 的 **8081**（gRPC），不是 namesrv 的 9876。
+**RabbitMQ 是唯一的例外**：它是本项目自有的超时关单中间件，由根目录
+`docker-compose.rabbitmq.yml` 管理，**不属于共用容器**。容器 `its-my-go-rabbitmq`、
+命名卷 / 网络都显式以 `its-my-go-rabbitmq` 开头；端口 **5672**（AMQP）、
+**15672**（管理台）。账号从 `.env` 的 `RABBITMQ_USERNAME` / `RABBITMQ_PASSWORD` 读取，
+不写进仓库。
 
 **开工前先确认这三个容器都在跑**（Docker Desktop 重启后不保证自动拉起）：
 

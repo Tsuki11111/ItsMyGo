@@ -388,7 +388,7 @@ concurrentPayOnlySucceedsOnce          ✓ 仍通过（被唯一索引兜住）
 
 **超时取消**（`cancelExpired`）：批量取消超过 N 分钟未支付的订单并回滚库存。
 管理端仍保留手动触发入口；M17 起另外挂了两条自动链路：
-**RocketMQ 延迟消息准时关单 + 数据库定时扫描兜底**，见 §3.26。
+**RabbitMQ 延迟消息准时关单 + 数据库定时扫描兜底**，见 §3.26。
 
 ⚠️ **时间基准必须用数据库的 `NOW()`**：
 
@@ -1294,7 +1294,7 @@ agent 再回复用户「已完成 + 代商家致歉」。
 - **确认只 CAS 到 EXECUTING，不直接发消息**：`confirmUrgeShipment` 签发短期 tool ticket，
   通过 gRPC metadata `x-agent-internal-event: urge-shipment-confirmed` 触发 agent；
   最多等 20 秒，再返回动作最终状态。
-- **agent 执行图** `main_graph.py`（LangGraph，`nodes/` + `state.py` + `tools/`）：
+- **agent 执行图** `shipment_graph.py`（LangGraph，`nodes/` + `state.py` + `tools/`）：
   1. `send_merchant_message` 调 `POST /internal/agent/actions/urge-shipment/send`；
   2. Java 用 ticket 解析 userId/session，校验动作归属、`EXECUTING` 状态、订单仍是待发货；
   3. `ChatService.sendAgentText` 写 `AGENT / TEXT` 消息（商家未读 +1、顾客不加未读）并推 SSE；
@@ -1356,26 +1356,29 @@ Java 全量 211 条；前端 `npm run build` 通过；浏览器实测 `/admin` �
 `/api/admin/orders/export?...`（返回带 BOM 的 CSV）；浏览器实测筛选、导出与
 退款订单详情抽屉。
 
-### 3.26 RocketMQ 延迟消息与超时关单（M17，2026-10-22）
+### 3.26 RabbitMQ 延迟消息与超时关单（M17，2026-10-23）
 
-**为什么用 gRPC 客户端而不是 `rocketmq-client`**：Spring Boot 4.1.1 的依赖管理把
-Netty 锁在 **4.2.17**，Lettuce 7.5.2 已使用 4.2 API；RocketMQ remoting 客户端 5.3.2
-编译于 Netty **4.1.114**，直接引入会让 RocketMQ 跑在 4.2 上（或全局降级 Netty 破坏 Redis），
-两条路都不可靠。因此使用官方 `rocketmq-client-java:5.2.2`（gRPC，依赖
-`grpc-netty-shaded`，与应用 Netty 隔离），broker / proxy 仍是 5.3.2。
+**为什么用 RabbitMQ**：项目是单体，只需要一个轻量的延迟关单能力；RabbitMQ
+一个容器即可（带管理台），Spring AMQP 也是 Boot 官方 starter，不需要额外的
+客户端兼容层。延迟用 **TTL + 死信队列**，不依赖 delayed-message-exchange 插件。
 
 ```
 下单事务提交后
   └─ OrderTimeoutPublisher (afterCommit)
-       └─ gRPC Producer ──> proxy :8081 ──> broker
-                                              │ 定时消息（30 分钟后投递）
-                                              ▼
-                                     OrderTimeoutConsumer
-                                              │
-                              OrderService.cancelIfExpired(orderId, minutes)
-                              ├─ id + PENDING_PAYMENT + created_at < NOW()-N
-                              ├─ CAS 转 CANCELLED
-                              └─ restoreStock / restoreCoupon
+       └─ RabbitTemplate ──> its-my-go-order-timeout-exchange
+                                │ RK: order-timeout-delay
+                                ▼
+                      延迟队列（x-message-ttl = minutes*60000）
+                                │ 到期后 DLX / DL RK
+                                ▼
+                          工作队列
+                                │
+                         @RabbitListener
+                                ▼
+                   OrderService.cancelIfExpired(orderId, minutes)
+                   ├─ id + PENDING_PAYMENT + created_at < NOW()-N
+                   ├─ CAS 转 CANCELLED
+                   └─ restoreStock / restoreCoupon
 
 兜底：OrderTimeoutScanJob（默认每 5 分钟）
   └─ Redis 锁 → cancelExpired(minutes)
@@ -1383,28 +1386,84 @@ Netty 锁在 **4.2.17**，Lettuce 7.5.2 已使用 4.2 API；RocketMQ remoting �
 
 要点：
 
+- **拓扑**：DirectExchange `its-my-go-order-timeout-exchange`；延迟队列
+  `its-my-go-order-timeout-delay-queue`（RK `order-timeout-delay`）；工作队列
+  `its-my-go-order-timeout-work-queue`（RK `order-timeout-work`）。延迟队列参数
+  `x-message-ttl`、`x-dead-letter-exchange`、`x-dead-letter-routing-key`。
+- **延迟一致性**：队列级 TTL 对队列里所有消息一致，先进先过期；本项目所有订单
+  共用同一个超时分钟数，因此不会出现逐消息 TTL 的队头阻塞。
 - **发送时机**：`doCreate` 收集本次创建的订单，调用 `OrderTimeoutPublisher.publishAfterCommit`；
-  有事务同步时挂 `afterCommit`，没有则立即发送。发送失败只记日志，下单不受影响。
-- **延迟**：`MessageBuilder.setDeliveryTimestamp(now + minutes)`；topic
-  `its-my-go-order-timeout` 必须带 `message.type=DELAY`，否则 broker 会报
-  “message type not match with topic accept message types”。
+  有事务同步时挂 `afterCommit`，没有则立即发送。`RabbitMqOrderTimeoutSender`
+  发到延迟队列，`messageId=orderNo`；发送异常只 warn，下单不受影响。
 - **消费幂等**：`cancelIfExpired` 先用数据库 `NOW()` 查“仍未支付且已超时”，
-  再走现有 `transition` CAS；已支付 / 已取消 / 未到时间 / 重复消息都返回 false 并 ack。
-  只有数据库异常才返回 `RECONSUME_LATER`。
-- **topic 初始化**：5.x gRPC 客户端启动时要求 topic 路由已存在，broker 的
-  `autoCreateTopicEnable` 不够；compose 里用一次性 `topic-init` 服务执行
-  `mqadmin updateTopic ... -a +message.type=DELAY`。
+  再走现有 `transition` CAS；已支付 / 已取消 / 未到时间 / 重复消息都正常 ack。
+  查询用 `created_at <= NOW() - N 分钟` —— MQ 的 TTL 到期时刻可能正好等于阈值，
+  用 `<` 会因几毫秒误差漏关。数据库等临时异常抛
+  `AmqpRejectAndDontRequeueException`，不无限重投，由扫描兜底。
 - **兜底扫描**：`@Scheduled(fixedDelay)` + Redis `SETNX` 锁
   `its-my-go:order-timeout:scan-lock`（TTL 240s，Lua 比对 token 释放）；
   多实例只跑一个，Redis 故障时跳过本轮。测试 profile 关闭扫描。
 - **开关**：`ORDER_TIMEOUT_MQ_ENABLED`、`ORDER_TIMEOUT_SCAN_ENABLED`；
-  MQ 关闭或 proxy 未启动时，生产者 / 消费者 `start()` 只记 warn，应用照常启动。
+  MQ 关闭时 `@ConditionalOnProperty` 不装配拓扑 / 监听器，应用照常启动。
+- **队列参数变更**：修改 `ORDER_TIMEOUT_MINUTES` 后，已存在的延迟队列
+  `x-message-ttl` 不会自动更新，声明会报 `PRECONDITION_FAILED`；需要先删除
+  延迟队列再重启（命令见 `start.txt`）。
 - **无数据库迁移**；取消动作完全复用现有库存 / 券回滚。
 
-**验证**：11 条新增测试（publisher 3、consumer 4、scan 3、`cancelIfExpired` 幂等 1）
-通过；真实环境下单后 60 秒订单 `CANCELLED`，日志出现
-`RocketMQ 定时关单成功: orderId=778`；关掉扫描、仅靠 MQ 也能关单；
+**验证**：新增 RabbitMQ sender 2 条、consumer 4 条、publisher 3 条、scan 3 条，
+加上 `cancelIfExpired` 幂等 1 条；真实环境下单后 60 秒订单 `CANCELLED`，
+日志出现 `RabbitMQ 定时关单成功`；关掉扫描、仅靠 MQ 也能关单；
 管理端手动 `cancel-expired` 仍能清理存量。
+
+### 3.27 催退款动作（M8 二期，2026-10-23）
+
+**范围**：只对 `REFUNDING`（退款中）订单，用户让买小购提醒商家尽快处理退款。
+交互与催发货一致：agent 只 prepare 草稿，用户确认后 Java 触发 agent 执行图，
+agent 调 Java 发送工具，Java 重新校验后以 `senderType=AGENT` 落站内消息。
+
+```
+用户「催退款，订单 X」
+  → prepare_urge_refund（PENDING_CONFIRM，summary 含退款原因/申请时间）
+  → 用户确认
+  → Java gRPC 内部事件 urge-refund-confirmed
+  → agent refund_graph: send_refund_message → compose_reply → save_reply
+  → POST /internal/agent/actions/urge-refund/send
+  → Java 校验订单仍 REFUNDING → ChatService.sendAgentText → 动作 SUCCEEDED
+```
+
+**Java**：
+
+- `AgentActionType.URGE_REFUND`；新增 `AgentUrgeRefundRequest/ExecuteRequest`。
+- `AgentActionServiceImpl` 把催发货 / 催退款差异抽成私有 `UrgeKind`：
+  动作类型、内部事件、Redis 锁前缀、中文名；`confirmUrgeAction` /
+  `executeUrgeAction` / `sendUrgeMessage` 共用，原 `executeUrgeShipment` 公开签名不变。
+- `prepareUrgeRefund`：仅 `REFUNDING`；已 `REFUNDED` 提示「商家已处理退款，无需再催」；
+  未过期草稿复用；成功后 10 分钟冷却；summary 带 `refundReason/refundAppliedAt`。
+- `executeUrgeRefund`：类型 / session / EXECUTING 校验，Redis
+  `its-my-go:agent:urge-refund-send:{actionNo}` 锁，发送成功后 `finishExecution` CAS。
+- `sendUrgeMessage` 退款分支重新查订单：`REFUNDED` 或非 `REFUNDING` 都拒绝，
+  不写商家消息；消息内容含订单号、退款原因、申请时间。
+- `AgentToolController`：`/internal/agent/actions/urge-refund`（prepare）与
+  `/urge-refund/send`（agent 回调），均要求 `X-Agent-Ticket`。
+- 列表刷新：`collectOrderIds` / `enrichResult` 把 `URGE_REFUND` 与催发货同等对待，
+  商家处理完成后退款卡片能显示当前状态。
+
+**agent（rag_helper）**：
+
+- `order_actions.prepare_urge_refund` 调 Java；返回「草稿尚未发送」口径。
+- `refund_graph.py`：`node_send_refund_message` → `node_compose_refund_reply` →
+  复用 `node_save_reply`；成功「催退款已完成 + 代商家致歉」，失败「没有成功 + 致歉」。
+- `main_agent._run_internal_event` 改为事件映射，支持
+  `urge-shipment-confirmed` / `urge-refund-confirmed`。
+- order-service 工具增至 6 个；提示词明确「仅退款中可催退款，退款中不要催发货」。
+
+**前端**：`AgentActionType` 增加 `URGE_REFUND`；新增 summary/result 类型；
+`AgentActionCard.vue` 显示退款原因 / 申请时间 / 商品件数，按钮「确认催退款」；
+`AgentChatPanel.vue` 对两种催办的成功 / 失败都刷新历史。
+
+**验证**：`AgentUrgeRefundControllerTest` 3 条（成功、非法状态/越权、确认前已退款）；
+原 `AgentUrgeShipmentControllerTest` 3 条保持全绿；rag_helper
+`_check_urge_refund_graph` 与 `_check_order_actions_tools` 通过；前端构建通过。
 
 ---
 

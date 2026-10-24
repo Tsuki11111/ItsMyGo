@@ -841,7 +841,7 @@ Authorization: Bearer <token>
 | POST | `/api/admin/orders/cancel-expired` | `minutes=30` | `number`（取消数量） |
 
 - 平台保留全平台订单的查看、发货、退款审核权限。
-- 超时未支付订单会由 RocketMQ 延迟消息自动取消（默认 30 分钟），数据库扫描兜底；
+- 超时未支付订单会由 RabbitMQ 延迟消息自动取消（默认 30 分钟），数据库扫描兜底；
   `cancel-expired` 仍保留，用于手动清理存量 / 调整阈值。
 - `keyword` 同时匹配订单号 / 收货人 / 电话 / 运单号；`dateFrom` / `dateTo` 为
   `YYYY-MM-DD`，按下单时间过滤（含首尾两天）。
@@ -1084,6 +1084,8 @@ agent 服务在对话过程中需要实时数据时，会反向回调 Java 的�
 | POST | `/internal/agent/actions/refund` | `X-Agent-Ticket` | `{orderNo}` | `AgentActionView` |
 | POST | `/internal/agent/actions/urge-shipment` | `X-Agent-Ticket` | `{orderNo}` | `AgentActionView` |
 | POST | `/internal/agent/actions/urge-shipment/send` | `X-Agent-Ticket` | `{actionNo}` | `AgentActionView` |
+| POST | `/internal/agent/actions/urge-refund` | `X-Agent-Ticket` | `{orderNo}` | `AgentActionView` |
+| POST | `/internal/agent/actions/urge-refund/send` | `X-Agent-Ticket` | `{actionNo}` | `AgentActionView` |
 
 - 商品搜索：`sort` 取 `recommend`（默认，有货优先 + 销量/评分）/ `sales` /
   `price_asc` / `price_desc` / `newest`；`limit` 默认 5、上限 10。
@@ -1097,6 +1099,9 @@ agent 服务在对话过程中需要实时数据时，会反向回调 Java 的�
 - 催发货确认后，Java 用内部事件触发 agent；agent 用本轮票据回调
   `/actions/urge-shipment/send`，Java 校验动作归属 / `EXECUTING` 状态 / 订单后，
   才以 `senderType=AGENT` 落库。该接口只给 agent 用，浏览器不能直接调用。
+- 催退款只允许 `REFUNDING` 订单；确认后内部事件为 `urge-refund-confirmed`，
+  agent 回调 `/actions/urge-refund/send`。Java 会重新校验订单仍为退款中，
+  已退款 / 已驳回返回 400，不写商家消息。
 
 - 票据由 Java 在每次 `POST /api/agent/converse` 时签发：
   Redis `its-my-go:agent:tool-ticket:{uuid}`，TTL 10 分钟；
@@ -1221,6 +1226,15 @@ agent 服务在对话过程中需要实时数据时，会反向回调 Java 的�
 确认时会重新校验状态，商家已发货（待收货）则动作失败且不发送消息。
 商家会话收到的是 `senderType=AGENT` 的文本消息；同时 agent 会话会写入一条
 assistant 完成回复（「催发货已完成 + 代商家致歉」）。
+
+催退款动作（`type=URGE_REFUND`）的 `summary` 是
+`{orderNo, merchantName, status, statusLabel, totalAmount, refundReason,
+refundAppliedAt, itemCount, items, note}`；成功后的 `result` 是
+`{orderId, orderNo, merchantName, status, statusLabel, messageId,
+refundReason, refundAppliedAt, note}`。
+只有退款中（`REFUNDING`）的订单能催；已退款（`REFUNDED`）返回
+「商家已处理退款，无需再催」；确认时重新校验，商家已处理 / 驳回则动作失败且不发送消息。
+成功发送后 10 分钟内不能重复催同一单，agent 随后写一条「催退款已完成 + 代商家致歉」。
 
 ---
 
