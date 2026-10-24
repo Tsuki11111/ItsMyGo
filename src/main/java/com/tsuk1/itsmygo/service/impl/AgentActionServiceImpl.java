@@ -14,6 +14,7 @@ import com.tsuk1.itsmygo.dto.OrderView;
 import com.tsuk1.itsmygo.dto.agent.AgentActionView;
 import com.tsuk1.itsmygo.dto.agent.AgentOrderDraftRequest;
 import com.tsuk1.itsmygo.dto.agent.AgentRefundDraftRequest;
+import com.tsuk1.itsmygo.dto.agent.AgentUrgeRefundRequest;
 import com.tsuk1.itsmygo.dto.agent.AgentUrgeShipmentRequest;
 import com.tsuk1.itsmygo.entity.Address;
 import com.tsuk1.itsmygo.entity.AgentAction;
@@ -73,6 +74,8 @@ public class AgentActionServiceImpl implements AgentActionService {
 
     private static final String TOKEN_PREFIX = "its-my-go:agent:action-token:";
     private static final String URGE_SEND_LOCK_PREFIX = "its-my-go:agent:urge-send:";
+    private static final String URGE_REFUND_SEND_LOCK_PREFIX =
+            "its-my-go:agent:urge-refund-send:";
     private static final int URGE_COOLDOWN_MINUTES = 10;
 
     private final AgentActionMapper actionMapper;
@@ -365,6 +368,84 @@ public class AgentActionServiceImpl implements AgentActionService {
         return toView(action);
     }
 
+    @Override
+    public AgentActionView prepareUrgeRefund(long userId, String sessionId,
+                                             AgentUrgeRefundRequest request) {
+        requireEnabled();
+        if (request == null || !StringUtils.hasText(request.orderNo())) {
+            throw new BizException(ResultCode.BAD_REQUEST, "请指定要催退款的订单号");
+        }
+        String orderNo = request.orderNo().trim();
+        List<OrderView> found = orderService.findForAgent(userId, orderNo, null, 1);
+        if (found.isEmpty()) {
+            throw new BizException(ResultCode.NOT_FOUND, "订单不存在");
+        }
+        OrderView view = found.get(0);
+        Order order = view.order();
+        if (order.getMerchantId() == null) {
+            throw new BizException(ResultCode.BAD_REQUEST, "订单缺少店铺信息，暂时无法催退款");
+        }
+        OrderStatus status = parseStatus(order.getStatus());
+        if (status == OrderStatus.REFUNDED) {
+            throw new BizException(ResultCode.BAD_REQUEST, "商家已处理退款，无需再催");
+        }
+        if (status != OrderStatus.REFUNDING) {
+            throw new BizException(ResultCode.BAD_REQUEST,
+                    "当前订单状态（" + status.label() + "）不可催退款");
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        AgentAction latest = actionMapper.selectOne(Wrappers.<AgentAction>lambdaQuery()
+                .eq(AgentAction::getUserId, userId)
+                .eq(AgentAction::getType, AgentActionType.URGE_REFUND.name())
+                .eq(AgentAction::getTargetId, order.getId())
+                .in(AgentAction::getStatus,
+                        AgentActionStatus.PENDING_CONFIRM.name(),
+                        AgentActionStatus.SUCCEEDED.name())
+                .orderByDesc(AgentAction::getId)
+                .last("LIMIT 1"));
+        if (latest != null) {
+            if (AgentActionStatus.PENDING_CONFIRM.name().equals(latest.getStatus())
+                    && latest.getExpiresAt() != null && latest.getExpiresAt().isAfter(now)) {
+                return toView(latest);
+            }
+            LocalDateTime sentAt = latest.getExecutedAt() == null
+                    ? latest.getUpdatedAt() : latest.getExecutedAt();
+            if (AgentActionStatus.SUCCEEDED.name().equals(latest.getStatus())
+                    && sentAt != null
+                    && sentAt.isAfter(now.minusMinutes(URGE_COOLDOWN_MINUTES))) {
+                throw new BizException(ResultCode.BAD_REQUEST,
+                        "刚刚已经催过退款了，请 " + URGE_COOLDOWN_MINUTES + " 分钟后再试");
+            }
+        }
+
+        List<OrderItem> items = view.items() == null ? List.of() : view.items();
+        LocalDateTime appliedAt = order.getRefundAppliedAt() == null
+                ? order.getUpdatedAt() : order.getRefundAppliedAt();
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("orderNo", order.getOrderNo());
+        summary.put("merchantName", nullToEmpty(order.getMerchantName()));
+        summary.put("status", order.getStatus());
+        summary.put("statusLabel", view.statusLabel());
+        summary.put("totalAmount", money(order.getTotalAmount()));
+        summary.put("refundReason", StringUtils.hasText(order.getRefundReason())
+                ? order.getRefundReason() : "未填写");
+        summary.put("refundAppliedAt", appliedAt == null ? "" : appliedAt.toString());
+        summary.put("itemCount", items.stream()
+                .mapToInt(item -> item.getQuantity() == null ? 0 : item.getQuantity()).sum());
+        summary.put("items", items.stream().map(this::itemView).toList());
+        summary.put("note", "确认后买小购会以平台客服身份给商家发送一条催退款消息；"
+                + "平台自营店由平台客服接收。");
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("orderId", order.getId());
+
+        AgentAction action = newAction(userId, sessionId, AgentActionType.URGE_REFUND,
+                payload, summary, order.getId());
+        actionMapper.insert(action);
+        return toView(action);
+    }
+
     // ── 确认 / 取消 / 列表 ──
 
     @Override
@@ -400,7 +481,11 @@ public class AgentActionServiceImpl implements AgentActionService {
         action.setStatus(AgentActionStatus.EXECUTING.name());
         if (AgentActionType.URGE_SHIPMENT.name().equals(action.getType())) {
             // 催发货不在这里直接发：触发 agent 图，由 agent 调用发送工具回调 Java
-            return confirmUrgeShipment(userId, action);
+            return confirmUrgeAction(userId, action, UrgeKind.SHIPMENT);
+        }
+        if (AgentActionType.URGE_REFUND.name().equals(action.getType())) {
+            // 催退款同理，由 agent 图调用发送工具
+            return confirmUrgeAction(userId, action, UrgeKind.REFUND);
         }
         try {
             Object result = switch (AgentActionType.valueOf(action.getType())) {
@@ -408,6 +493,8 @@ public class AgentActionServiceImpl implements AgentActionService {
                 case APPLY_REFUND -> executeRefund(userId, action);
                 case URGE_SHIPMENT -> throw new BizException(
                         ResultCode.INTERNAL_ERROR, "催发货由 agent 工具执行");
+                case URGE_REFUND -> throw new BizException(
+                        ResultCode.INTERNAL_ERROR, "催退款由 agent 工具执行");
             };
             action.setStatus(AgentActionStatus.SUCCEEDED.name());
             action.setResultJson(json(result));
@@ -505,9 +592,19 @@ public class AgentActionServiceImpl implements AgentActionService {
 
     @Override
     public AgentActionView executeUrgeShipment(long userId, String sessionId, String actionNo) {
+        return executeUrgeAction(userId, sessionId, actionNo, UrgeKind.SHIPMENT);
+    }
+
+    @Override
+    public AgentActionView executeUrgeRefund(long userId, String sessionId, String actionNo) {
+        return executeUrgeAction(userId, sessionId, actionNo, UrgeKind.REFUND);
+    }
+
+    private AgentActionView executeUrgeAction(long userId, String sessionId, String actionNo,
+                                               UrgeKind kind) {
         requireEnabled();
         AgentAction action = requireOwned(userId, actionNo);
-        if (!AgentActionType.URGE_SHIPMENT.name().equals(action.getType())) {
+        if (!kind.type.name().equals(action.getType())) {
             throw new BizException(ResultCode.BAD_REQUEST, "动作类型不匹配");
         }
         if (StringUtils.hasText(sessionId) && StringUtils.hasText(action.getSessionId())
@@ -521,7 +618,7 @@ public class AgentActionServiceImpl implements AgentActionService {
             throw new BizException(ResultCode.BAD_REQUEST, "动作不在执行状态");
         }
 
-        String lockKey = URGE_SEND_LOCK_PREFIX + actionNo;
+        String lockKey = kind.lockPrefix + actionNo;
         Boolean locked = redis.opsForValue()
                 .setIfAbsent(lockKey, "1", Duration.ofSeconds(30));
         if (!Boolean.TRUE.equals(locked)) {
@@ -529,10 +626,11 @@ public class AgentActionServiceImpl implements AgentActionService {
             if (AgentActionStatus.SUCCEEDED.name().equals(fresh.getStatus())) {
                 return toView(fresh);
             }
-            throw new BizException(ResultCode.BAD_REQUEST, "催发货正在执行，请稍后");
+            throw new BizException(ResultCode.BAD_REQUEST,
+                    kind.label + "正在执行，请稍后");
         }
         try {
-            Map<String, Object> result = sendUrgeMessage(userId, action);
+            Map<String, Object> result = sendUrgeMessage(userId, action, kind);
             if (actionMapper.finishExecution(actionNo, userId, json(result)) == 0) {
                 AgentAction fresh = requireOwned(userId, actionNo);
                 if (AgentActionStatus.SUCCEEDED.name().equals(fresh.getStatus())) {
@@ -545,59 +643,85 @@ public class AgentActionServiceImpl implements AgentActionService {
             actionMapper.failExecution(actionNo, userId, truncate(e.getMessage(), 255));
             throw e;
         } catch (Exception e) {
-            log.error("催发货执行失败: {}", actionNo, e);
-            actionMapper.failExecution(actionNo, userId, "催发货执行失败，请稍后重试");
-            throw new BizException(ResultCode.INTERNAL_ERROR, "催发货执行失败，请稍后重试");
+            log.error("{}执行失败: {}", kind.label, actionNo, e);
+            actionMapper.failExecution(actionNo, userId,
+                    kind.label + "执行失败，请稍后重试");
+            throw new BizException(ResultCode.INTERNAL_ERROR,
+                    kind.label + "执行失败，请稍后重试");
         } finally {
             redis.delete(lockKey);
         }
     }
 
-    private Map<String, Object> sendUrgeMessage(long userId, AgentAction action) {
+    private Map<String, Object> sendUrgeMessage(long userId, AgentAction action, UrgeKind kind) {
         JsonNode payload = readTree(action.getPayloadJson());
         long orderId = payload.path("orderId").asLong();
         Order order = orderMapper.selectById(orderId);
         if (order == null || !userIdEquals(userId, order.getUserId())) {
             throw new BizException(ResultCode.NOT_FOUND, "订单不存在");
         }
-        OrderStatus status = parseStatus(order.getStatus());
-        if (order.getShippedAt() != null || status != OrderStatus.PAID) {
-            String label = order.getShippedAt() != null
-                    ? OrderStatus.SHIPPED.label() : status.label();
-            throw new BizException(ResultCode.BAD_REQUEST,
-                    "当前订单状态（" + label + "）不可催发货");
-        }
         if (order.getMerchantId() == null) {
-            throw new BizException(ResultCode.BAD_REQUEST, "订单缺少店铺信息，暂时无法催发货");
+            throw new BizException(ResultCode.BAD_REQUEST,
+                    "订单缺少店铺信息，暂时无法" + kind.label);
         }
         Merchant merchant = merchantMapper.selectById(order.getMerchantId());
         String orderNo = nullToEmpty(order.getOrderNo());
-        String content = "【催发货】订单 " + orderNo
-                + " 已支付，当前待发货。买家希望尽快发货，麻烦您尽快安排；"
-                + "给您带来不便，敬请谅解。—— 买小购";
+        String content;
+        OrderStatus status = parseStatus(order.getStatus());
+        Map<String, Object> result = new LinkedHashMap<>();
+
+        if (kind == UrgeKind.SHIPMENT) {
+            if (order.getShippedAt() != null || status != OrderStatus.PAID) {
+                String label = order.getShippedAt() != null
+                        ? OrderStatus.SHIPPED.label() : status.label();
+                throw new BizException(ResultCode.BAD_REQUEST,
+                        "当前订单状态（" + label + "）不可催发货");
+            }
+            content = "【催发货】订单 " + orderNo
+                    + " 已支付，当前待发货。买家希望尽快发货，麻烦您尽快安排；"
+                    + "给您带来不便，敬请谅解。—— 买小购";
+            result.put("note", "催发货消息已发送给商家，请留意商家回复。");
+        } else {
+            if (status == OrderStatus.REFUNDED) {
+                throw new BizException(ResultCode.BAD_REQUEST, "商家已处理退款，无需再催");
+            }
+            if (status != OrderStatus.REFUNDING) {
+                throw new BizException(ResultCode.BAD_REQUEST,
+                        "当前订单状态（" + status.label() + "）不可催退款");
+            }
+            String reason = StringUtils.hasText(order.getRefundReason())
+                    ? order.getRefundReason() : "";
+            String reasonPart = reason.isEmpty() ? "" : "（原因：" + reason + "）";
+            content = "【催退款】订单 " + orderNo + " 的退款申请" + reasonPart
+                    + "仍在处理中，当前状态：退款中。买家希望尽快审核处理，"
+                    + "麻烦您尽快跟进；给您带来不便，敬请谅解。—— 买小购";
+            LocalDateTime appliedAt = order.getRefundAppliedAt() == null
+                    ? order.getUpdatedAt() : order.getRefundAppliedAt();
+            result.put("refundReason", reason);
+            result.put("refundAppliedAt", appliedAt == null ? "" : appliedAt.toString());
+            result.put("note", "催退款消息已发送给商家，请留意商家处理进度。");
+        }
+
         ChatMessageView message = chatService.sendAgentText(
                 userId, order.getMerchantId(), content);
-
-        Map<String, Object> result = new LinkedHashMap<>();
         result.put("orderId", order.getId());
         result.put("orderNo", orderNo);
         result.put("merchantName", merchant == null ? "" : nullToEmpty(merchant.getName()));
         result.put("status", order.getStatus());
         result.put("statusLabel", status.label());
         result.put("messageId", message.id());
-        result.put("note", "催发货消息已发送给商家，请留意商家回复。");
         return result;
     }
 
     /**
      * 确认后不直接发消息：发 gRPC 内部事件触发 agent 图；
-     * agent 调 /actions/urge-shipment/send 回调 Java，由 {@link #executeUrgeShipment}
+     * agent 调对应发送工具回调 Java，由 {@link #executeUrgeAction}
      * 校验并落库。这里只等 agent 结束，然后把动作的最终状态返回给浏览器。
      */
-    private AgentActionView confirmUrgeShipment(long userId, AgentAction action) {
+    private AgentActionView confirmUrgeAction(long userId, AgentAction action, UrgeKind kind) {
         if (!agentGateway.configured() || !StringUtils.hasText(action.getSessionId())) {
             actionMapper.failExecution(action.getActionNo(), userId,
-                    "客服智能体不可用，暂时无法催发货");
+                    "客服智能体不可用，暂时无法" + kind.label);
             return toView(requireOwned(userId, action.getActionNo()));
         }
         Map<String, Object> payload = new LinkedHashMap<>();
@@ -605,25 +729,45 @@ public class AgentActionServiceImpl implements AgentActionService {
         String ticket = ticketService.issue(userId, action.getSessionId());
         try {
             Iterator<Event> events = agentGateway.internalEvent(userId, action.getSessionId(),
-                    "urge-shipment-confirmed", json(payload), ticket, Duration.ofSeconds(20));
+                    kind.event, json(payload), ticket, Duration.ofSeconds(20));
             while (events.hasNext()) {
                 Event event = events.next();
                 if (event.hasError()) {
-                    log.warn("催发货 agent 执行报错: {}", event.getError().getMessage());
+                    log.warn("{} agent 执行报错: {}", kind.label, event.getError().getMessage());
                 }
             }
         } catch (Exception e) {
-            log.warn("催发货 agent 调用失败: {}", action.getActionNo(), e);
+            log.warn("{} agent 调用失败: {}", kind.label, action.getActionNo(), e);
             actionMapper.failExecution(action.getActionNo(), userId,
-                    "催发货执行失败，请稍后重试");
+                    kind.label + "执行失败，请稍后重试");
         }
         AgentAction fresh = requireOwned(userId, action.getActionNo());
         if (AgentActionStatus.EXECUTING.name().equals(fresh.getStatus())) {
             actionMapper.failExecution(fresh.getActionNo(), userId,
-                    "催发货执行超时，请重新发起");
+                    kind.label + "执行超时，请重新发起");
             fresh = requireOwned(userId, action.getActionNo());
         }
         return toView(fresh);
+    }
+
+    /** 两类催办的差异都收在这里，执行/确认/发送逻辑共用。 */
+    private enum UrgeKind {
+        SHIPMENT(AgentActionType.URGE_SHIPMENT, "urge-shipment-confirmed",
+                URGE_SEND_LOCK_PREFIX, "催发货"),
+        REFUND(AgentActionType.URGE_REFUND, "urge-refund-confirmed",
+                URGE_REFUND_SEND_LOCK_PREFIX, "催退款");
+
+        private final AgentActionType type;
+        private final String event;
+        private final String lockPrefix;
+        private final String label;
+
+        UrgeKind(AgentActionType type, String event, String lockPrefix, String label) {
+            this.type = type;
+            this.event = event;
+            this.lockPrefix = lockPrefix;
+            this.label = label;
+        }
     }
 
     // ── 辅助 ──
@@ -713,7 +857,8 @@ public class AgentActionServiceImpl implements AgentActionService {
                 }
             }
         } else if (AgentActionType.APPLY_REFUND.name().equals(action.getType())
-                || AgentActionType.URGE_SHIPMENT.name().equals(action.getType())) {
+                || AgentActionType.URGE_SHIPMENT.name().equals(action.getType())
+                || AgentActionType.URGE_REFUND.name().equals(action.getType())) {
             Long id = toLong(map.get("orderId"));
             if (id != null) {
                 orderIds.add(id);
@@ -757,7 +902,8 @@ public class AgentActionServiceImpl implements AgentActionService {
                 }
             }
         } else if (AgentActionType.APPLY_REFUND.name().equals(action.getType())
-                || AgentActionType.URGE_SHIPMENT.name().equals(action.getType())) {
+                || AgentActionType.URGE_SHIPMENT.name().equals(action.getType())
+                || AgentActionType.URGE_REFUND.name().equals(action.getType())) {
             applyOrderStatus(map, currentOrders.get(toLong(map.get("orderId"))));
         }
     }

@@ -19,8 +19,14 @@ spring:
       # 而两个库各自维护自己的自增序列，迟早会撞到同一个 id ——
       # 共用 database 的话，测试会读到开发环境的库存，反之亦然。
       database: 1
+  rabbitmq:
+    username: guest
+    password: guest
+    listener:
+      simple:
+        auto-startup: false
 
-# 测试不依赖 RocketMQ；关掉定时扫描，避免后台任务干扰用例
+# 测试不依赖 RabbitMQ；关掉定时扫描，避免后台任务干扰用例
 itsmygo:
   order-timeout:
     mq-enabled: false

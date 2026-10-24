@@ -1,0 +1,34 @@
+# RabbitMQ 4（管理台版）：本项目自有的超时关单中间件
+#
+# 账号从根目录 .env 读取，不把密码写进仓库。
+# 首次初始化数据卷时才会创建用户；改 .env 后要删卷重新初始化（见 start.txt）。
+name: its-my-go-rabbitmq
+
+services:
+  rabbitmq:
+    image: rabbitmq:4-management
+    container_name: its-my-go-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:?set RABBITMQ_USERNAME in .env}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD in .env}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - its-my-go-rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - its-my-go-rabbitmq-net
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  its-my-go-rabbitmq-data:
+    name: its-my-go-rabbitmq-data
+
+networks:
+  its-my-go-rabbitmq-net:
+    name: its-my-go-rabbitmq-net

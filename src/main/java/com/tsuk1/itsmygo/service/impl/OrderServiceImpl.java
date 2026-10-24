@@ -664,7 +664,8 @@ public class OrderServiceImpl implements OrderService {
         Order order = orderMapper.selectOne(Wrappers.<Order>lambdaQuery()
                 .eq(Order::getId, orderId)
                 .eq(Order::getStatus, OrderStatus.PENDING_PAYMENT.name())
-                .apply("created_at < DATE_SUB(NOW(), INTERVAL {0} MINUTE)", window));
+                // MQ 的 TTL 到期时刻可能正好等于阈值，用 <= 避免差几毫秒导致漏关
+                .apply("created_at <= DATE_SUB(NOW(), INTERVAL {0} MINUTE)", window));
         if (order == null) {
             return false;
         }

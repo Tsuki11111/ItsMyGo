@@ -166,8 +166,8 @@ function onActionUpdated(updated: AgentActionView) {
   const index = actions.value.findIndex((item) => item.actionNo === updated.actionNo)
   if (index >= 0) actions.value[index] = updated
   else actions.value.push(updated)
-  // 催发货由 agent 执行：成功/失败后 Java 都写了一条回复，刷新历史把它显示出来
-  if (updated.type === 'URGE_SHIPMENT'
+  // 催发货 / 催退款由 agent 执行：成功/失败后 Java 都写了一条回复，刷新历史把它显示出来
+  if ((updated.type === 'URGE_SHIPMENT' || updated.type === 'URGE_REFUND')
       && (updated.status === 'SUCCEEDED' || updated.status === 'FAILED')
       && sessionId.value) {
     void loadHistory(sessionId.value)

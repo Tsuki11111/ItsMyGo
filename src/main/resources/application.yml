@@ -17,6 +17,16 @@ spring:
     redis:
       host: localhost
       port: 6379
+  # 本项目自有的 RabbitMQ（超时关单）；账号放根目录 .env
+  rabbitmq:
+    host: ${RABBITMQ_HOST:127.0.0.1}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    connection-timeout: 3s
+    listener:
+      simple:
+        auto-startup: ${ORDER_TIMEOUT_MQ_ENABLED:true}
   servlet:
     multipart:
       max-file-size: 5MB
@@ -59,13 +69,6 @@ itsmygo:
     scan-enabled: ${ORDER_TIMEOUT_SCAN_ENABLED:true}
     scan-interval-ms: ${ORDER_TIMEOUT_SCAN_INTERVAL_MS:300000}
     scan-lock-ttl-seconds: ${ORDER_TIMEOUT_SCAN_LOCK_TTL_SECONDS:240}
-  # RocketMQ 5.x gRPC 客户端（经 proxy 的 8081 端口，不走 9876 remoting）
-  rocketmq:
-    endpoints: ${ROCKETMQ_ENDPOINTS:127.0.0.1:8081}
-    topic: its-my-go-order-timeout
-    producer-group: its-my-go-order-timeout-producer
-    consumer-group: its-my-go-order-timeout-consumer
-    request-timeout-seconds: ${ROCKETMQ_REQUEST_TIMEOUT_SECONDS:3}
 
 # MyBatis-Plus 的 SQL 是运行时生成的，不开日志根本看不见
 logging:

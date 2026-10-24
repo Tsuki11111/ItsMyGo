@@ -5,5 +5,7 @@ public enum AgentActionType {
     CREATE_ORDER,
     APPLY_REFUND,
     /** 催发货：确认后以买小购（AGENT）身份给商家发一条站内消息 */
-    URGE_SHIPMENT
+    URGE_SHIPMENT,
+    /** 催退款：确认后以买小购（AGENT）身份提醒商家尽快处理退款 */
+    URGE_REFUND
 }

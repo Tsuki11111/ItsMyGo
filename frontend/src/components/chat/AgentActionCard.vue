@@ -9,6 +9,8 @@ import type {
   AgentOrderSummary,
   AgentRefundResult,
   AgentRefundSummary,
+  AgentUrgeRefundResult,
+  AgentUrgeRefundSummary,
   AgentUrgeShipmentResult,
   AgentUrgeShipmentSummary,
 } from '@/api/types'
@@ -21,20 +23,47 @@ const emit = defineEmits<{ updated: [action: AgentActionView] }>()
 const busy = ref(false)
 const isOrder = computed(() => props.action.type === 'CREATE_ORDER')
 const isUrge = computed(() => props.action.type === 'URGE_SHIPMENT')
+const isUrgeRefund = computed(() => props.action.type === 'URGE_REFUND')
 const isRefund = computed(() => props.action.type === 'APPLY_REFUND')
 const pending = computed(() => props.action.status === 'PENDING_CONFIRM')
 const canAct = computed(() => pending.value && !busy.value)
 const orderSummary = computed(() => props.action.summary as AgentOrderSummary)
 const refundSummary = computed(() => props.action.summary as AgentRefundSummary)
 const urgeSummary = computed(() => props.action.summary as AgentUrgeShipmentSummary)
+const urgeRefundSummary = computed(() => props.action.summary as AgentUrgeRefundSummary)
 const orderResult = computed(() => props.action.result as AgentOrderResult | null)
 const refundResult = computed(() => props.action.result as AgentRefundResult | null)
 const urgeResult = computed(() => props.action.result as AgentUrgeShipmentResult | null)
+const urgeRefundResult = computed(() =>
+  props.action.result as AgentUrgeRefundResult | null,
+)
+const refundAppliedText = computed(() => {
+  const raw = urgeRefundSummary.value.refundAppliedAt
+  return raw ? raw.replace('T', ' ').slice(0, 16) : '—'
+})
 const hasPendingPayment = computed(() =>
   !!orderResult.value?.orders.some((order) => order.status === 'PENDING_PAYMENT'),
 )
 
 const title = computed(() => {
+  if (isUrgeRefund.value) {
+    switch (props.action.status) {
+      case 'PENDING_CONFIRM':
+        return '催退款待确认'
+      case 'EXECUTING':
+        return '正在提醒商家处理退款'
+      case 'SUCCEEDED':
+        return '已提醒商家处理退款'
+      case 'FAILED':
+        return '催退款失败'
+      case 'CANCELLED':
+        return '催退款已取消'
+      case 'EXPIRED':
+        return '催退款已过期'
+      default:
+        return '催退款'
+    }
+  }
   if (isUrge.value) {
     switch (props.action.status) {
       case 'PENDING_CONFIRM':
@@ -220,7 +249,22 @@ async function cancel() {
       <p v-if="pending" class="note">{{ urgeSummary.note }}</p>
     </template>
 
-    <template v-else>
+    <template v-else-if="isUrgeRefund">
+      <div class="refund-head">
+        <span>订单 {{ urgeRefundSummary.orderNo }}</span>
+        <el-tag size="small" type="info">{{ urgeRefundSummary.statusLabel }}</el-tag>
+      </div>
+      <div class="refund-head">
+        <span>{{ urgeRefundSummary.merchantName || '店铺' }}</span>
+        <span>实付 ¥{{ urgeRefundSummary.totalAmount }}</span>
+      </div>
+      <p class="note">退款原因：{{ urgeRefundSummary.refundReason || '未填写' }}</p>
+      <p class="note">申请时间：{{ refundAppliedText }}</p>
+      <p class="note">共 {{ urgeRefundSummary.itemCount }} 件商品</p>
+      <p v-if="pending" class="note">{{ urgeRefundSummary.note }}</p>
+    </template>
+
+    <template v-else-if="isRefund">
       <div class="refund-head">
         <span>订单 {{ refundSummary.orderNo }}</span>
         <el-tag size="small" type="info">{{ refundSummary.statusLabel }}</el-tag>
@@ -265,6 +309,11 @@ async function cancel() {
           {{ urgeResult.note }}（当前状态：{{ urgeResult.statusLabel }}）
         </p>
       </template>
+      <template v-else-if="isUrgeRefund && urgeRefundResult">
+        <p class="result-line">
+          {{ urgeRefundResult.note }}（当前状态：{{ urgeRefundResult.statusLabel }}）
+        </p>
+      </template>
       <template v-else-if="isRefund && refundResult">
         <p class="result-line">
           <template v-if="refundResult.status === 'REFUNDING'">
@@ -289,7 +338,7 @@ async function cancel() {
         :disabled="!canAct"
         @click="confirm"
       >
-        {{ isOrder ? '确认下单' : isUrge ? '确认催发货' : '确认提交退款申请' }}
+        {{ isOrder ? '确认下单' : isUrge ? '确认催发货' : isUrgeRefund ? '确认催退款' : '确认提交退款申请' }}
       </el-button>
       <el-button size="small" :disabled="!canAct" @click="cancel">取消</el-button>
     </div>

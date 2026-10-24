@@ -14,6 +14,8 @@ import com.tsuk1.itsmygo.dto.agent.AgentOrderView;
 import com.tsuk1.itsmygo.dto.agent.AgentProductSearchRequest;
 import com.tsuk1.itsmygo.dto.agent.AgentProductView;
 import com.tsuk1.itsmygo.dto.agent.AgentRefundDraftRequest;
+import com.tsuk1.itsmygo.dto.agent.AgentUrgeRefundExecuteRequest;
+import com.tsuk1.itsmygo.dto.agent.AgentUrgeRefundRequest;
 import com.tsuk1.itsmygo.dto.agent.AgentUrgeShipmentExecuteRequest;
 import com.tsuk1.itsmygo.dto.agent.AgentUrgeShipmentRequest;
 import com.tsuk1.itsmygo.service.AgentActionService;
@@ -148,6 +150,28 @@ public class AgentToolController {
             throw new BizException(ResultCode.BAD_REQUEST, "缺少动作号");
         }
         return Result.ok(actionService.executeUrgeShipment(
+                identity.userId(), identity.sessionId(), request.actionNo().trim()));
+    }
+
+    @PostMapping("/actions/urge-refund")
+    public Result<AgentActionView> prepareUrgeRefund(
+            @RequestHeader(value = "X-Agent-Ticket", required = false) String ticket,
+            @RequestBody(required = false) AgentUrgeRefundRequest request) {
+        AgentToolTicketService.Identity identity = requireIdentity(ticket);
+        return Result.ok(actionService.prepareUrgeRefund(
+                identity.userId(), identity.sessionId(), request));
+    }
+
+    /** agent 在用户确认后调用：重新校验退款仍处理中，再给商家发 AGENT 消息 */
+    @PostMapping("/actions/urge-refund/send")
+    public Result<AgentActionView> executeUrgeRefund(
+            @RequestHeader(value = "X-Agent-Ticket", required = false) String ticket,
+            @RequestBody(required = false) AgentUrgeRefundExecuteRequest request) {
+        AgentToolTicketService.Identity identity = requireIdentity(ticket);
+        if (request == null || request.actionNo() == null || request.actionNo().isBlank()) {
+            throw new BizException(ResultCode.BAD_REQUEST, "缺少动作号");
+        }
+        return Result.ok(actionService.executeUrgeRefund(
                 identity.userId(), identity.sessionId(), request.actionNo().trim()));
     }
 

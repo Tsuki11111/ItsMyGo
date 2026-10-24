@@ -779,7 +779,11 @@ export type AgentStreamEvent =
 
 // ── 智能体待确认动作（M9 下单 / M10 退款申请）──
 
-export type AgentActionType = 'CREATE_ORDER' | 'APPLY_REFUND' | 'URGE_SHIPMENT'
+export type AgentActionType =
+  | 'CREATE_ORDER'
+  | 'APPLY_REFUND'
+  | 'URGE_SHIPMENT'
+  | 'URGE_REFUND'
 export type AgentActionStatus =
   | 'PENDING_CONFIRM'
   | 'EXECUTING'
@@ -871,12 +875,46 @@ export interface AgentUrgeShipmentResult {
   note: string
 }
 
+export interface AgentUrgeRefundSummary {
+  orderNo: string
+  merchantName: string
+  status: string
+  statusLabel: string
+  totalAmount: string
+  refundReason: string
+  refundAppliedAt: string
+  itemCount: number
+  items: AgentActionItem[]
+  note: string
+}
+
+export interface AgentUrgeRefundResult {
+  orderId: number
+  orderNo: string
+  merchantName: string
+  status: string
+  statusLabel: string
+  messageId: number
+  refundReason: string
+  refundAppliedAt: string
+  note: string
+}
+
 export interface AgentActionView {
   actionNo: string
   type: AgentActionType
   status: AgentActionStatus
-  summary: AgentOrderSummary | AgentRefundSummary | AgentUrgeShipmentSummary
-  result: AgentOrderResult | AgentRefundResult | AgentUrgeShipmentResult | null
+  summary:
+    | AgentOrderSummary
+    | AgentRefundSummary
+    | AgentUrgeShipmentSummary
+    | AgentUrgeRefundSummary
+  result:
+    | AgentOrderResult
+    | AgentRefundResult
+    | AgentUrgeShipmentResult
+    | AgentUrgeRefundResult
+    | null
   errorMessage: string
   expiresAt: string
   createdAt: string

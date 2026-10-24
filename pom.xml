@@ -32,8 +32,6 @@
         <jjwt.version>0.13.0</jjwt.version>
         <grpc.version>1.68.2</grpc.version>
         <protobuf.version>3.25.5</protobuf.version>
-        <!-- 5.x gRPC 客户端（shaded Netty），与 Boot 4 的 Netty 4.2 不冲突 -->
-        <rocketmq-client-java.version>5.2.2</rocketmq-client-java.version>
     </properties>
     <dependencyManagement>
         <dependencies>
@@ -145,12 +143,10 @@
             <version>${protobuf.version}</version>
         </dependency>
 
-        <!-- M17 超时关单：RocketMQ 5.x gRPC 客户端（经 proxy 的 8081 端口），
-             不用 remoting 客户端 —— 后者依赖 Netty 4.1，会与 Boot 4 的 Netty 4.2 冲突 -->
+        <!-- M17 超时关单：RabbitMQ TTL + 死信队列 -->
         <dependency>
-            <groupId>org.apache.rocketmq</groupId>
-            <artifactId>rocketmq-client-java</artifactId>
-            <version>${rocketmq-client-java.version}</version>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-amqp</artifactId>
         </dependency>
         <!-- grpc 生成代码里的 @javax.annotation.Generated -->
         <dependency>

@@ -15,7 +15,8 @@ public record OrderTimeoutProperties(
         if (minutes == null || minutes <= 0) {
             minutes = 30;
         }
-        // RocketMQ timer 消息默认最多 3 天；超时阈值超过它就别指望 MQ 能按时投递了
+        // 延迟队列的 x-message-ttl 是 int 毫秒；4320 分钟（3 天）已远超业务需要，
+        // 再大既容易溢出，也说明配置写错了
         if (minutes > 4320) {
             throw new IllegalArgumentException("order-timeout.minutes 不能超过 4320（3 天）");
         }
