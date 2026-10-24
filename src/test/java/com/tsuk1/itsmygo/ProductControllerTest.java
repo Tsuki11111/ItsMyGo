@@ -10,6 +10,7 @@ import java.math.BigDecimal;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -36,6 +37,33 @@ class ProductControllerTest extends ApiTestBase {
                 .andExpect(jsonPath("$.code").value(200))
                 .andReturn().getResponse().getContentAsString();
         return objectMapper.readTree(body).path("data").path("id").asLong();
+    }
+
+    @Test
+    void adminCanFilterLowStockAndBatchStatus() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        long categoryId = createCategory(admin, "Ops");
+        long productId = createProduct(admin, categoryId, "LowStockItem", "", "10.00", true);
+
+        mockMvc.perform(get("/api/admin/products")
+                        .header("Authorization", bearer(admin))
+                        .param("lowStock", "true")
+                        .param("keyword", "LowStockItem"))
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.records[0].id").value(productId));
+
+        mockMvc.perform(put("/api/admin/products/batch-status")
+                        .header("Authorization", bearer(admin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ids\":[" + productId + "],\"onSale\":false}"))
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data").value(1));
+
+        mockMvc.perform(get("/api/admin/products")
+                        .header("Authorization", bearer(admin))
+                        .param("keyword", "LowStockItem"))
+                .andExpect(jsonPath("$.data.records[0].status").value(0));
     }
 
     @Test

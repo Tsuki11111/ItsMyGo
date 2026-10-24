@@ -5,6 +5,8 @@ import com.tsuk1.itsmygo.dto.ProductRequest;
 import com.tsuk1.itsmygo.dto.StockView;
 import com.tsuk1.itsmygo.entity.Product;
 
+import java.util.List;
+
 public interface ProductService {
 
     /**
@@ -22,6 +24,13 @@ public interface ProductService {
                                        boolean onlyOnSale) {
         return page(page, size, categoryId, keyword, onlyOnSale, null, false);
     }
+
+    /** 管理端商品运营列表：支持上架状态与低库存筛选（低库存按 SKU stock <= 10）。 */
+    PageResponse<Product> pageForAdmin(int page, int size, Long categoryId, String keyword,
+                                       Long merchantId, Integer status, boolean lowStock);
+
+    /** 批量上架 / 下架；返回实际更新的商品数。 */
+    int updateStatusBatch(List<Long> ids, boolean onSale);
 
     Product detailForCustomer(Long id);
 

@@ -66,7 +66,7 @@ onMounted(load)
           <strong class="stat-value">{{ data.pendingMerchants }}</strong>
           <span class="stat-hint">去商户管理审核 →</span>
         </div>
-        <div class="stat-card clickable" @click="go('/admin/products')">
+        <div class="stat-card clickable" @click="go('/admin/products?lowStock=1')">
           <span class="stat-label">低库存 SKU</span>
           <strong class="stat-value">{{ data.lowStockSkus }}</strong>
           <span class="stat-hint">库存 ≤ 10 的在售规格 →</span>
@@ -157,14 +157,14 @@ onMounted(load)
         <div class="panel">
           <div class="panel-head">
             <h3>低库存</h3>
-            <el-button link type="primary" @click="go('/admin/products')">全部</el-button>
+            <el-button link type="primary" @click="go('/admin/products?lowStock=1')">全部</el-button>
           </div>
           <div v-if="data.lowStockList.length" class="todo-list">
             <div
               v-for="sku in data.lowStockList"
               :key="sku.skuId"
               class="low-stock"
-              @click="go('/admin/products')"
+              @click="go('/admin/products?lowStock=1')"
             >
               <div class="thumb">
                 <ProductImage :src="sku.image" :name="sku.productName" :id="sku.productId" />

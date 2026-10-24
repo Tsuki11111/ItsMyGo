@@ -5,14 +5,24 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.tsuk1.itsmygo.common.ResultCode;
 import com.tsuk1.itsmygo.common.Roles;
 import com.tsuk1.itsmygo.common.exception.BizException;
+import com.tsuk1.itsmygo.dto.AdminDailySales;
+import com.tsuk1.itsmygo.dto.AdminDashboardView;
+import com.tsuk1.itsmygo.dto.AdminMerchantInventoryRow;
+import com.tsuk1.itsmygo.dto.AdminMerchantOperationsView;
+import com.tsuk1.itsmygo.dto.AdminMerchantSalesRow;
 import com.tsuk1.itsmygo.dto.AdminMerchantView;
+import com.tsuk1.itsmygo.dto.AdminTopProductRow;
 import com.tsuk1.itsmygo.dto.MerchantRequest;
 import com.tsuk1.itsmygo.dto.MerchantView;
 import com.tsuk1.itsmygo.dto.PageResponse;
 import com.tsuk1.itsmygo.dto.ShipAddressRequest;
 import com.tsuk1.itsmygo.entity.Merchant;
+import com.tsuk1.itsmygo.entity.Order;
+import com.tsuk1.itsmygo.entity.OrderStatus;
 import com.tsuk1.itsmygo.entity.User;
+import com.tsuk1.itsmygo.mapper.AdminOperationsMapper;
 import com.tsuk1.itsmygo.mapper.MerchantMapper;
+import com.tsuk1.itsmygo.mapper.OrderMapper;
 import com.tsuk1.itsmygo.mapper.UserMapper;
 import com.tsuk1.itsmygo.security.AuthIdentityService;
 import com.tsuk1.itsmygo.service.MerchantService;
@@ -22,24 +32,38 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 @Service
 public class MerchantServiceImpl implements MerchantService {
 
     private static final int MAX_PAGE_SIZE = 100;
+    private static final int LOW_STOCK_THRESHOLD = 10;
+    private static final int TOP_PRODUCT_LIMIT = 5;
+    private static final int RECENT_ORDER_LIMIT = 5;
+    private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
     private final MerchantMapper merchantMapper;
     private final UserMapper userMapper;
+    private final OrderMapper orderMapper;
+    private final AdminOperationsMapper operationsMapper;
     private final AuthIdentityService authIdentityService;
 
     public MerchantServiceImpl(MerchantMapper merchantMapper, UserMapper userMapper,
+                               OrderMapper orderMapper, AdminOperationsMapper operationsMapper,
                                AuthIdentityService authIdentityService) {
         this.merchantMapper = merchantMapper;
         this.userMapper = userMapper;
+        this.orderMapper = orderMapper;
+        this.operationsMapper = operationsMapper;
         this.authIdentityService = authIdentityService;
     }
 
@@ -172,7 +196,124 @@ public class MerchantServiceImpl implements MerchantService {
                         merchant.getOwnerUserId() == null ? null
                                 : users.get(merchant.getOwnerUserId())))
                 .toList();
+
+        if (!merchants.isEmpty()) {
+            LocalDate today = LocalDate.now();
+            LocalDateTime start = today.minusDays(29).atStartOfDay();
+            LocalDateTime end = today.plusDays(1).atStartOfDay();
+            List<Long> merchantIds = merchants.stream().map(Merchant::getId).toList();
+            Map<Long, AdminMerchantSalesRow> sales = operationsMapper
+                    .merchantSales(merchantIds, start, end).stream()
+                    .collect(Collectors.toMap(AdminMerchantSalesRow::getMerchantId, Function.identity()));
+            Map<Long, AdminMerchantInventoryRow> inventory = operationsMapper
+                    .merchantInventory(merchantIds, LOW_STOCK_THRESHOLD).stream()
+                    .collect(Collectors.toMap(AdminMerchantInventoryRow::getMerchantId,
+                            Function.identity()));
+            views = views.stream().map(view -> {
+                AdminMerchantSalesRow sale = sales.get(view.id());
+                AdminMerchantInventoryRow stock = inventory.get(view.id());
+                return view.withStats(
+                        money(sale == null ? null : sale.getGmv30()),
+                        sale == null || sale.getOrders30() == null ? 0 : sale.getOrders30(),
+                        sale == null || sale.getRefunding30() == null ? 0 : sale.getRefunding30(),
+                        stock == null || stock.getOnSaleProducts() == null
+                                ? 0 : stock.getOnSaleProducts(),
+                        stock == null || stock.getLowStockSkus() == null
+                                ? 0 : stock.getLowStockSkus());
+            }).toList();
+        }
         return new PageResponse<>(views, result.getTotal(), result.getCurrent(), result.getSize());
+    }
+
+    @Override
+    public AdminMerchantOperationsView operationsForAdmin(Long merchantId) {
+        Merchant merchant = requireMerchant(merchantId);
+        User owner = merchant.getOwnerUserId() == null ? null
+                : userMapper.selectById(merchant.getOwnerUserId());
+        AdminMerchantView base = toAdminView(merchant, owner);
+
+        LocalDate today = LocalDate.now();
+        LocalDateTime start = today.minusDays(29).atStartOfDay();
+        LocalDateTime end = today.plusDays(1).atStartOfDay();
+        AdminMerchantSalesRow sale = operationsMapper
+                .merchantSales(List.of(merchantId), start, end).stream().findFirst().orElse(null);
+        AdminMerchantInventoryRow stock = operationsMapper
+                .merchantInventory(List.of(merchantId), LOW_STOCK_THRESHOLD)
+                .stream().findFirst().orElse(null);
+        AdminMerchantView enriched = base.withStats(
+                money(sale == null ? null : sale.getGmv30()),
+                sale == null || sale.getOrders30() == null ? 0 : sale.getOrders30(),
+                sale == null || sale.getRefunding30() == null ? 0 : sale.getRefunding30(),
+                stock == null || stock.getOnSaleProducts() == null
+                        ? 0 : stock.getOnSaleProducts(),
+                stock == null || stock.getLowStockSkus() == null
+                        ? 0 : stock.getLowStockSkus());
+
+        return new AdminMerchantOperationsView(
+                enriched,
+                enriched.gmv30(), enriched.orders30(), enriched.refunding30(),
+                enriched.onSaleProducts(), enriched.lowStockSkus(),
+                trend(merchantId, today),
+                topProducts(merchantId),
+                recentOrders(merchantId));
+    }
+
+    private List<AdminDashboardView.TrendPoint> trend(Long merchantId, LocalDate today) {
+        LocalDate first = today.minusDays(6);
+        Map<LocalDate, AdminDailySales> byDay = operationsMapper
+                .merchantDailySales(merchantId, first.atStartOfDay(), today.plusDays(1).atStartOfDay())
+                .stream().collect(Collectors.toMap(AdminDailySales::getDay, Function.identity()));
+        return IntStream.rangeClosed(0, 6).mapToObj(i -> {
+            LocalDate day = first.plusDays(i);
+            AdminDailySales row = byDay.get(day);
+            return new AdminDashboardView.TrendPoint(
+                    day.toString(),
+                    money(row == null ? null : row.getAmount()),
+                    row == null || row.getOrderCount() == null ? 0 : row.getOrderCount());
+        }).toList();
+    }
+
+    private List<AdminMerchantOperationsView.TopProduct> topProducts(Long merchantId) {
+        return operationsMapper.topProducts(merchantId, TOP_PRODUCT_LIMIT).stream()
+                .map(row -> new AdminMerchantOperationsView.TopProduct(
+                        row.getProductId(), nullToEmpty(row.getName()),
+                        nullToEmpty(row.getImage()), money(row.getPrice()),
+                        row.getStock() == null ? 0 : row.getStock(),
+                        row.getSales() == null ? 0 : row.getSales()))
+                .toList();
+    }
+
+    private List<AdminMerchantOperationsView.RecentOrder> recentOrders(Long merchantId) {
+        return orderMapper.selectList(Wrappers.<Order>lambdaQuery()
+                        .eq(Order::getMerchantId, merchantId)
+                        .orderByDesc(Order::getId)
+                        .last("LIMIT " + RECENT_ORDER_LIMIT)).stream()
+                .map(order -> new AdminMerchantOperationsView.RecentOrder(
+                        order.getId(), nullToEmpty(order.getOrderNo()),
+                        money(order.getTotalAmount()), nullToEmpty(order.getStatus()),
+                        statusLabel(order.getStatus()), format(order.getCreatedAt())))
+                .toList();
+    }
+
+    private String statusLabel(String status) {
+        try {
+            return OrderStatus.valueOf(status).label();
+        } catch (Exception e) {
+            return nullToEmpty(status);
+        }
+    }
+
+    private String money(BigDecimal value) {
+        return value == null ? "0.00"
+                : value.setScale(2, RoundingMode.HALF_UP).toPlainString();
+    }
+
+    private String format(LocalDateTime time) {
+        return time == null ? "" : time.format(TIME);
+    }
+
+    private String nullToEmpty(String value) {
+        return value == null ? "" : value;
     }
 
     @Override
@@ -302,7 +443,8 @@ public class MerchantServiceImpl implements MerchantService {
                 merchant.getShipProvince(), merchant.getShipCity(), merchant.getShipDistrict(),
                 merchant.getShipAddress(), merchant.getShipLng(), merchant.getShipLat(),
                 merchant.getStatus(), merchant.getRejectReason(), merchant.getOwnerUserId(),
-                owner == null ? "" : owner.getUsername(), merchant.getCreatedAt());
+                owner == null ? "" : owner.getUsername(), merchant.getCreatedAt(),
+                "0.00", 0, 0, 0, 0);
     }
 
     private int normalizePage(int page) {

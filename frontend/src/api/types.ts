@@ -536,6 +536,43 @@ export interface MerchantView {
 /** 平台后台商户列表项 */
 export interface AdminMerchantView extends MerchantView {
   ownerUsername: string
+  /** 近 30 天成交额 */
+  gmv30: string
+  /** 近 30 天订单数 */
+  orders30: number
+  /** 近 30 天退款中 / 已退款订单数 */
+  refunding30: number
+  /** 在售商品数 */
+  onSaleProducts: number
+  /** 低库存 SKU 数（stock <= 10） */
+  lowStockSkus: number
+}
+
+/** 商户经营详情 */
+export interface AdminMerchantOperationsView {
+  merchant: AdminMerchantView
+  gmv30: string
+  orders30: number
+  refunding30: number
+  onSaleProducts: number
+  lowStockSkus: number
+  trend: AdminDashboardTrendPoint[]
+  topProducts: Array<{
+    productId: number
+    name: string
+    image: string
+    price: string
+    stock: number
+    sales: number
+  }>
+  recentOrders: Array<{
+    id: number
+    orderNo: string
+    totalAmount: string
+    status: string
+    statusLabel: string
+    createdAt: string
+  }>
 }
 
 /** 平台后台用户列表项（不含密码） */

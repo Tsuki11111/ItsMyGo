@@ -26,6 +26,7 @@ const ACTION_OPTIONS = [
   { value: 'PRODUCT_UPDATE', label: '修改商品' },
   { value: 'PRODUCT_DELETE', label: '删除商品' },
   { value: 'PRODUCT_SKU_SAVE', label: '保存商品规格' },
+  { value: 'PRODUCT_BATCH_STATUS', label: '批量上下架商品' },
   { value: 'SKU_STOCK_ADJUST', label: '调整 SKU 库存' },
   { value: 'ORDER_SHIP', label: '订单发货' },
   { value: 'REFUND_APPROVE', label: '同意退款' },

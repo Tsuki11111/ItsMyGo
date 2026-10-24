@@ -1,5 +1,6 @@
 package com.tsuk1.itsmygo.service;
 
+import com.tsuk1.itsmygo.dto.AdminMerchantOperationsView;
 import com.tsuk1.itsmygo.dto.AdminMerchantView;
 import com.tsuk1.itsmygo.dto.MerchantRequest;
 import com.tsuk1.itsmygo.dto.MerchantView;
@@ -28,6 +29,9 @@ public interface MerchantService {
     MerchantView updateShipAddress(Long merchantId, ShipAddressRequest request);
 
     PageResponse<AdminMerchantView> pageForAdmin(int page, int size, String status, String keyword);
+
+    /** 商户经营详情：30 天 KPI、7 天趋势、热销商品与最近订单 */
+    AdminMerchantOperationsView operationsForAdmin(Long merchantId);
 
     void approve(Long merchantId);
 

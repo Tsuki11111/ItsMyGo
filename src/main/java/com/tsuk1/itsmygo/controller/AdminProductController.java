@@ -2,9 +2,12 @@ package com.tsuk1.itsmygo.controller;
 
 import com.tsuk1.itsmygo.common.ProductBloomFilter;
 import com.tsuk1.itsmygo.common.Result;
+import com.tsuk1.itsmygo.common.ResultCode;
 import com.tsuk1.itsmygo.common.audit.AdminAudit;
+import com.tsuk1.itsmygo.common.exception.BizException;
 import com.tsuk1.itsmygo.dto.AdjustSkuStockRequest;
 import com.tsuk1.itsmygo.dto.PageResponse;
+import com.tsuk1.itsmygo.dto.ProductBatchStatusRequest;
 import com.tsuk1.itsmygo.dto.ProductRequest;
 import com.tsuk1.itsmygo.dto.ProductSkuView;
 import com.tsuk1.itsmygo.dto.SkuSaveRequest;
@@ -45,9 +48,20 @@ public class AdminProductController {
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) Long categoryId,
             @RequestParam(required = false) String keyword,
-            @RequestParam(required = false) Long merchantId) {
-        return Result.ok(productService.page(page, size, categoryId, keyword, false,
-                merchantId, false));
+            @RequestParam(required = false) Long merchantId,
+            @RequestParam(required = false) Integer status,
+            @RequestParam(defaultValue = "false") boolean lowStock) {
+        return Result.ok(productService.pageForAdmin(
+                page, size, categoryId, keyword, merchantId, status, lowStock));
+    }
+
+    @PutMapping("/batch-status")
+    @AdminAudit(action = "PRODUCT_BATCH_STATUS", label = "批量上下架商品", targetType = "PRODUCT")
+    public Result<Integer> batchStatus(@RequestBody(required = false) ProductBatchStatusRequest request) {
+        if (request == null || request.onSale() == null) {
+            throw new BizException(ResultCode.BAD_REQUEST, "缺少上架状态");
+        }
+        return Result.ok(productService.updateStatusBatch(request.ids(), request.onSale()));
     }
 
     @PostMapping

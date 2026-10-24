@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import OrderDetailDrawer from './components/OrderDetailDrawer.vue'
 import {
@@ -28,6 +29,7 @@ const exporting = ref(false)
 
 const detailVisible = ref(false)
 const detailOrderId = ref<number | null>(null)
+const route = useRoute()
 
 /** 取消超时未支付订单的阈值（分钟） */
 const minutes = ref(30)
@@ -173,6 +175,7 @@ async function cancelExpired() {
 }
 
 onMounted(async () => {
+  if (route.query.merchantId) merchantId.value = Number(route.query.merchantId)
   await loadMerchants()
   await load()
 })

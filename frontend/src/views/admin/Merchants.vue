@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ShipAddressDialog from '@/components/ShipAddressDialog.vue'
+import MerchantOperationsDrawer from './components/MerchantOperationsDrawer.vue'
 import {
   approveMerchant,
   disableMerchant,
@@ -20,6 +21,8 @@ const keyword = ref('')
 const loading = ref(false)
 const shipDialogVisible = ref(false)
 const shipTarget = ref<AdminMerchantView | null>(null)
+const operationsVisible = ref(false)
+const operationsMerchantId = ref<number | null>(null)
 
 const STATUS_OPTIONS = [
   { value: 'PENDING', label: '待审核' },
@@ -78,6 +81,11 @@ function onSizeChange(next: number) {
   size.value = next
   page.value = 1
   load()
+}
+
+function openOperations(row: AdminMerchantView) {
+  operationsMerchantId.value = row.id
+  operationsVisible.value = true
 }
 
 async function approve(row: AdminMerchantView) {
@@ -202,6 +210,17 @@ onMounted(load)
           <el-tag :type="statusTag(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
         </template>
       </el-table-column>
+      <el-table-column label="近 30 天成交" width="120" align="right">
+        <template #default="{ row }">¥{{ row.gmv30 }}</template>
+      </el-table-column>
+      <el-table-column prop="orders30" label="订单" width="70" align="right" />
+      <el-table-column prop="refunding30" label="退款" width="70" align="right" />
+      <el-table-column prop="onSaleProducts" label="在售" width="70" align="right" />
+      <el-table-column label="低库存" width="80" align="right">
+        <template #default="{ row }">
+          <span :class="{ danger: row.lowStockSkus > 0 }">{{ row.lowStockSkus }}</span>
+        </template>
+      </el-table-column>
       <el-table-column label="发货地" min-width="150">
         <template #default="{ row }">
           <template v-if="row.shipAddress || row.shipCity || row.shipDistrict">
@@ -219,9 +238,10 @@ onMounted(load)
       <el-table-column label="申请时间" width="150">
         <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="280" fixed="right">
+      <el-table-column label="操作" width="340">
         <template #default="{ row }">
           <el-tag v-if="row.id === 1" type="info" size="small">平台自营</el-tag>
+          <el-button link type="primary" @click="openOperations(row)">经营详情</el-button>
           <el-button link type="primary" @click="openShipAddress(row)">发货地址</el-button>
           <template v-if="row.id !== 1">
             <template v-if="row.status === 'PENDING'">
@@ -273,6 +293,11 @@ onMounted(load)
       :initial="shipTarget"
       @saved="load"
     />
+
+    <MerchantOperationsDrawer
+      v-model="operationsVisible"
+      :merchant-id="operationsMerchantId"
+    />
   </div>
 </template>
 
@@ -321,6 +346,11 @@ onMounted(load)
 .ship-place {
   margin: 0;
   font-size: 13px;
+}
+
+.danger {
+  color: var(--el-color-danger);
+  font-weight: 600;
 }
 
 .pager {

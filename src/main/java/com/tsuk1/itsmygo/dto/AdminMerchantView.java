@@ -21,6 +21,19 @@ public record AdminMerchantView(
         String rejectReason,
         Long ownerUserId,
         String ownerUsername,
-        LocalDateTime createdAt
+        LocalDateTime createdAt,
+        String gmv30,
+        long orders30,
+        long refunding30,
+        long onSaleProducts,
+        long lowStockSkus
 ) {
+
+    public AdminMerchantView withStats(String gmv30, long orders30, long refunding30,
+                                       long onSaleProducts, long lowStockSkus) {
+        return new AdminMerchantView(id, name, logo, description, contactName, contactPhone,
+                shipProvince, shipCity, shipDistrict, shipAddress, shipLng, shipLat,
+                status, rejectReason, ownerUserId, ownerUsername, createdAt,
+                gmv30, orders30, refunding30, onSaleProducts, lowStockSkus);
+    }
 }

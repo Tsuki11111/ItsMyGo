@@ -1,18 +1,23 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ProductFormDialog from './components/ProductFormDialog.vue'
 import SkuEditorDialog from './components/SkuEditorDialog.vue'
+import StockAdjustDialog from './components/StockAdjustDialog.vue'
 import ProductImage from '@/components/ProductImage.vue'
 import {
+  batchUpdateProductStatus,
   fetchAdminCategories,
   fetchAdminMerchants,
   fetchAdminProducts,
+  fetchProductSkus,
   rebuildBloomFilter,
   updateProduct,
 } from '@/api/admin'
-import type { AdminMerchantView, CategoryNode, Product } from '@/api/types'
+import type { AdminMerchantView, CategoryNode, Product, ProductSku } from '@/api/types'
 
+const route = useRoute()
 const categories = ref<CategoryNode[]>([])
 const merchants = ref<AdminMerchantView[]>([])
 const products = ref<Product[]>([])
@@ -22,12 +27,18 @@ const size = ref(10)
 const keyword = ref('')
 const categoryId = ref<number | null>(null)
 const merchantId = ref<number | null>(null)
+const statusFilter = ref<number | null>(null)
+const lowStock = ref(false)
 const loading = ref(false)
+const selected = ref<Product[]>([])
 
 const formVisible = ref(false)
 const editingProduct = ref<Product | null>(null)
 const skuVisible = ref(false)
 const skuProduct = ref<Product | null>(null)
+const stockVisible = ref(false)
+const stockProductId = ref<number | null>(null)
+const stockSku = ref<ProductSku | null>(null)
 
 /** 分类名映射：管理端商品列表只给 categoryId */
 const categoryNameById = computed(() => {
@@ -68,6 +79,8 @@ async function load() {
       categoryId: categoryId.value ?? undefined,
       keyword: keyword.value.trim() || undefined,
       merchantId: merchantId.value ?? undefined,
+      status: statusFilter.value ?? undefined,
+      lowStock: lowStock.value || undefined,
     })
     products.value = result.records
     total.value = result.total
@@ -85,8 +98,48 @@ function reset() {
   keyword.value = ''
   categoryId.value = null
   merchantId.value = null
+  statusFilter.value = null
+  lowStock.value = false
   page.value = 1
   load()
+}
+
+function onSelectionChange(rows: Product[]) {
+  selected.value = rows
+}
+
+async function batchStatus(onSale: boolean) {
+  if (selected.value.length === 0) {
+    ElMessage.warning('请先勾选商品')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确定${onSale ? '上架' : '下架'}选中的 ${selected.value.length} 个商品吗？`,
+      onSale ? '批量上架' : '批量下架',
+      { type: 'warning', confirmButtonText: '确定', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  const count = await batchUpdateProductStatus(
+    selected.value.map((item) => item.id),
+    onSale,
+  )
+  ElMessage.success(`已更新 ${count} 个商品`)
+  await load()
+}
+
+async function openStock(row: Product) {
+  const view = await fetchProductSkus(row.id)
+  if (view.skus.length !== 1) {
+    // 多规格的库存分散在多个 SKU 上，直接进规格编辑器
+    openSku(row)
+    return
+  }
+  stockProductId.value = row.id
+  stockSku.value = view.skus[0]
+  stockVisible.value = true
 }
 
 function onPageChange(next: number) {
@@ -156,6 +209,8 @@ function formatTime(value: string): string {
 }
 
 onMounted(async () => {
+  if (route.query.lowStock === '1') lowStock.value = true
+  if (route.query.merchantId) merchantId.value = Number(route.query.merchantId)
   await Promise.all([loadCategories(), loadMerchants()])
   await load()
 })
@@ -204,11 +259,39 @@ onMounted(async () => {
         @keyup.enter="search"
         @clear="search"
       />
+      <el-select
+        v-model="statusFilter"
+        clearable
+        placeholder="全部状态"
+        style="width: 130px"
+        @change="search"
+      >
+        <el-option :value="1" label="已上架" />
+        <el-option :value="0" label="已下架" />
+      </el-select>
+      <el-checkbox v-model="lowStock" @change="search">只看低库存</el-checkbox>
       <el-button type="primary" @click="search">查询</el-button>
       <el-button @click="reset">重置</el-button>
     </div>
 
-    <el-table v-loading="loading" :data="products" border>
+    <div class="batch-bar">
+      <span>已选 {{ selected.length }} 项</span>
+      <el-button size="small" :disabled="selected.length === 0" @click="batchStatus(true)">
+        批量上架
+      </el-button>
+      <el-button size="small" :disabled="selected.length === 0" @click="batchStatus(false)">
+        批量下架
+      </el-button>
+    </div>
+
+    <el-table
+      v-loading="loading"
+      :data="products"
+      row-key="id"
+      border
+      @selection-change="onSelectionChange"
+    >
+      <el-table-column type="selection" width="46" />
       <el-table-column prop="id" label="ID" width="70" align="center" />
       <el-table-column label="主图" width="80" align="center">
         <template #default="{ row }">
@@ -256,10 +339,11 @@ onMounted(async () => {
       <el-table-column prop="updatedAt" label="更新时间" width="150">
         <template #default="{ row }">{{ formatTime(row.updatedAt) }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="140" fixed="right">
+      <el-table-column label="操作" width="190">
         <template #default="{ row }">
           <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
           <el-button link type="primary" @click="openSku(row)">规格</el-button>
+          <el-button link type="primary" @click="openStock(row)">库存</el-button>
         </template>
       </el-table-column>
       <template #empty>
@@ -287,6 +371,13 @@ onMounted(async () => {
     />
 
     <SkuEditorDialog v-model="skuVisible" :product="skuProduct" @saved="load" />
+
+    <StockAdjustDialog
+      v-model="stockVisible"
+      :product-id="stockProductId ?? 0"
+      :sku="stockSku"
+      @updated="load"
+    />
   </div>
 </template>
 
@@ -317,9 +408,19 @@ onMounted(async () => {
 
 .filters {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
   margin-bottom: 14px;
+}
+
+.batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 
 .thumb {

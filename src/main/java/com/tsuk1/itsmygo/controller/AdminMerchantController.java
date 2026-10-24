@@ -2,6 +2,7 @@ package com.tsuk1.itsmygo.controller;
 
 import com.tsuk1.itsmygo.common.Result;
 import com.tsuk1.itsmygo.common.audit.AdminAudit;
+import com.tsuk1.itsmygo.dto.AdminMerchantOperationsView;
 import com.tsuk1.itsmygo.dto.AdminMerchantView;
 import com.tsuk1.itsmygo.dto.MerchantRejectRequest;
 import com.tsuk1.itsmygo.dto.MerchantView;
@@ -36,6 +37,11 @@ public class AdminMerchantController {
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String keyword) {
         return Result.ok(merchantService.pageForAdmin(page, size, status, keyword));
+    }
+
+    @GetMapping("/{id}/operations")
+    public Result<AdminMerchantOperationsView> operations(@PathVariable Long id) {
+        return Result.ok(merchantService.operationsForAdmin(id));
     }
 
     @PostMapping("/{id}/approve")

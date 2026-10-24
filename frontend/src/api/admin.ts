@@ -3,6 +3,7 @@ import type {
   AdjustSkuStockPayload,
   AdminDashboardView,
   AdminAuditView,
+  AdminMerchantOperationsView,
   AdminMerchantView,
   AdminReviewView,
   AdminUserView,
@@ -57,6 +58,10 @@ export interface AdminProductQuery {
   categoryId?: number
   keyword?: string
   merchantId?: number
+  /** 1 上架 / 0 下架 */
+  status?: number
+  /** 只筛有 SKU stock <= 10 的商品 */
+  lowStock?: boolean
 }
 
 /** 管理端商品列表：含下架商品 */
@@ -70,6 +75,10 @@ export function createProduct(payload: ProductPayload): Promise<Product> {
 
 export function updateProduct(id: number, payload: ProductPayload): Promise<Product> {
   return put<Product>(`/admin/products/${id}`, payload)
+}
+
+export function batchUpdateProductStatus(ids: number[], onSale: boolean): Promise<number> {
+  return put<number>('/admin/products/batch-status', { ids, onSale })
 }
 
 /** 手工重建布隆过滤器（手工插库/导入数据后补救用） */
@@ -205,6 +214,12 @@ export function fetchAdminMerchants(
   query: AdminMerchantQuery,
 ): Promise<PageResponse<AdminMerchantView>> {
   return get<PageResponse<AdminMerchantView>>('/admin/merchants', { ...query })
+}
+
+export function fetchAdminMerchantOperations(
+  id: number,
+): Promise<AdminMerchantOperationsView> {
+  return get<AdminMerchantOperationsView>(`/admin/merchants/${id}/operations`)
 }
 
 export function approveMerchant(id: number): Promise<void> {

@@ -73,6 +73,42 @@ public class ProductServiceImpl implements ProductService {
         return PageResponse.of(productMapper.selectPage(pageRequest, wrapper));
     }
 
+    @Override
+    public PageResponse<Product> pageForAdmin(int page, int size, Long categoryId, String keyword,
+                                              Long merchantId, Integer status, boolean lowStock) {
+        Page<Product> pageRequest = new Page<>(normalizePage(page), normalizeSize(size));
+        var wrapper = Wrappers.<Product>lambdaQuery()
+                .eq(merchantId != null, Product::getMerchantId, merchantId)
+                .eq(categoryId != null, Product::getCategoryId, categoryId)
+                .eq(status != null, Product::getStatus, status)
+                .and(StringUtils.hasText(keyword), w -> w
+                        .like(Product::getName, keyword)
+                        .or().like(Product::getSubtitle, keyword))
+                .apply(lowStock, """
+                        EXISTS (SELECT 1 FROM product_skus ps
+                                WHERE ps.product_id = products.id
+                                  AND ps.status = 1 AND ps.stock <= 10)
+                        """)
+                .orderByDesc(Product::getId);
+        return PageResponse.of(productMapper.selectPage(pageRequest, wrapper));
+    }
+
+    @Override
+    @Transactional
+    public int updateStatusBatch(List<Long> ids, boolean onSale) {
+        if (ids == null || ids.isEmpty() || ids.size() > 100) {
+            throw new BizException(ResultCode.BAD_REQUEST, "请选择 1–100 个商品");
+        }
+        int status = onSale ? ON_SALE : 0;
+        int updated = productMapper.update(null, Wrappers.<Product>lambdaUpdate()
+                .in(Product::getId, ids)
+                .set(Product::getStatus, status));
+        for (Long id : ids) {
+            cacheHelper.evict(cacheKey(id));
+        }
+        return updated;
+    }
+
     /**
      * 顾客端详情 —— 三层：
      *   ① 布隆过滤器挡掉「一定不存在」的 ID（防穿透，一次库都不查）
