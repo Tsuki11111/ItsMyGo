@@ -2,8 +2,10 @@ import { del, download, get, post, postForm, put } from './http'
 import type {
   AdjustSkuStockPayload,
   AdminDashboardView,
+  AdminAuditView,
   AdminMerchantView,
   AdminReviewView,
+  AdminUserView,
   CategoryNode,
   CategoryPayload,
   Coupon,
@@ -227,4 +229,50 @@ export function updateAdminMerchantShipAddress(
   payload: ShipAddressPayload,
 ): Promise<MerchantView> {
   return put<MerchantView>(`/admin/merchants/${id}/ship-address`, payload)
+}
+
+// ── 用户管理 ──
+
+export interface AdminUserQuery {
+  page?: number
+  size?: number
+  /** 用户名 / 昵称 / 手机号 */
+  keyword?: string
+  /** CUSTOMER / MERCHANT / ADMIN */
+  role?: string
+  /** 1 正常 / 0 禁用 */
+  status?: number
+}
+
+export function fetchAdminUsers(
+  query: AdminUserQuery,
+): Promise<PageResponse<AdminUserView>> {
+  return get<PageResponse<AdminUserView>>('/admin/users', { ...query })
+}
+
+export function disableAdminUser(id: number): Promise<void> {
+  return post<void>(`/admin/users/${id}/disable`)
+}
+
+export function enableAdminUser(id: number): Promise<void> {
+  return post<void>(`/admin/users/${id}/enable`)
+}
+
+// ── 操作审计 ──
+
+export interface AdminAuditQuery {
+  page?: number
+  size?: number
+  keyword?: string
+  action?: string
+  /** SUCCESS / FAILED */
+  result?: string
+  dateFrom?: string
+  dateTo?: string
+}
+
+export function fetchAdminAuditLogs(
+  query: AdminAuditQuery,
+): Promise<PageResponse<AdminAuditView>> {
+  return get<PageResponse<AdminAuditView>>('/admin/audit-logs', { ...query })
 }

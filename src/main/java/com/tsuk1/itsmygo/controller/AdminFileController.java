@@ -1,6 +1,7 @@
 package com.tsuk1.itsmygo.controller;
 
 import com.tsuk1.itsmygo.common.Result;
+import com.tsuk1.itsmygo.common.audit.AdminAudit;
 import com.tsuk1.itsmygo.common.ratelimit.RateLimit;
 import com.tsuk1.itsmygo.service.StorageService;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -23,6 +24,7 @@ public class AdminFileController {
     /** 按用户限流：防刷存储 */
     @RateLimit(scene = "upload", limit = 20, windowSeconds = 60, byUser = true)
     @PostMapping("/upload")
+    @AdminAudit(action = "FILE_UPLOAD", label = "上传文件", targetType = "FILE")
     public Result<String> upload(@RequestParam("file") MultipartFile file) {
         return Result.ok(storageService.uploadProductImage(file));
     }

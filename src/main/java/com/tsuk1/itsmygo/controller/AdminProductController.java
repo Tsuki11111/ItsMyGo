@@ -2,6 +2,7 @@ package com.tsuk1.itsmygo.controller;
 
 import com.tsuk1.itsmygo.common.ProductBloomFilter;
 import com.tsuk1.itsmygo.common.Result;
+import com.tsuk1.itsmygo.common.audit.AdminAudit;
 import com.tsuk1.itsmygo.dto.AdjustSkuStockRequest;
 import com.tsuk1.itsmygo.dto.PageResponse;
 import com.tsuk1.itsmygo.dto.ProductRequest;
@@ -50,17 +51,20 @@ public class AdminProductController {
     }
 
     @PostMapping
+    @AdminAudit(action = "PRODUCT_CREATE", label = "新增商品", targetType = "PRODUCT")
     public Result<Product> create(@Valid @RequestBody ProductRequest request,
                                   @RequestParam(defaultValue = "1") Long merchantId) {
         return Result.ok(productService.create(request, merchantId));
     }
 
     @PutMapping("/{id}")
+    @AdminAudit(action = "PRODUCT_UPDATE", label = "修改商品", targetType = "PRODUCT")
     public Result<Product> update(@PathVariable Long id, @Valid @RequestBody ProductRequest request) {
         return Result.ok(productService.update(id, request));
     }
 
     @DeleteMapping("/{id}")
+    @AdminAudit(action = "PRODUCT_DELETE", label = "删除商品", targetType = "PRODUCT")
     public Result<Void> delete(@PathVariable Long id) {
         productService.delete(id);
         return Result.ok();
@@ -80,6 +84,7 @@ public class AdminProductController {
      * 新建的规格值请传负数临时 id，服务端插入后会改写引用 —— 详见 {@link SkuSaveRequest}。
      */
     @PutMapping("/{id}/skus")
+    @AdminAudit(action = "PRODUCT_SKU_SAVE", label = "保存商品规格", targetType = "PRODUCT")
     public Result<ProductSkuView> saveSkus(@PathVariable Long id,
                                            @Valid @RequestBody SkuSaveRequest request) {
         return Result.ok(productSkuService.save(id, request));
@@ -93,6 +98,7 @@ public class AdminProductController {
      * 期间被并发改过就拒绝，避免硬覆盖丢更新。
      */
     @PutMapping("/{productId}/skus/{skuId}/stock")
+    @AdminAudit(action = "SKU_STOCK_ADJUST", label = "调整 SKU 库存", targetType = "SKU")
     public Result<ProductSku> adjustStock(@PathVariable Long productId,
                                           @PathVariable Long skuId,
                                           @Valid @RequestBody AdjustSkuStockRequest request) {
@@ -107,6 +113,7 @@ public class AdminProductController {
      * （应用重启也会自动预热，这里是不重启的补救手段）。
      */
     @PostMapping("/rebuild-bloom")
+    @AdminAudit(action = "PRODUCT_BLOOM_REBUILD", label = "重建商品布隆过滤器", targetType = "PRODUCT")
     public Result<Integer> rebuildBloomFilter() {
         return Result.ok(bloomFilter.rebuild());
     }

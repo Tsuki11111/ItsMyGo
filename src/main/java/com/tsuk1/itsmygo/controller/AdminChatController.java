@@ -1,6 +1,7 @@
 package com.tsuk1.itsmygo.controller;
 
 import com.tsuk1.itsmygo.common.Result;
+import com.tsuk1.itsmygo.common.audit.AdminAudit;
 import com.tsuk1.itsmygo.common.ratelimit.RateLimit;
 import com.tsuk1.itsmygo.dto.ChatMessagePage;
 import com.tsuk1.itsmygo.dto.ChatMessageView;
@@ -59,6 +60,7 @@ public class AdminChatController {
 
     @RateLimit(scene = "chat-send", limit = 30, windowSeconds = 60, byUser = true)
     @PostMapping("/conversations/{id}/messages")
+    @AdminAudit(action = "CHAT_REPLY", label = "平台消息回复", targetType = "CONVERSATION")
     public Result<ChatMessageView> send(@AuthenticationPrincipal CurrentUser user,
                                         @PathVariable Long id,
                                         @Valid @RequestBody SendChatMessageRequest request) {

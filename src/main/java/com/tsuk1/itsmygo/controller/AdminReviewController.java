@@ -1,6 +1,7 @@
 package com.tsuk1.itsmygo.controller;
 
 import com.tsuk1.itsmygo.common.Result;
+import com.tsuk1.itsmygo.common.audit.AdminAudit;
 import com.tsuk1.itsmygo.dto.AdminReviewView;
 import com.tsuk1.itsmygo.dto.PageResponse;
 import com.tsuk1.itsmygo.dto.ReviewVisibleRequest;
@@ -36,6 +37,7 @@ public class AdminReviewController {
     }
 
     @PutMapping("/{id}/visible")
+    @AdminAudit(action = "REVIEW_VISIBILITY", label = "修改评价展示状态", targetType = "REVIEW")
     public Result<Void> setVisible(@PathVariable Long id,
                                    @Valid @RequestBody ReviewVisibleRequest request) {
         reviewService.setVisible(id, request.visible());

@@ -1,6 +1,7 @@
 package com.tsuk1.itsmygo.controller;
 
 import com.tsuk1.itsmygo.common.Result;
+import com.tsuk1.itsmygo.common.audit.AdminAudit;
 import com.tsuk1.itsmygo.dto.AdminMerchantView;
 import com.tsuk1.itsmygo.dto.MerchantRejectRequest;
 import com.tsuk1.itsmygo.dto.MerchantView;
@@ -38,12 +39,14 @@ public class AdminMerchantController {
     }
 
     @PostMapping("/{id}/approve")
+    @AdminAudit(action = "MERCHANT_APPROVE", label = "商户审核通过", targetType = "MERCHANT")
     public Result<Void> approve(@PathVariable Long id) {
         merchantService.approve(id);
         return Result.ok();
     }
 
     @PostMapping("/{id}/reject")
+    @AdminAudit(action = "MERCHANT_REJECT", label = "商户审核拒绝", targetType = "MERCHANT")
     public Result<Void> reject(@PathVariable Long id,
                                @Valid @RequestBody MerchantRejectRequest request) {
         merchantService.reject(id, request.reason());
@@ -51,12 +54,14 @@ public class AdminMerchantController {
     }
 
     @PostMapping("/{id}/disable")
+    @AdminAudit(action = "MERCHANT_DISABLE", label = "禁用商户", targetType = "MERCHANT")
     public Result<Void> disable(@PathVariable Long id) {
         merchantService.disable(id);
         return Result.ok();
     }
 
     @PostMapping("/{id}/enable")
+    @AdminAudit(action = "MERCHANT_ENABLE", label = "启用商户", targetType = "MERCHANT")
     public Result<Void> enable(@PathVariable Long id) {
         merchantService.enable(id);
         return Result.ok();
@@ -64,6 +69,7 @@ public class AdminMerchantController {
 
     /** 平台自营（id=1）与普通商户共用；平台后台可代设 */
     @PutMapping("/{id}/ship-address")
+    @AdminAudit(action = "MERCHANT_SHIP_ADDRESS", label = "修改商户发货地址", targetType = "MERCHANT")
     public Result<MerchantView> updateShipAddress(@PathVariable Long id,
                                                   @Valid @RequestBody ShipAddressRequest request) {
         return Result.ok(merchantService.updateShipAddress(id, request));

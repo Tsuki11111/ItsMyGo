@@ -1,6 +1,7 @@
 package com.tsuk1.itsmygo.controller;
 
 import com.tsuk1.itsmygo.common.Result;
+import com.tsuk1.itsmygo.common.audit.AdminAudit;
 import com.tsuk1.itsmygo.dto.OrderView;
 import com.tsuk1.itsmygo.dto.PageResponse;
 import com.tsuk1.itsmygo.dto.ShipRequest;
@@ -101,18 +102,21 @@ public class AdminOrderController {
     }
 
     @PostMapping("/{id}/ship")
+    @AdminAudit(action = "ORDER_SHIP", label = "订单发货", targetType = "ORDER")
     public Result<OrderView> ship(@PathVariable Long id, @Valid @RequestBody ShipRequest request) {
         return Result.ok(orderService.ship(id, request));
     }
 
     /** 同意退款：状态转已退款、回滚库存、支付流水同步 */
     @PostMapping("/{id}/refund/approve")
+    @AdminAudit(action = "REFUND_APPROVE", label = "同意退款", targetType = "ORDER")
     public Result<OrderView> approveRefund(@PathVariable Long id) {
         return Result.ok(orderService.approveRefund(id));
     }
 
     /** 驳回退款：回到申请前的状态 */
     @PostMapping("/{id}/refund/reject")
+    @AdminAudit(action = "REFUND_REJECT", label = "驳回退款", targetType = "ORDER")
     public Result<OrderView> rejectRefund(@PathVariable Long id) {
         return Result.ok(orderService.rejectRefund(id));
     }
@@ -123,6 +127,7 @@ public class AdminOrderController {
      * 真要自动化就加个 @Scheduled，注意多实例下得配分布式锁。
      */
     @PostMapping("/cancel-expired")
+    @AdminAudit(action = "ORDER_CANCEL_EXPIRED", label = "取消超时订单", targetType = "ORDER")
     public Result<Integer> cancelExpired(@RequestParam(defaultValue = "30") int minutes) {
         return Result.ok(orderService.cancelExpired(minutes));
     }

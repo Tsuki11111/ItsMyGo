@@ -1,6 +1,7 @@
 package com.tsuk1.itsmygo.controller;
 
 import com.tsuk1.itsmygo.common.Result;
+import com.tsuk1.itsmygo.common.audit.AdminAudit;
 import com.tsuk1.itsmygo.dto.CouponRequest;
 import com.tsuk1.itsmygo.dto.PageResponse;
 import com.tsuk1.itsmygo.entity.Coupon;
@@ -36,11 +37,13 @@ public class AdminCouponController {
     }
 
     @PostMapping
+    @AdminAudit(action = "COUPON_CREATE", label = "新增优惠券", targetType = "COUPON")
     public Result<Coupon> create(@Valid @RequestBody CouponRequest request) {
         return Result.ok(couponService.create(request));
     }
 
     @PutMapping("/{id}")
+    @AdminAudit(action = "COUPON_UPDATE", label = "修改优惠券", targetType = "COUPON")
     public Result<Coupon> update(@PathVariable Long id, @Valid @RequestBody CouponRequest request) {
         return Result.ok(couponService.update(id, request));
     }

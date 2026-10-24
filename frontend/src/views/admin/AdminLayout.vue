@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ChatDotRound, ChatLineRound, DataBoard, Discount, Goods, Menu as MenuIcon, Shop, Tickets } from '@element-plus/icons-vue'
+import { ChatDotRound, ChatLineRound, DataBoard, Discount, Document, Goods, Menu as MenuIcon, Shop, Tickets, User } from '@element-plus/icons-vue'
 import { useChatStore } from '@/stores/chat'
 import { useUserStore } from '@/stores/user'
 
@@ -13,6 +13,7 @@ const chatStore = useChatStore()
 
 const MENU = [
   { path: '/admin/dashboard', label: '数据概览', icon: DataBoard },
+  { path: '/admin/users', label: '用户管理', icon: User },
   { path: '/admin/messages', label: '平台消息', icon: ChatLineRound },
   { path: '/admin/categories', label: '分类管理', icon: MenuIcon },
   { path: '/admin/merchants', label: '商户管理', icon: Shop },
@@ -20,6 +21,7 @@ const MENU = [
   { path: '/admin/orders', label: '订单管理', icon: Tickets },
   { path: '/admin/coupons', label: '优惠券管理', icon: Discount },
   { path: '/admin/reviews', label: '评价管理', icon: ChatDotRound },
+  { path: '/admin/audit-logs', label: '操作审计', icon: Document },
 ]
 
 /** 子路由激活时高亮对应菜单；/admin 本身由路由 redirect 兜住 */

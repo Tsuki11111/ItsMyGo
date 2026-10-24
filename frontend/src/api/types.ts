@@ -538,6 +538,39 @@ export interface AdminMerchantView extends MerchantView {
   ownerUsername: string
 }
 
+/** 平台后台用户列表项（不含密码） */
+export interface AdminUserView {
+  id: number
+  username: string
+  nickname: string
+  phone: string
+  avatar: string
+  /** 1 正常 / 0 禁用 */
+  status: number
+  role: string
+  merchantId: number | null
+  createdAt: string
+  updatedAt: string
+}
+
+/** 平台后台操作审计 */
+export interface AdminAuditView {
+  id: number
+  actorUserId: number
+  actorUsername: string
+  action: string
+  targetType: string
+  targetId: number | null
+  summary: string
+  result: string
+  errorMessage: string
+  ip: string
+  userAgent: string
+  traceId: string
+  detail: string
+  createdAt: string
+}
+
 export interface AdminDashboardTrendPoint {
   date: string
   amount: string

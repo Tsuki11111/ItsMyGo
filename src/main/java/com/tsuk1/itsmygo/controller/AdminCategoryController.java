@@ -1,6 +1,7 @@
 package com.tsuk1.itsmygo.controller;
 
 import com.tsuk1.itsmygo.common.Result;
+import com.tsuk1.itsmygo.common.audit.AdminAudit;
 import com.tsuk1.itsmygo.dto.CategoryNode;
 import com.tsuk1.itsmygo.dto.CategoryRequest;
 import com.tsuk1.itsmygo.entity.Category;
@@ -34,16 +35,19 @@ public class AdminCategoryController {
     }
 
     @PostMapping
+    @AdminAudit(action = "CATEGORY_CREATE", label = "新增分类", targetType = "CATEGORY")
     public Result<Category> create(@Valid @RequestBody CategoryRequest request) {
         return Result.ok(categoryService.create(request));
     }
 
     @PutMapping("/{id}")
+    @AdminAudit(action = "CATEGORY_UPDATE", label = "修改分类", targetType = "CATEGORY")
     public Result<Category> update(@PathVariable Long id, @Valid @RequestBody CategoryRequest request) {
         return Result.ok(categoryService.update(id, request));
     }
 
     @DeleteMapping("/{id}")
+    @AdminAudit(action = "CATEGORY_DELETE", label = "删除分类", targetType = "CATEGORY")
     public Result<Void> delete(@PathVariable Long id) {
         categoryService.delete(id);
         return Result.ok();
