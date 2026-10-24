@@ -52,6 +52,9 @@ cd /c/Users/28470/IdeaProjects/ItsMyGo
 # 如果当前终端继承的是 JDK 8，显式指定 17
 JAVA_HOME="C:/Users/28470/.jdks/jbr-17.0.14" ./mvnw spring-boot:run
 
+# 生产 profile（JSON 日志 + 关闭 SQL 明细）：
+# SPRING_PROFILES_ACTIVE=prod ./mvnw spring-boot:run
+
 # 另开一个终端确认：
 # curl http://localhost:8080/api/health
 # 期望：{"code":200,"data":{"status":"UP",...}}

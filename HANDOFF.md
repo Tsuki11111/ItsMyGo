@@ -70,8 +70,14 @@ Java 校验并落库为 AGENT 消息；agent 再回复用户「已完成 + 代�
 退款新增原因与申请 / 处理时间（V24），顾客申请时必须填写，管理端与顾客端都展示「退款信息」。
 **M17 RabbitMQ 超时关单已完成（2026-10-23）**：下单事务提交后发延迟消息，默认 30 分钟
 未支付自动取消并回滚库存 / 退券；消费端幂等，数据库扫描兜底，MQ 不可用不影响下单。
-接下来按「用户与操作审计 → 商户与商品运营」继续补。
-后端 **自动化测试 228 条**。
+**日志系统已补齐（2026-10-24）**：Logback 控制台带 traceId/userId，prod profile 输出
+JSON 文件（14 天滚动）；`RequestIdFilter` 注入 MDC + `X-Trace-Id` 响应头；RabbitMQ
+消息与定时扫描延续 traceId；prod 关闭 MyBatis SQL 明细，避免 PII 入日志。
+**用户管理与操作审计已完成（2026-10-24，M18）**：`/api/admin/users` 支持筛选与禁用/启用，
+禁用后旧 JWT 立即失效，且禁止禁用自己/最后一个管理员；V25 新增 `admin_audit_logs`，
+所有管理端写操作由 AOP 记录操作人、动作、目标、结果、IP、traceId。
+接下来继续「商户与商品运营」。
+后端 **自动化测试 234 条**。
 
 **下一步：用户与操作审计**（用户已选）—— 用户列表 / 状态、操作审计等。
 M8 催退款已完成（2026-10-23）；通用动作层（`agent_actions` + 确认门）可继续承载
@@ -89,22 +95,20 @@ rag_helper gRPC（8003）和 Java 后端（8080），并在 `.env` 配好 `AGENT
 配色、登录态、下单链路、四个对接约定、管理端与商家端页面要点都在那。
 前端**还没有自动化测试**，也没进 CI。
 
-下一步：**M6 客服接入 → M7 查订单环回**。
+下一步：**商户与商品运营**。
 
 ---
 
-## 2. 下一步做什么：客服接入
+## 2. 下一步做什么：商户与商品运营
 
 用户中心后续、顾客端订单操作、多商户改造都已完成，本轮不再拆新页面
 （佣金 / 分账 / 商家结算、商家子账号、关注店铺明确不做）。
 
-1. **用户与操作审计**（用户已选）—— 用户列表 / 状态、管理端操作审计。
-   订单与售后增强已完成（M16，2026-10-22）。
-   M8 催退款也可做：V24 已补 `refund_applied_at`，通用动作层
-   （`agent_actions` + 确认门）已就绪，催退款只需再加一种动作类型。
-   写操作统一走「agent 提案 → Java 校验 → 用户确认 → 执行」。先读外部仓库
-   `D:\PycharmProjects\rag_helper` 的 `evolution-plan.md` §5/§6 与 `proto/agent.proto`，
-   对接契约以那边为准
+1. **用户与操作审计已完成（M18，2026-10-24）**：用户列表 / 禁用启用、V25 审计表、
+   管理端写操作 AOP 审计、用户页与审计页。
+2. **下一步：商户与商品运营** —— 商户维度成交统计、商品审核 / 违规下架、
+   低库存批量处理、平台券 / 店铺券运营等。先读外部仓库 `rag_helper` 的
+   `evolution-plan.md` §5/§6 与 `proto/agent.proto`（涉及 agent 时对接契约以那边为准）。
 
 ⚠️ **四个对接约定**（细节见 implementation §4.3）：
 响应拦截器按 **body 的 `code`** 判断而不是 HTTP 状态码；库存走独立接口；
@@ -1164,9 +1168,60 @@ confirm/execute 逻辑，事件名、Redis 锁前缀、错误文案各自独立�
 **⑤ 冷却与幂等是四层，不是一层。** 未过期草稿复用、成功后 10 分钟冷却、
 Redis 执行锁、`finishExecution` CAS；双击确认不会重复发商家消息。
 
+### 5.36 ★ 用户管理与操作审计的六个坑（2026-10-24 踩到 / 补齐）
+
+**① 「最后管理员」必须用 `FOR UPDATE` 锁。** 只查 `count` 再更新，两个并发禁用
+请求可能同时通过检查。`UserMapper.selectActiveAdminIdsForUpdate()` 锁住活跃管理员
+再判断数量，和禁用更新在同一事务里。
+
+**② 禁用用户要立即 + 提交后双 evict 授权快照。** `AuthIdentityService` 快照缓存
+60 秒；只 evict 一次时，可能出现「evict 后、事务提交前」的请求把旧快照写回。
+现在先立即 evict，注册 `afterCommit` 再 evict 一次。
+
+**③ 审计写在 Controller 层，不写 Service 层。** Service 层没有 HTTP 上下文
+（IP / UA / URI / traceId），而且处于业务事务内，业务回滚会把 FAILED 审计一起回滚。
+切面在 Controller 外层，业务提交/回滚后再独立落审计。
+
+**④ 审计是旁路，不能影响业务。** `AdminAuditAspect` 的审计写入整体 try/catch，
+失败只打运行日志；不为了审计把业务请求打挂。`@Valid` 校验失败、401/403 在进入
+Controller 前，属于不可审计边界，文档已注明。
+
+**⑤ 未标注的写接口要有 URI 兜底。** 新管理端接口如果忘了 `@AdminAudit`，
+切面仍会记录 `HTTP方法 + URI`，但动作语义会退化为路径；核心动作必须显式注解，
+前端动作筛选支持自由输入兜底 action。
+
+**⑥ detail 不存请求体。** 管理端请求可能含密码、文件内容；审计只存
+method/URI/query、IP、UA、traceId，错误信息截断，避免把 PII 写进只增表。
+
 ---
 
 ## 6. 历史记录
+
+### 2026-10-24 · 用户管理与操作审计（M18）
+
+**范围**：管理端用户列表 / 禁用启用；V25 `admin_audit_logs`；管理端写操作 AOP 审计；
+前端用户页、审计页、菜单与路由。
+
+**后端**：`AdminUserController/Service`、`AdminAuditController/Service`、
+`AdminAuditAspect` + `@AdminAudit`；禁用后 evict 授权快照，旧 JWT 下一次请求 401；
+最后管理员 `FOR UPDATE` 保护；审计记录操作人/动作/目标/结果/IP/UA/traceId，
+审计写入失败不影响业务。
+
+**前端**：`Users.vue`、`AuditLogs.vue`；用户页支持筛选/分页/禁用启用，
+审计页只读筛选并展示 traceId；AdminLayout 菜单与 router 增加两项。
+
+**验证**：`AdminUserControllerTest` 4 条、`AdminAuditControllerTest` 2 条；
+全量 234 条；前端构建通过；浏览器实测用户页、禁用/启用审计记录与详情。
+
+### 2026-10-24 · 日志与 traceId 体系
+
+**范围**：新增 `logback-spring.xml`、`application-prod.yml`、`RequestIdFilter`；
+开发控制台日志带 `traceId/userId`，prod 输出 JSON 文件并关闭 SQL 明细；
+RabbitMQ 消费与定时扫描延续 traceId。
+
+**验证**：prod 启动 `/api/health` 返回 `X-Trace-Id`，JSON 日志包含 `traceId/application`；
+登录后 `/api/addresses` 日志带 `userId=3362`；prod 无 MyBatis SQL 明细；
+开发控制台格式正常。管理端审计日志仍未建表，留待「用户与操作审计」阶段。
 
 ### 2026-10-23 · 催退款（M8 二期）
 

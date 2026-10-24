@@ -1465,6 +1465,63 @@ agent 调 Java 发送工具，Java 重新校验后以 `senderType=AGENT` 落站�
 原 `AgentUrgeShipmentControllerTest` 3 条保持全绿；rag_helper
 `_check_urge_refund_graph` 与 `_check_order_actions_tools` 通过；前端构建通过。
 
+### 3.28 日志与 traceId（2026-10-24）
+
+**目标**：请求日志可关联、生产日志可采集，同时避免把 PII 写进日志。
+
+- **门面 / 实现**：SLF4J + Logback；`logback-spring.xml` 控制台模式带
+  `traceId / userId`，`prod` profile 额外输出 JSON 文件
+  `logs/its-my-go.log`（logstash encoder，按天 + 100MB 滚动，保留 14 天）。
+- **traceId**：`common/logging/RequestIdFilter`（`@Order(LOWEST_PRECEDENCE)`，
+  在安全过滤器链之后）读取 `X-Trace-Id`（校验字符集），没有则生成 UUID；
+  写入 MDC 和响应头，每个请求结束打一条
+  `HTTP METHOD path -> status (ms)` 访问日志。登录用户从 `SecurityContext`
+  取 `CurrentUser.id` 写 `userId`。
+- **跨异步链路**：
+  - RabbitMQ 发送端把当前 MDC `traceId` 放进消息头；
+  - 消费端从消息头恢复 MDC，没有则生成 `mq-*`，处理完清理；
+  - 定时扫描生成 `scan-*` traceId，便于区分定时任务日志。
+- **生产级别**：`application-prod.yml` 把 root / 业务包 / MyBatis mapper 都设为
+  `INFO`，避免 SQL 参数（手机号、地址）进入日志；启动用
+  `SPRING_PROFILES_ACTIVE=prod`。
+- **边界**：Java 单体日志已统一；agent（rag_helper）仍使用它自己的 Python 日志，
+  Java 只通过 gRPC 调用，不保证跨进程 trace 串联；管理端审计日志仍未建表，
+  不应拿运行日志代替审计。
+
+**验证**：prod 启动后 `/api/health` 响应带 `X-Trace-Id`，JSON 日志包含
+`traceId` 和 `application` 字段；登录后访问 `/api/addresses` 的日志带
+`userId=3362`；prod 日志中没有 MyBatis SQL 明细；开发 profile 控制台日志带
+`[trace=...] [user=...]`。
+
+### 3.29 用户管理与操作审计（M18，2026-10-24）
+
+**用户管理**：
+- `GET /api/admin/users` 支持 keyword（用户名 / 昵称 / 手机号）、role、status、
+  page/size；查询显式排除 `password`，映射为 `AdminUserView`。
+- `POST /api/admin/users/{id}/disable|enable`：不能禁用自己；禁用活跃 ADMIN 时
+  `UserMapper.selectActiveAdminIdsForUpdate()` 用 `FOR UPDATE` 锁活跃管理员，
+  数量 ≤ 1 拒绝；已禁用/已启用幂等。
+- 更新后立即 `AuthIdentityService.evict(id)`，并在事务 afterCommit 再 evict 一次；
+  旧 JWT 下一次请求因 `load()` 返回 null 得 401。
+
+**审计表（V25）**：`admin_audit_logs` 只追加，字段
+`actor_user_id/actor_username/action/target_type/target_id/summary/result/
+error_message/ip/user_agent/trace_id/detail/created_at`；`users` 增加
+`idx_user_role_status`。`GET /api/admin/audit-logs` 只读分页筛选。
+
+**审计切面**：
+- `@AdminAudit(action, label, targetType)` 标在 Controller 写方法上；
+- `AdminAuditAspect` 切所有 `Admin*Controller`，GET/HEAD/OPTIONS/TRACE 放行；
+  有注解用注解，无注解写方法用 `HTTP方法 + URI` 兜底；
+- 成功且 `Result.code == 200` → SUCCESS；业务 code 非 200 或抛异常 → FAILED，
+  异常仍原样抛出，由 GlobalExceptionHandler 处理；
+- 记录 CurrentUser、IP、UA、MDC `traceId`、URI；detail 不含请求体；
+- 审计写入异常只打运行日志，不影响业务；`@Valid` 失败、401/403 不进入审计。
+
+**验证**：`AdminUserControllerTest` 4 条（列表筛选、禁用后旧 token 401、自禁用、
+最后管理员保护）；`AdminAuditControllerTest` 2 条（成功/失败写审计、GET 不审计）；
+浏览器实测用户页与审计页，审计记录带操作人、目标、结果、IP 与 traceId。
+
 ---
 
 ## 4. 前端（`frontend/`）

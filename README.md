@@ -34,6 +34,7 @@ Spring Boot 单体 + Vue 3 前后端分离，经 **gRPC 接入 RAG 客服智能�
 | 消息队列 | RabbitMQ 4（AMQP + 管理台）—— 超时未支付订单自动取消，✅ 已接 |
 | 客服链路 | 原生 `grpc-java` + `protobuf-maven-plugin`（不用 starter，Boot 4 未适配） |
 | API 文档 | springdoc-openapi |
+| 日志 | SLF4J + Logback；控制台带 traceId/userId，prod 输出 JSON 文件并保留 14 天 |
 | 前端 | Vue 3 + Vite + TypeScript + Element Plus + Pinia + Vue Router |
 | 构建 | Maven（**单模块**） |
 
@@ -104,6 +105,7 @@ Spring Boot 单体 + Vue 3 前后端分离，经 **gRPC 接入 RAG 客服智能�
 | **M15 管理后台数据概览** | ✅ **完成（2026-10-22）** —— 今日成交 / 待办指标、近 7 天成交折线图、四块待办列表；`/admin` 默认进入看板 |
 | **M16 订单与售后增强** | ✅ **完成（2026-10-22）** —— 订单关键词与下单日期筛选、CSV 导出；退款原因与申请 / 处理时间记录与展示 |
 | **M17 RabbitMQ 超时关单** | ✅ **完成（2026-10-23）** —— 下单后发延迟消息，30 分钟未支付自动取消并回滚库存 / 退券；数据库扫描兜底，MQ 不可用不影响下单 |
+| **M18 用户管理与审计** | ✅ **完成（2026-10-24）** —— 用户列表 / 禁用启用；V25 审计表；管理端写操作记录操作人、目标、结果、IP、traceId |
 
 **交易闭环已通**：浏览商品 → 加购 → 下单（扣库存）→ 支付 → 发货 → 收货，
 以及取消、超时自动取消、退款（申请 → 审核 → 回滚库存）。
@@ -135,6 +137,11 @@ Spring Boot 单体 + Vue 3 前后端分离，经 **gRPC 接入 RAG 客服智能�
 AGENT 站内消息；随后买小购回复用户「催发货已完成」、代商家致歉；10 分钟内不重复催。
 **催退款（M8 二期，2026-10-23）**：对「退款中（REFUNDING）」的订单，同样的确认卡与
 agent 发送链路，提醒商家尽快处理退款；已退款 / 已驳回 / 其他状态不可催，10 分钟内不重复。
+**日志（2026-10-24）**：每个请求生成/透传 `X-Trace-Id`，日志带 traceId 与 userId；
+生产 profile 输出 JSON 文件（按天 + 100MB 滚动，保留 14 天），并关闭 MyBatis SQL 明细。
+**用户管理与审计（M18，2026-10-24）**：管理端可按用户名 / 昵称 / 手机号、角色、状态筛选用户，
+禁用后旧登录态立即失效；所有管理端写操作写入独立的 `admin_audit_logs`，
+记录操作人、动作、目标、结果、IP 与 traceId，审计页只读查询。
 **AI 导购（M11–M13，2026-10-21）**：新增 product-guide 子 agent；支持按关键词、
 分类、价格搜索，关键词不足时语义检索；回复里渲染商品卡（图片 / 价格 / 库存 /
 销量 / 店铺），可直接让买小购准备订单，商品卡会随历史恢复。
@@ -169,7 +176,7 @@ agent 侧地址默认 `http://127.0.0.1:8080`，需要改就在 `rag_helper/.env
 **提权后重新登录**。种子数据见 [sql/seed-data.sql](sql/seed-data.sql)（44 个商品，型号来自 `rag_helper/doc` 的产品手册），详见 [HANDOFF §3.4](HANDOFF.md)。
 
 **CI**：每次 push 自动在干净环境跑测试（[`.github/workflows/test.yml`](.github/workflows/test.yml)）。
-本地 228 条全绿，CI 跳过 3 条依赖 MinIO 的、跑 225 条（MinIO 已停止公开分发镜像，详见 [HANDOFF §5.12](HANDOFF.md)）。
+本地 234 条全绿，CI 跳过 3 条依赖 MinIO 的、跑 231 条（MinIO 已停止公开分发镜像，详见 [HANDOFF §5.12](HANDOFF.md)）。
 **测试跑在独立的库** `its_mygo_test`（Redis 用 db 1），和开发数据互不影响 —— 见 [HANDOFF §5.20](HANDOFF.md)。
 
 各里程碑的可验收产物见 [docs/decisions-ecommerce.md](docs/decisions-ecommerce.md) §4。

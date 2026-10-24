@@ -906,6 +906,35 @@ Authorization: Bearer <token>
   低库存阈值为 `stock <= 10`；待办列表各取最新 5 条。
 - `trend` 固定返回最近 7 天，没有成交的日期补 0。
 
+### 17.10 用户管理
+
+| 方法 | 路径 | 请求/参数 | 返回 |
+|---|---|---|---|
+| GET | `/api/admin/users` | `page=1, size=10, keyword?, role?, status?` | `PageResponse<AdminUserView>` |
+| POST | `/api/admin/users/{id}/disable` | — | `Result<Void>` |
+| POST | `/api/admin/users/{id}/enable` | — | `Result<Void>` |
+
+- `keyword` 模糊匹配用户名 / 昵称 / 手机号；`role` 取 CUSTOMER/MERCHANT/ADMIN；
+  `status` 取 1 正常 / 0 禁用。
+- `AdminUserView` 不含密码：`id/username/nickname/phone/avatar/status/role/merchantId/
+  createdAt/updatedAt`。
+- 不能禁用当前登录账号；不能禁用最后一个活跃管理员。
+- 禁用后旧 JWT 在下一次请求时失效（AuthIdentityService 缓存立即 evict），
+  登录接口也会拒绝已禁用账号。
+
+### 17.11 操作审计
+
+| 方法 | 路径 | 请求/参数 | 返回 |
+|---|---|---|---|
+| GET | `/api/admin/audit-logs` | `page=1, size=10, keyword?, action?, result?, dateFrom?, dateTo?` | `PageResponse<AdminAuditView>` |
+
+- 只读接口，不提供新增 / 修改 / 删除。
+- `keyword` 匹配操作人 / 摘要 / 目标 ID / traceId / IP；`result` 取 SUCCESS/FAILED；
+  日期按创建时间（`created_at`）过滤，含首尾两天。
+- `AdminAuditView`：`id/actorUserId/actorUsername/action/targetType/targetId/summary/
+  result/errorMessage/ip/userAgent/traceId/detail/createdAt`。
+- 管理端写操作由 AOP 记录；`@Valid` 参数校验失败、401/403 不进入审计。
+
 ---
 
 ## 18. 顾客聊天
