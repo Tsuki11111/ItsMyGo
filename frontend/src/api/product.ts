@@ -1,17 +1,24 @@
 import { get } from './http'
-import type { CategoryNode, PageResponse, Product, StockView } from './types'
+import type { BrandView, CategoryNode, PageResponse, Product, StockView } from './types'
 
 export interface ProductQuery {
   page?: number
   size?: number
   categoryId?: number
   keyword?: string
+  /** 品牌专区用：按品牌精确筛选 */
+  brand?: string
   /** 店铺主页用：只看该商户的商品 */
   merchantId?: number
 }
 
 export function fetchProducts(query: ProductQuery): Promise<PageResponse<Product>> {
   return get<PageResponse<Product>>('/products', { ...query })
+}
+
+/** 品牌专区：在售商品的品牌与数量 */
+export function fetchBrands(): Promise<BrandView[]> {
+  return get<BrandView[]>('/products/brands')
 }
 
 export function fetchProduct(id: number): Promise<Product> {

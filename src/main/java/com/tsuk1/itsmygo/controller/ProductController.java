@@ -1,6 +1,7 @@
 package com.tsuk1.itsmygo.controller;
 
 import com.tsuk1.itsmygo.common.Result;
+import com.tsuk1.itsmygo.dto.BrandView;
 import com.tsuk1.itsmygo.dto.PageResponse;
 import com.tsuk1.itsmygo.dto.StockView;
 import com.tsuk1.itsmygo.entity.Product;
@@ -10,6 +11,8 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 /** 顾客端：只看上架商品，无需登录 */
 @RestController
@@ -28,10 +31,19 @@ public class ProductController {
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) Long categoryId,
             @RequestParam(required = false) String keyword,
+            /** 品牌专区用：按商品品牌精确筛选 */
+            @RequestParam(required = false) String brand,
             /** 店铺主页用：只看该商户的商品 */
             @RequestParam(required = false) Long merchantId) {
         // 顾客端只展示 ACTIVE 店铺的商品
-        return Result.ok(productService.page(page, size, categoryId, keyword, true, merchantId, true));
+        return Result.ok(productService.page(
+                page, size, categoryId, keyword, brand, true, merchantId, true));
+    }
+
+    /** 品牌专区：在售商品的品牌与数量 */
+    @GetMapping("/brands")
+    public Result<List<BrandView>> brands() {
+        return Result.ok(productService.brands());
     }
 
     @GetMapping("/{id}")

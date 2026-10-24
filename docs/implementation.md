@@ -236,6 +236,18 @@ MultipartFile
 `POST /api/merchant/files/upload`；**入驻申请人还没有 MERCHANT 角色**，走
 `POST /api/merchant-apply/logo`（仅要求登录，按用户限流）。
 
+**商品图缩略图**（V28）：商品列表卡片用 400×400 缩略图，详情页仍用原图。
+- 上传商品图时（`uploadProductImage`）立刻生成一版，存到 `products/thumbs/<原相对路径>.jpg`
+  （原图 `products/seed/1722.jpg` → 缩略图 `products/thumbs/seed/1722.jpg`），
+  中心裁切 + JPEG 质量 0.82；对象名由原图决定，重复调用不会串图。
+- 商品创建/更新、SKU 整组保存时，只要图片变了或 `thumb_image` 为空，就再 ensure 一次；
+  已存在（`statObject` 命中）直接复用，不重复处理。
+- 读取用 `ImageIO`，WebP 靠 TwelveMonkeys 的 `imageio-webp` 插件；**生成失败只记日志、
+  返回空串**，前端回落到原图，缩略图不能阻断商品保存。
+- `products.thumb_image` / `product_skus.thumb_image` 存结果；
+  `POST /api/admin/products/backfill-thumbnails` 给存量数据补生成。
+- 只剩本系统 MinIO 里 `products/` 开头的 URL 会被处理，外链直接跳过（不做任意外链下载）。
+
 **桶策略设为公开只读**（`s3:GetObject` 允许 `*`），这样商品图 URL 能直接放进 `<img src>`
 被浏览器加载，不用每次生成预签名 URL。
 
@@ -746,6 +758,14 @@ redisTemplate.rename(tempKey, KEY);   // 原子切换
 汇总只在两处更新：管理端保存 SKU 时全量重算（`recalcFromSkus`）、
 下单与取消时增量更新（`applyDeducted` / `applyRestored`，用 `GREATEST` 容忍漂移）。
 **汇总不参与任何判定** —— 防超卖永远看 SKU 那行的条件更新。
+
+**`products.brand` 是品牌专区的筛选依据**（V27）：品牌不是一个独立表，就是商品上的
+`VARCHAR(64)` 列，`idx_products_brand_status(brand, status)` 支撑「按品牌 + 上架状态」查询。
+之所以不建 `brands` 表：当前品牌没有额外属性（logo 由前端按品牌名映射 MinIO 对象），
+建表只会多一次 join。分类（多级、可管理）和品牌（单值、基本不变）的建模诉求不同。
+`GET /api/products/brands` 只聚合顾客端可见的商品（上架 + 店铺 ACTIVE），
+按数量降序返回；`GET /api/products?brand=xxx` 用**精确匹配**，不再依赖商品名里出现品牌词
+（比如 `GC251DNS` 的手册注明是 Lenovo，归到「联想」；`RS-12` 归到「RS PRO」）。
 
 **保存走整组覆盖**（`PUT /api/admin/products/{id}/skus`）：规格值一改，SKU 组合的集合就变了
 （加一组「颜色」直接翻倍），逐个 CRUD 表达不了；商户在后台也是一次填完一整张表再提交。
@@ -1687,6 +1707,8 @@ frontend/
 
 实现在 `components/ProductImage.vue`，列表页和详情页共用；
 **首字字号由外层容器给**（卡片 40px、详情页 96px），组件自己不写死。
+列表类页面传 `thumbImage || mainImage`（V28 生成的 400×400 缩略图），
+详情页大图仍传原图 `selectedSku.image || mainImage`。
 
 ### 4.5 登录态存在哪
 
@@ -1751,9 +1773,11 @@ frontend/
 
 ### 4.9 首页的两个细节
 
-**品牌专区**（首屏右侧 240px 竖栏）：品牌数据**暂时硬编码**在 `ProductList.vue` 里，
-点进去就是 `/?keyword=品牌名`，复用列表页的关键词搜索。要让商户自己维护品牌，
-得建 `brands` 表 + 商品关联 + 管理端接口，那时把数组换成接口调用即可。
+**品牌专区**（首屏右侧 240px 竖栏）：品牌列表来自 `GET /api/products/brands`，
+不再硬编码；点击走 `/?brand=品牌名`，商品列表按 `products.brand` **精确筛选**，
+和关键词搜索互不干扰。品牌图标是抓取后统一裁成 160×160 的 PNG，存在 MinIO
+`its-my-go-product-images/brands/` 下，前端 `BRAND_LOGOS` 按品牌名映射；
+映射不到或图片加载失败时退回「首字色块」占位，不会把页面搞崩。
 
 **商品列表是滚动加载**，没有分页器：滚到底部自动拉下一页并追加。
 用 `IntersectionObserver` 盯一个页面底部的哨兵元素（`rootMargin: 200px` 提前触发），
@@ -1954,7 +1978,7 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 **测试跑在独立的库和 Redis database 上**（`its_mygo_test` / db 1），跟开发环境彻底分开 ——
 为什么非分不可、怎么配的，见 HANDOFF §5.20。
 
-覆盖重点（当前 **189** 条；CI 上跳过 3 条依赖 MinIO 的，跑 186）：
+覆盖重点（当前 **238** 条；CI 上跳过 4 条依赖 MinIO 的，跑 234）：
 
 | 测试类 | 覆盖 |
 |---|---|
@@ -1962,7 +1986,7 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 | `AddressControllerTest` | 本人 CRUD；**越权返回 404**；默认地址唯一；**独立的设默认接口（含幂等与越权）**；**删除默认后不递补**；未登录 401 |
 | **`UserProfileControllerTest`** | 未登录 401；资料回显（昵称回退用户名）；改昵称手机；空昵称 400；**旧密码错 400 而不是 401**；新旧相同被拒；改密后旧密码登录失败、新密码成功；**头像上传（StorageService 用 @MockitoBean 替身，不依赖 MinIO）** |
 | `CategoryControllerTest` | 树形结构；停用分类对顾客隐藏；非管理员 403；有子分类/有商品时禁删 |
-| `ProductControllerTest` | 上架可见/下架隐藏；关键词搜名称与副标题；分类筛选；分页；非管理员 403 |
+| `ProductControllerTest` | 上架可见/下架隐藏；关键词搜名称与副标题；分类筛选；分页；**品牌聚合与按品牌精确筛选**；非管理员 403 |
 | `CartControllerTest` | 重复加购累加数量；总价只算已勾选且可购买；超库存被拒；**越权 404**；需登录 |
 | `OrderControllerTest` | 下单扣库存并清空购物车；**订单快照**（改价后历史订单不变）；完整生命周期；非法流转被拒；取消回滚库存；越权 404；顾客不能发货；**库存实时性**；**防重复提交**；**支付流水**；**退款申请/同意/驳回**；**超时取消**；**立即购买不动购物车**、超库存被拒、中途失败要回补预扣的库存 |
 | **`StockConcurrencyTest`** | **10 个买家并发抢 5 件**：恰好 5 成功 5 拒，库存归零、销量 5，卖的+剩的 == 初始库存 |
@@ -1987,7 +2011,7 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 | **`SkuCartTest`** | 同商品两个规格各占一行、重复加购只累加；小计按**那一款**的价（不是商品最低价）；跨商品的 skuId 被当「不存在」挡住；SKU 被删后那行标成不可购买；停售款加不进去 |
 | **`SkuOrderTest`** | 订单项带 `specText` 快照且单价取那一款；**规格改名后历史订单不变**；**取消只回补买过的那一款**、另一款纹丝不动；立即购买只扣选中的 SKU；买停售款被拒 |
 | **`SkuStockConcurrencyTest`** | 10 人抢 5 件的单一 SKU（恰好 5 成功、Redis 与库都对得上）；**同商品两款互不串扰**（黑 3 件售罄不影响白 10 件） |
-| `StorageServiceTest` | 上传成功 + **URL 可匿名读取**；拒绝非图片；顾客不能上传 |
+| `StorageServiceTest` | 上传成功 + **URL 可匿名读取**；**上传后生成 400×400 缩略图**；拒绝非图片；顾客不能上传 |
 | `SharedRedisTest` | 共用 Redis 连通；key 前缀；**TTL 存在**（见 HANDOFF §5.5） |
 | `MyBatisPlusCompatibilityTest` | 一次完整 CRUD，验证 MP 在 Boot 4.1.1 上可用 |
 

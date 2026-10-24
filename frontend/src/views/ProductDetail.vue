@@ -484,7 +484,7 @@ onMounted(load)
             class="rel-card"
           >
             <div class="rel-thumb">
-              <ProductImage :src="item.mainImage" :name="item.name" :id="item.id" />
+              <ProductImage :src="item.thumbImage || item.mainImage" :name="item.name" :id="item.id" />
             </div>
             <div class="rel-info">
               <p class="rel-name">{{ item.name }}</p>

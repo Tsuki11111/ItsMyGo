@@ -64,6 +64,13 @@ public class AdminProductController {
         return Result.ok(productService.updateStatusBatch(request.ids(), request.onSale()));
     }
 
+    /** 给存量商品与 SKU 图片补生成缩略图；新上传/修改的图片会自动生成，这个接口用于老数据 */
+    @PostMapping("/backfill-thumbnails")
+    @AdminAudit(action = "PRODUCT_THUMB_BACKFILL", label = "回填商品缩略图", targetType = "PRODUCT")
+    public Result<Integer> backfillThumbnails() {
+        return Result.ok(productService.backfillThumbnails());
+    }
+
     @PostMapping
     @AdminAudit(action = "PRODUCT_CREATE", label = "新增商品", targetType = "PRODUCT")
     public Result<Product> create(@Valid @RequestBody ProductRequest request,

@@ -166,7 +166,9 @@ Authorization: Bearer <token>
 | `merchantId` | number | 所属店铺 |
 | `categoryId` | number | 分类 |
 | `name` / `subtitle` | string | 名称 / 副标题 |
+| `brand` | string | 品牌（品牌专区筛选依据，空串表示未归类） |
 | `mainImage` | string | 主图 URL |
+| `thumbImage` | string | 列表缩略图 URL；空串回落到 `mainImage` |
 | `price` | number | 汇总价（在售 SKU 最低价） |
 | `stock` | number | 汇总库存（在售 SKU 库存之和） |
 | `sales` | number | 销量 |
@@ -178,8 +180,9 @@ Authorization: Bearer <token>
 
 **ProductSpec**：`id, productId, name, sort, createdAt, updatedAt, values[]`
 **ProductSpecValue**：`id, specId, value, sort, createdAt, updatedAt`
-**ProductSku**：`id, productId, specValueIds(升序逗号串，空串=默认 SKU), specText, price, stock, sales, image, status(1 在售/0 停用), createdAt, updatedAt`
+**ProductSku**：`id, productId, specValueIds(升序逗号串，空串=默认 SKU), specText, price, stock, sales, image, thumbImage, status(1 在售/0 停用), createdAt, updatedAt`
 **ProductSkuView**：`{ specs: ProductSpec[], skus: ProductSku[] }`（SKU 库存为 Redis 实时值）
+**BrandView**：`{ name: string, count: number }` —— 品牌名 + 当前在售商品数
 
 **ProductRequest**（管理端/商家端共用）：
 
@@ -526,7 +529,8 @@ Authorization: Bearer <token>
 
 | 方法 | 路径 | 权限 | 参数 | 返回 |
 |---|---|---|---|---|
-| GET | `/api/products` | 公开 | `page=1, size=20, categoryId?, keyword?, merchantId?` | `PageResponse<Product>` |
+| GET | `/api/products` | 公开 | `page=1, size=20, categoryId?, keyword?, brand?, merchantId?` | `PageResponse<Product>` |
+| GET | `/api/products/brands` | 公开 | — | `BrandView[]`（品牌名 + 在售商品数，按数量降序） |
 | GET | `/api/products/{id}` | 公开 | — | `Product`（含 specs/skus） |
 | GET | `/api/products/{id}/stock` | 公开 | — | `StockView` |
 | GET | `/api/products/{productId}/reviews` | 公开 | `page=1, size=5` | `PageResponse<ReviewView>` |
@@ -821,6 +825,7 @@ Authorization: Bearer <token>
 | GET | `/api/admin/products` | `page=1, size=20, categoryId?, keyword?, merchantId?, status?, lowStock?` | `PageResponse<Product>` |
 | POST | `/api/admin/products` | `ProductRequest` + query `merchantId=1` | `Product` |
 | PUT | `/api/admin/products/{id}` | `ProductRequest` | `Product` |
+| POST | `/api/admin/products/backfill-thumbnails` | — | number（补生成缩略图的商品/SKU 条数） |
 | PUT | `/api/admin/products/batch-status` | `{ids:[...], onSale}` | `number`（更新数量，最多 100 个） |
 | DELETE | `/api/admin/products/{id}` | — | `null` |
 | GET | `/api/admin/products/{id}/skus` | — | `ProductSkuView` |

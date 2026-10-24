@@ -6,6 +6,7 @@ import com.tsuk1.itsmygo.common.ProductBloomFilter;
 import com.tsuk1.itsmygo.common.RedisCacheHelper;
 import com.tsuk1.itsmygo.common.ResultCode;
 import com.tsuk1.itsmygo.common.exception.BizException;
+import com.tsuk1.itsmygo.dto.BrandView;
 import com.tsuk1.itsmygo.dto.PageResponse;
 import com.tsuk1.itsmygo.dto.ProductRequest;
 import com.tsuk1.itsmygo.dto.ProductSkuView;
@@ -15,9 +16,11 @@ import com.tsuk1.itsmygo.entity.ProductSku;
 import com.tsuk1.itsmygo.entity.Merchant;
 import com.tsuk1.itsmygo.mapper.MerchantMapper;
 import com.tsuk1.itsmygo.mapper.ProductMapper;
+import com.tsuk1.itsmygo.mapper.ProductSkuMapper;
 import com.tsuk1.itsmygo.service.ProductService;
 import com.tsuk1.itsmygo.service.ProductSkuService;
 import com.tsuk1.itsmygo.service.StockService;
+import com.tsuk1.itsmygo.service.StorageService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -25,6 +28,7 @@ import org.springframework.util.StringUtils;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 @Service
 public class ProductServiceImpl implements ProductService {
@@ -35,25 +39,30 @@ public class ProductServiceImpl implements ProductService {
     private static final Duration PRODUCT_CACHE_TTL = Duration.ofMinutes(10);
 
     private final ProductMapper productMapper;
+    private final ProductSkuMapper productSkuMapper;
     private final ProductBloomFilter bloomFilter;
     private final RedisCacheHelper cacheHelper;
     private final StockService stockService;
     private final ProductSkuService productSkuService;
     private final MerchantMapper merchantMapper;
+    private final StorageService storageService;
 
-    public ProductServiceImpl(ProductMapper productMapper, ProductBloomFilter bloomFilter,
-                              RedisCacheHelper cacheHelper, StockService stockService,
-                              ProductSkuService productSkuService, MerchantMapper merchantMapper) {
+    public ProductServiceImpl(ProductMapper productMapper, ProductSkuMapper productSkuMapper,
+                              ProductBloomFilter bloomFilter, RedisCacheHelper cacheHelper,
+                              StockService stockService, ProductSkuService productSkuService,
+                              MerchantMapper merchantMapper, StorageService storageService) {
         this.productMapper = productMapper;
+        this.productSkuMapper = productSkuMapper;
         this.bloomFilter = bloomFilter;
         this.cacheHelper = cacheHelper;
         this.stockService = stockService;
         this.productSkuService = productSkuService;
         this.merchantMapper = merchantMapper;
+        this.storageService = storageService;
     }
 
     @Override
-    public PageResponse<Product> page(int page, int size, Long categoryId, String keyword,
+    public PageResponse<Product> page(int page, int size, Long categoryId, String keyword, String brand,
                                       boolean onlyOnSale, Long merchantId, boolean onlyActiveMerchant) {
         Page<Product> pageRequest = new Page<>(normalizePage(page), normalizeSize(size));
 
@@ -61,6 +70,7 @@ public class ProductServiceImpl implements ProductService {
                 .eq(onlyOnSale, Product::getStatus, ON_SALE)
                 .eq(merchantId != null, Product::getMerchantId, merchantId)
                 .eq(categoryId != null, Product::getCategoryId, categoryId)
+                .eq(StringUtils.hasText(brand), Product::getBrand, brand)
                 // 顾客端只看到 ACTIVE 店铺的商品；管理端不过滤
                 .inSql(onlyActiveMerchant, Product::getMerchantId,
                         "SELECT id FROM merchants WHERE status = 'ACTIVE'")
@@ -71,6 +81,41 @@ public class ProductServiceImpl implements ProductService {
                 .orderByDesc(Product::getId);
 
         return PageResponse.of(productMapper.selectPage(pageRequest, wrapper));
+    }
+
+    @Override
+    public List<BrandView> brands() {
+        return productMapper.selectBrandCounts();
+    }
+
+    @Override
+    public int backfillThumbnails() {
+        int updated = 0;
+        List<Product> products = productMapper.selectList(Wrappers.<Product>lambdaQuery()
+                .ne(Product::getMainImage, ""));
+        for (Product product : products) {
+            String thumb = storageService.ensureProductThumbnail(product.getMainImage());
+            if (!Objects.equals(product.getThumbImage(), thumb)) {
+                productMapper.update(null, Wrappers.<Product>lambdaUpdate()
+                        .eq(Product::getId, product.getId())
+                        .set(Product::getThumbImage, thumb));
+                cacheHelper.evict(cacheKey(product.getId()));
+                updated++;
+            }
+        }
+        List<ProductSku> skus = productSkuMapper.selectList(Wrappers.<ProductSku>lambdaQuery()
+                .ne(ProductSku::getImage, ""));
+        for (ProductSku sku : skus) {
+            String thumb = storageService.ensureProductThumbnail(sku.getImage());
+            if (!Objects.equals(sku.getThumbImage(), thumb)) {
+                productSkuMapper.update(null, Wrappers.<ProductSku>lambdaUpdate()
+                        .eq(ProductSku::getId, sku.getId())
+                        .set(ProductSku::getThumbImage, thumb));
+                cacheHelper.evict(cacheKey(sku.getProductId()));
+                updated++;
+            }
+        }
+        return updated;
     }
 
     @Override
@@ -197,6 +242,7 @@ public class ProductServiceImpl implements ProductService {
         Product product = new Product();
         product.setMerchantId(merchantId);
         apply(product, request);
+        product.setThumbImage(storageService.ensureProductThumbnail(product.getMainImage()));
         product.setSales(0);
         // 新商品还没有规格，价格与库存先落在它的默认 SKU 上
         product.setHasSpecs(0);
@@ -213,7 +259,12 @@ public class ProductServiceImpl implements ProductService {
     @Transactional
     public Product update(Long id, ProductRequest request, Long merchantId) {
         Product product = requireOwned(id, merchantId);
+        String previousMainImage = product.getMainImage();
         apply(product, request);
+        if (!Objects.equals(previousMainImage, product.getMainImage())
+                || !StringUtils.hasText(product.getThumbImage())) {
+            product.setThumbImage(storageService.ensureProductThumbnail(product.getMainImage()));
+        }
         productMapper.updateById(product);
         // 单规格商品的价与库存也挂在它那条默认 SKU 上，得跟着改（里面会一并刷库存计数器）。
         // 配了多规格的商品这里什么都不做 —— 那种要走管理端的分规格接口

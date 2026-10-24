@@ -4,8 +4,15 @@ import org.springframework.web.multipart.MultipartFile;
 
 public interface StorageService {
 
-    /** @return 可直接放进商品 main_image 的公网 URL */
+    /** @return 可直接放进商品 main_image 的公网 URL；上传时会顺带生成列表缩略图 */
     String uploadProductImage(MultipartFile file);
+
+    /**
+     * 为商品/SKU 图片生成 400×400 列表缩略图（中心裁切）。
+     * 只处理本系统 MinIO 里的 products/ 对象；空图、外链、生成失败都返回空串，
+     * 由调用方回落到原图 URL —— 缩略图失败不能影响商品保存。
+     */
+    String ensureProductThumbnail(String imageUrl);
 
     /** @return 可直接放进 users.avatar 的公网 URL。单独一个方法是为了限制大小与目录 */
     String uploadAvatar(MultipartFile file);

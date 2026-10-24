@@ -1,5 +1,6 @@
 package com.tsuk1.itsmygo.service;
 
+import com.tsuk1.itsmygo.dto.BrandView;
 import com.tsuk1.itsmygo.dto.PageResponse;
 import com.tsuk1.itsmygo.dto.ProductRequest;
 import com.tsuk1.itsmygo.dto.StockView;
@@ -12,18 +13,19 @@ public interface ProductService {
     /**
      * 商品分页。
      *
+     * @param brand               非空时只看该品牌；null 表示不按品牌过滤
      * @param onlyOnSale          顾客端传 true（只看上架），管理端传 false
      * @param merchantId          非空时只看该商户；null 表示不按商户过滤
      * @param onlyActiveMerchant  顾客端传 true（店铺必须 ACTIVE），管理端传 false
      */
-    PageResponse<Product> page(int page, int size, Long categoryId, String keyword,
+    PageResponse<Product> page(int page, int size, Long categoryId, String keyword, String brand,
                                boolean onlyOnSale, Long merchantId, boolean onlyActiveMerchant);
 
-    /** 兼容旧调用：不按商户过滤、不校验店铺状态（平台管理端语义） */
-    default PageResponse<Product> page(int page, int size, Long categoryId, String keyword,
-                                       boolean onlyOnSale) {
-        return page(page, size, categoryId, keyword, onlyOnSale, null, false);
-    }
+    /** 品牌专区：在售商品的品牌聚合（数量降序） */
+    List<BrandView> brands();
+
+    /** 为存量商品与 SKU 图片补生成缩略图；返回更新条数 */
+    int backfillThumbnails();
 
     /** 管理端商品运营列表：支持上架状态与低库存筛选（低库存按 SKU stock <= 10）。 */
     PageResponse<Product> pageForAdmin(int page, int size, Long categoryId, String keyword,

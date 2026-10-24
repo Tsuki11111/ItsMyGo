@@ -25,9 +25,15 @@ public class Product {
 
     private String name;
 
+    /** 品牌专区按它筛选；空串表示未归类 */
+    private String brand;
+
     private String subtitle;
 
     private String mainImage;
+
+    /** 列表页用的 400×400 缩略图；空串表示未生成，前端回落到 mainImage */
+    private String thumbImage;
 
     /** 汇总值：在售 SKU 的最低价。单规格商品就是它自己的价格。真相在 {@code product_skus} */
     private BigDecimal price;

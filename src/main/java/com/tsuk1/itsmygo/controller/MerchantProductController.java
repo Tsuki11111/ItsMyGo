@@ -46,7 +46,7 @@ public class MerchantProductController {
             @RequestParam(required = false) Long categoryId,
             @RequestParam(required = false) String keyword) {
         Long merchantId = requireMerchant(user);
-        return Result.ok(productService.page(page, size, categoryId, keyword, false,
+        return Result.ok(productService.page(page, size, categoryId, keyword, null, false,
                 merchantId, false));
     }
 

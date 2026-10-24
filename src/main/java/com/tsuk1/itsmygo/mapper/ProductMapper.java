@@ -1,11 +1,26 @@
 package com.tsuk1.itsmygo.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.tsuk1.itsmygo.dto.BrandView;
 import com.tsuk1.itsmygo.entity.Product;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
+import java.util.List;
+
 public interface ProductMapper extends BaseMapper<Product> {
+
+    /** 品牌专区：只统计顾客端可见的商品（上架 + 店铺 ACTIVE），按数量降序 */
+    @Select("""
+            SELECT p.brand AS name, COUNT(*) AS count
+            FROM products p
+            JOIN merchants m ON m.id = p.merchant_id
+            WHERE p.status = 1 AND p.brand <> '' AND m.status = 'ACTIVE'
+            GROUP BY p.brand
+            ORDER BY count DESC, p.brand
+            """)
+    List<BrandView> selectBrandCounts();
 
     /**
      * 商品**汇总字段**的增量更新（下单扣减时）。

@@ -127,7 +127,7 @@ onMounted(load)
             @click="router.push(`/product/${item.id}`)"
           >
             <div class="thumb">
-              <ProductImage :src="item.mainImage" :name="item.name" :id="item.id" />
+              <ProductImage :src="item.thumbImage || item.mainImage" :name="item.name" :id="item.id" />
             </div>
             <p class="p-name">{{ item.name }}</p>
             <p v-if="item.subtitle" class="p-sub">{{ item.subtitle }}</p>

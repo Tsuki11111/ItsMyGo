@@ -9,20 +9,23 @@ import ProductImage from '@/components/ProductImage.vue'
 import bannerNewUser from '@/assets/banners/new-user.webp'
 import bannerPrinter from '@/assets/banners/printer.webp'
 import bannerOffice from '@/assets/banners/office-festival.webp'
-import { fetchCategoryTree, fetchProducts } from '@/api/product'
-import type { CategoryNode, Product } from '@/api/types'
+import { fetchBrands, fetchCategoryTree, fetchProducts } from '@/api/product'
+import type { BrandView, CategoryNode, Product } from '@/api/types'
 
 const route = useRoute()
 const router = useRouter()
 
 const products = ref<Product[]>([])
 const categories = ref<CategoryNode[]>([])
+const brands = ref<BrandView[]>([])
 const total = ref(0)
 const page = ref(1)
 const size = ref(12)
 const categoryId = ref<number | undefined>(undefined)
-/** 当前搜索词。品牌专区点进来时会带上它 */
+/** 当前搜索词。普通搜索用，品牌专区不再走关键词 */
 const keyword = ref('')
+/** 当前品牌筛选；空串表示全部品牌 */
+const brandFilter = ref('')
 /** 首屏 / 换筛选条件时的加载（显示遮罩） */
 const loading = ref(false)
 /** 往下滑时追加下一页（不遮罩，只在底部提示） */
@@ -58,11 +61,31 @@ const banners = [
 ]
 
 /**
- * 品牌专区。**暂时硬编码** —— 后端还没有品牌表，所以这里只放商品名里
- * 真实出现过的词，点进去才搜得到东西。将来要让商户自己维护，
- * 就得建 brands 表 + 商品关联 + 管理端接口。
+ * 品牌图标：从搜索引擎抓取后统一裁成 160×160，存在 MinIO 的 brands/ 下。
+ * 后端返回的品牌名与这里的键不一致时，退回「首字色块」占位。
  */
-const BRANDS = ['奔图', '联想', '兄弟', '至像', 'H3C', 'Aolynk', 'HUAWEI']
+const BRAND_LOGO_BASE = 'http://localhost:9000/its-my-go-product-images/brands'
+const BRAND_LOGOS: Record<string, string> = {
+  奔图: `${BRAND_LOGO_BASE}/pantum.png`,
+  联想: `${BRAND_LOGO_BASE}/lenovo.png`,
+  至像: `${BRAND_LOGO_BASE}/zhixiang.png`,
+  兄弟: `${BRAND_LOGO_BASE}/brother.png`,
+  华为: `${BRAND_LOGO_BASE}/huawei.png`,
+  H3C: `${BRAND_LOGO_BASE}/h3c.png`,
+  Aolynk: `${BRAND_LOGO_BASE}/aolynk.png`,
+  'RS PRO': `${BRAND_LOGO_BASE}/rspro.png`,
+}
+const failedLogos = ref<string[]>([])
+
+function logoOf(name: string): string | undefined {
+  return failedLogos.value.includes(name) ? undefined : BRAND_LOGOS[name]
+}
+
+function onLogoError(name: string) {
+  if (!failedLogos.value.includes(name)) {
+    failedLogos.value = [...failedLogos.value, name]
+  }
+}
 
 /** 品牌色块用的渐变，跟无图占位同一套（见 ProductImage.vue） */
 const BRAND_GRADIENTS = [
@@ -73,9 +96,16 @@ const BRAND_GRADIENTS = [
 ]
 
 const currentCategoryName = computed(() => {
+  if (brandFilter.value) return `${brandFilter.value} 品牌商品`
   if (keyword.value) return `“${keyword.value}” 的搜索结果`
   if (categoryId.value === undefined) return '全部商品'
   return categories.value.find((c) => c.id === categoryId.value)?.name ?? '全部商品'
+})
+
+const emptyText = computed(() => {
+  if (brandFilter.value) return `「${brandFilter.value}」暂无在售商品`
+  if (keyword.value) return '没有找到相关商品'
+  return '这个分类下还没有商品'
 })
 
 /**
@@ -95,6 +125,7 @@ async function load(reset: boolean) {
       size: size.value,
       categoryId: categoryId.value,
       keyword: keyword.value || undefined,
+      brand: brandFilter.value || undefined,
     })
     products.value = reset ? result.records : [...products.value, ...result.records]
     total.value = result.total
@@ -128,6 +159,7 @@ function applyQuery() {
   const query = route.query
   categoryId.value = query.categoryId ? Number(query.categoryId) : undefined
   keyword.value = typeof query.keyword === 'string' ? query.keyword : ''
+  brandFilter.value = typeof query.brand === 'string' ? query.brand : ''
   return load(true)
 }
 
@@ -145,7 +177,9 @@ const sentinel = ref<HTMLElement | null>(null)
 let observer: IntersectionObserver | null = null
 
 onMounted(async () => {
-  categories.value = await fetchCategoryTree()
+  const [categoryList, brandList] = await Promise.all([fetchCategoryTree(), fetchBrands()])
+  categories.value = categoryList
+  brands.value = brandList
   applyQuery()
 
   observer = new IntersectionObserver(
@@ -207,23 +241,35 @@ onBeforeUnmount(() => observer?.disconnect())
         </el-carousel>
       </div>
 
-      <!-- 品牌专区：点进去就是「搜这个品牌」，复用列表页现成的筛选 -->
+      <!-- 品牌专区：按商品品牌精确筛选，和关键词搜索分开 -->
       <aside class="brand-panel">
         <div class="brand-head">品牌专区</div>
         <div class="brand-grid">
           <RouterLink
-            v-for="(brand, index) in BRANDS"
-            :key="brand"
-            :to="{ path: '/', query: { keyword: brand } }"
+            v-for="(item, index) in brands"
+            :key="item.name"
+            :to="{ path: '/', query: { brand: item.name } }"
             class="brand-item"
+            :class="{ active: brandFilter === item.name }"
+            :title="`${item.name} · ${item.count} 件商品`"
           >
             <span
               class="brand-mark"
-              :style="{ background: BRAND_GRADIENTS[index % BRAND_GRADIENTS.length] }"
+              :class="{ 'brand-mark--fallback': !logoOf(item.name) }"
+              :style="!logoOf(item.name)
+                ? { background: BRAND_GRADIENTS[index % BRAND_GRADIENTS.length] }
+                : undefined"
             >
-              {{ brand.charAt(0) }}
+              <img
+                v-if="logoOf(item.name)"
+                class="brand-logo"
+                :src="logoOf(item.name)"
+                :alt="item.name"
+                @error="onLogoError(item.name)"
+              />
+              <template v-else>{{ item.name.charAt(0) }}</template>
             </span>
-            <span class="brand-name">{{ brand }}</span>
+            <span class="brand-name">{{ item.name }}</span>
           </RouterLink>
         </div>
       </aside>
@@ -241,7 +287,7 @@ onBeforeUnmount(() => observer?.disconnect())
           @click="goDetail(product)"
         >
           <div class="thumb">
-            <ProductImage :src="product.mainImage" :name="product.name" :id="product.id" />
+            <ProductImage :src="product.thumbImage || product.mainImage" :name="product.name" :id="product.id" />
           </div>
 
           <div class="info">
@@ -261,7 +307,7 @@ onBeforeUnmount(() => observer?.disconnect())
         </article>
       </div>
 
-      <el-empty v-if="!loading && products.length === 0" description="这个分类下还没有商品" />
+      <el-empty v-if="!loading && products.length === 0" :description="emptyText" />
 
       <!-- 滚到底部的加载哨兵：IntersectionObserver 盯着它，进视口就去拉下一页 -->
       <div ref="sentinel" class="load-more">
@@ -413,7 +459,7 @@ onBeforeUnmount(() => observer?.disconnect())
   flex: 1;
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  /* 行高均分：七个品牌排不满时，别让下半截空着 */
+  /* 行高均分：品牌不多时也别让下半截空着 */
   grid-auto-rows: 1fr;
   gap: 6px;
   padding: 10px;
@@ -431,13 +477,19 @@ onBeforeUnmount(() => observer?.disconnect())
   transition: background 0.14s;
 }
 
-.brand-item:hover {
+.brand-item:hover,
+.brand-item.active {
   background: var(--c-pink-tint);
 }
 
+.brand-item.active .brand-mark {
+  outline: 2px solid rgba(232, 99, 143, 0.35);
+  outline-offset: 1px;
+}
+
 .brand-mark {
-  width: 42px;
-  height: 42px;
+  width: 48px;
+  height: 48px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -445,6 +497,24 @@ onBeforeUnmount(() => observer?.disconnect())
   font-weight: 600;
   color: rgba(232, 99, 143, 0.55);
   border-radius: var(--radius-tag);
+  background: #fff;
+  border: 1px solid var(--c-border);
+  padding: 4px;
+  box-sizing: border-box;
+  box-shadow: 0 1px 3px rgba(157, 47, 86, 0.06);
+}
+
+.brand-mark--fallback {
+  padding: 0;
+  border: none;
+  box-shadow: none;
+}
+
+.brand-logo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .brand-name {

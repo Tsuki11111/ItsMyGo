@@ -73,7 +73,7 @@ public class AgentCatalogServiceImpl implements AgentCatalogService {
 
         // 多取一些候选，价格区间与推荐排序在内存里做（演示目录量级足够）
         List<Product> products = productService.page(1, 50, categoryId, keyword,
-                true, null, true).records();
+                null, true, null, true).records();
         if (products.isEmpty()) {
             return List.of();
         }
@@ -91,7 +91,7 @@ public class AgentCatalogServiceImpl implements AgentCatalogService {
     public List<AgentProductView> listAll(int limit) {
         int safeLimit = clamp(limit, 1, 100);
         List<Product> products = productService.page(1, safeLimit, null, null,
-                true, null, true).records();
+                null, true, null, true).records();
         return enrich(products);
     }
 

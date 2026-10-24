@@ -39,6 +39,9 @@ public class ProductSku {
     /** 规格图，空则回落到商品主图 */
     private String image;
 
+    /** 规格图的列表缩略图；空串表示未生成，前端回落到 image */
+    private String thumbImage;
+
     /** 1 在售 / 0 停用 */
     private Integer status;
 

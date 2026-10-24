@@ -16,9 +16,11 @@ import com.tsuk1.itsmygo.mapper.ProductSpecMapper;
 import com.tsuk1.itsmygo.mapper.ProductSpecValueMapper;
 import com.tsuk1.itsmygo.service.ProductSkuService;
 import com.tsuk1.itsmygo.service.StockService;
+import com.tsuk1.itsmygo.service.StorageService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -55,16 +57,19 @@ public class ProductSkuServiceImpl implements ProductSkuService {
     private final ProductSkuMapper skuMapper;
     private final RedisCacheHelper cacheHelper;
     private final StockService stockService;
+    private final StorageService storageService;
 
     public ProductSkuServiceImpl(ProductMapper productMapper, ProductSpecMapper specMapper,
                                  ProductSpecValueMapper valueMapper, ProductSkuMapper skuMapper,
-                                 RedisCacheHelper cacheHelper, StockService stockService) {
+                                 RedisCacheHelper cacheHelper, StockService stockService,
+                                 StorageService storageService) {
         this.productMapper = productMapper;
         this.specMapper = specMapper;
         this.valueMapper = valueMapper;
         this.skuMapper = skuMapper;
         this.cacheHelper = cacheHelper;
         this.stockService = stockService;
+        this.storageService = storageService;
     }
 
     // ── 读 ──
@@ -113,6 +118,7 @@ public class ProductSkuServiceImpl implements ProductSkuService {
         sku.setStock(product.getStock());
         sku.setSales(0);
         sku.setImage(nullToEmpty(product.getMainImage()));
+        sku.setThumbImage(nullToEmpty(product.getThumbImage()));
         sku.setStatus(1);
         skuMapper.insert(sku);
     }
@@ -150,6 +156,7 @@ public class ProductSkuServiceImpl implements ProductSkuService {
         sku.setPrice(product.getPrice());
         sku.setStock(product.getStock());
         sku.setImage(nullToEmpty(product.getMainImage()));
+        sku.setThumbImage(nullToEmpty(product.getThumbImage()));
         skuMapper.updateById(sku);
         // 库存计数器是**独立的一份状态**，粒度又是 SKU —— 不刷的话顾客看到的还是旧数字。
         // ⚠️ 这里必须用 sku.getId()，传商品 id 过去查到的是另一条 SKU（或者什么都查不到）。
@@ -301,7 +308,14 @@ public class ProductSkuServiceImpl implements ProductSkuService {
             sku.setSpecValueIds(key);
             sku.setSpecText(buildSpecText(idsByKey.get(key), meta));
             sku.setPrice(payload.price());
-            sku.setImage(nullToEmpty(payload.image()));
+            String newImage = nullToEmpty(payload.image());
+            sku.setImage(newImage);
+            // 图片换过、或者老数据还没缩略图时才生成；避免每次改价都重跑一遍
+            if (existing == null
+                    || !Objects.equals(existing.getImage(), newImage)
+                    || !StringUtils.hasText(existing.getThumbImage())) {
+                sku.setThumbImage(storageService.ensureProductThumbnail(newImage));
+            }
 
             if (existing == null) {
                 sku.setStock(payload.stock());

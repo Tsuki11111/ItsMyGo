@@ -79,7 +79,10 @@ class CacheAsideTest {
         });
         // 只把 Mapper 换成计数版，缓存用的还是真实那一个
         ProductServiceImpl countingService =
-                new ProductServiceImpl(countingMapper, bloomFilter, cacheHelper, stockService, productSkuService, merchantMapper);
+                new ProductServiceImpl(countingMapper,
+                        Mockito.mock(com.tsuk1.itsmygo.mapper.ProductSkuMapper.class), bloomFilter,
+                        cacheHelper, stockService, productSkuService, merchantMapper,
+                        Mockito.mock(com.tsuk1.itsmygo.service.StorageService.class));
 
         countingService.detailForCustomer(createdProductId);
         countingService.detailForCustomer(createdProductId);

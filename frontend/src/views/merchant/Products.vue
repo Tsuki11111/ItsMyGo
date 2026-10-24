@@ -157,7 +157,7 @@ onMounted(async () => {
       <el-table-column label="主图" width="80" align="center">
         <template #default="{ row }">
           <div class="thumb">
-            <ProductImage :src="row.mainImage" :name="row.name" :id="row.id" />
+            <ProductImage :src="row.thumbImage || row.mainImage" :name="row.name" :id="row.id" />
           </div>
         </template>
       </el-table-column>

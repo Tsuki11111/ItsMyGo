@@ -19,6 +19,12 @@ export interface PageResponse<T> {
   size: number
 }
 
+/** 品牌专区：品牌名 + 在售商品数 */
+export interface BrandView {
+  name: string
+  count: number
+}
+
 /** 登录 / 注册成功后返回：JWT + 身份信息 */
 export interface AuthResult {
   token: string
@@ -55,8 +61,12 @@ export interface Product {
   merchantId: number
   categoryId: number
   name: string
+  /** 品牌专区按它筛选；空串表示未归类 */
+  brand: string
   subtitle: string
   mainImage: string
+  /** 列表用缩略图；空串回落到 mainImage */
+  thumbImage: string
   /** 后端是 DECIMAL / BigDecimal，序列化成 JSON 数字。
    *  本项目金额量级远小于 2^53，用 number 安全；真做金融系统应该让它序列化成字符串。 */
   price: number
@@ -106,6 +116,8 @@ export interface ProductSku {
   stock: number
   sales: number
   image: string
+  /** 规格图缩略图；空串回落到 image */
+  thumbImage: string
   status: number
 }
 

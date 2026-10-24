@@ -1,12 +1,17 @@
 package com.tsuk1.itsmygo;
 
+import tools.jackson.databind.JsonNode;
 import com.tsuk1.itsmygo.dto.CategoryRequest;
 import com.tsuk1.itsmygo.dto.ProductRequest;
+import com.tsuk1.itsmygo.entity.Product;
+import com.tsuk1.itsmygo.mapper.ProductMapper;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 
 import java.math.BigDecimal;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -15,6 +20,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class ProductControllerTest extends ApiTestBase {
+
+    @Autowired
+    private ProductMapper productMapper;
 
     private long createCategory(String adminToken, String name) throws Exception {
         String body = mockMvc.perform(post("/api/admin/categories")
@@ -119,6 +127,37 @@ class ProductControllerTest extends ApiTestBase {
 
         mockMvc.perform(get("/api/products").param("keyword", "nothing-matches"))
                 .andExpect(jsonPath("$.data.total").value(0));
+    }
+
+    @Test
+    void brandZoneAggregatesAndFiltersProducts() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        long categoryId = createCategory(admin, "Printers");
+        long pantumId = createProduct(admin, categoryId, "Pantum A", "", "10.00", true);
+        long lenovoId = createProduct(admin, categoryId, "Lenovo A", "", "20.00", true);
+        setBrand(pantumId, "奔图");
+        setBrand(lenovoId, "联想");
+
+        // 品牌筛选是精确匹配，不再依赖商品名里出现品牌词
+        mockMvc.perform(get("/api/products").param("brand", "奔图"))
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.records[0].id").value(pantumId));
+
+        String body = mockMvc.perform(get("/api/products/brands"))
+                .andExpect(jsonPath("$.code").value(200))
+                .andReturn().getResponse().getContentAsString();
+        JsonNode brands = objectMapper.readTree(body).path("data");
+        assertThat(brands).hasSize(2);
+        assertThat(brands).extracting(node -> node.path("name").asText())
+                .containsExactlyInAnyOrder("奔图", "联想");
+        assertThat(brands).allMatch(node -> node.path("count").asLong() == 1L);
+    }
+
+    private void setBrand(long productId, String brand) {
+        Product patch = new Product();
+        patch.setId(productId);
+        patch.setBrand(brand);
+        productMapper.updateById(patch);
     }
 
     @Test
