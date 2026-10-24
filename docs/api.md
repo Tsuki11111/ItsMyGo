@@ -800,6 +800,7 @@ Authorization: Bearer <token>
 | 方法 | 路径 | 请求/参数 | 返回 |
 |---|---|---|---|
 | GET | `/api/admin/merchants` | `page=1, size=10, status?, keyword?` | `PageResponse<AdminMerchantView>` |
+| GET | `/api/admin/merchants/{id}/operations` | — | `AdminMerchantOperationsView` |
 | POST | `/api/admin/merchants/{id}/approve` | — | `null` |
 | POST | `/api/admin/merchants/{id}/reject` | `{reason}` | `null` |
 | POST | `/api/admin/merchants/{id}/disable` | — | `null` |
@@ -810,14 +811,17 @@ Authorization: Bearer <token>
 - 审核/禁用后对应的授权缓存立即失效。
 - `ship-address` 可用于所有商户，包括平台自营（id=1）；平台自营没有店主账号，
   只能从这里设置发货地址。
+- `AdminMerchantView` 额外带 `gmv30 / orders30 / refunding30 / onSaleProducts /
+  lowStockSkus`；`operations` 返回 30 天 KPI、近 7 天趋势、热销商品 Top 5 与最近 5 笔订单。
 
 ### 17.3 商品与 SKU
 
 | 方法 | 路径 | 请求/参数 | 返回 |
 |---|---|---|---|
-| GET | `/api/admin/products` | `page=1, size=20, categoryId?, keyword?, merchantId?` | `PageResponse<Product>` |
+| GET | `/api/admin/products` | `page=1, size=20, categoryId?, keyword?, merchantId?, status?, lowStock?` | `PageResponse<Product>` |
 | POST | `/api/admin/products` | `ProductRequest` + query `merchantId=1` | `Product` |
 | PUT | `/api/admin/products/{id}` | `ProductRequest` | `Product` |
+| PUT | `/api/admin/products/batch-status` | `{ids:[...], onSale}` | `number`（更新数量，最多 100 个） |
 | DELETE | `/api/admin/products/{id}` | — | `null` |
 | GET | `/api/admin/products/{id}/skus` | — | `ProductSkuView` |
 | PUT | `/api/admin/products/{id}/skus` | `SkuSaveRequest` | `ProductSkuView` |
@@ -825,6 +829,8 @@ Authorization: Bearer <token>
 | POST | `/api/admin/products/rebuild-bloom` | — | `number`（重建数量） |
 
 - 管理端可查看/管理全部店铺商品，并可按 `merchantId` 筛选。
+- `status`：1 上架 / 0 下架；`lowStock=true` 只返回有 SKU `stock <= 10` 的商品。
+- 批量上下架只改商品状态，更新后清商品详情缓存；单个商品仍可走 `PUT /{id}`。
 - 新建商品默认归属平台自营（merchantId=1），也可显式指定。
 - `rebuild-bloom` 用于修复手工 SQL/导入脚本写入、未进入布隆过滤器的商品。
 

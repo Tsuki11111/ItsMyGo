@@ -1522,6 +1522,34 @@ error_message/ip/user_agent/trace_id/detail/created_at`；`users` 增加
 最后管理员保护）；`AdminAuditControllerTest` 2 条（成功/失败写审计、GET 不审计）；
 浏览器实测用户页与审计页，审计记录带操作人、目标、结果、IP 与 traceId。
 
+### 3.30 商户经营与商品运营（M19，2026-10-24）
+
+**目标**：管理后台从「能改数据」升级为「能看经营、能快速处理」。
+
+**商户经营**：
+- V26 增加 `orders(merchant_id, paid_at)`、`orders(merchant_id, created_at)`、
+  `product_skus(status, stock)` 索引。
+- `AdminOperationsMapper` 提供批量商户聚合：
+  近 30 天 GMV / 订单数 / 退款订单数，以及在售商品数 / 低库存 SKU 数；
+  `MerchantServiceImpl.pageForAdmin` 先分页再按本页 merchantId 批量回填，避免 N+1。
+- `AdminMerchantView` 增加上述统计字段；`GET /api/admin/merchants/{id}/operations`
+  返回商户信息、30 天 KPI、近 7 天趋势、热销商品 Top 5、最近 5 笔订单。
+- 前端商户列表增加经营列；`MerchantOperationsDrawer.vue` 展示 KPI、趋势图、
+  热销商品和最近订单，并提供「查看该店商品 / 订单」入口（带 merchantId query）。
+
+**商品运营**：
+- `GET /api/admin/products` 增加 `status`（上架 / 下架）和 `lowStock` 参数；
+  低库存用 `EXISTS (SELECT 1 FROM product_skus ... stock <= 10)`，不改变商品级库存语义。
+- `PUT /api/admin/products/batch-status`：一次最多 100 个商品，批量设置上架状态，
+  更新后清商品详情缓存；`@AdminAudit` 记录 `PRODUCT_BATCH_STATUS`。
+- 前端商品页增加状态 / 低库存筛选、表格多选与批量上架 / 下架；
+  行内「库存」对单 SKU 商品打开 `StockAdjustDialog`，多规格商品转到规格编辑器。
+- 看板低库存卡片与低库存列表跳转 `/admin/products?lowStock=1`，商品页读取 query 后自动筛选。
+
+**验证**：`AdminMerchantOperationsControllerTest` 1 条（列表统计 + 详情趋势）；
+`ProductControllerTest` 新增低库存筛选 + 批量下架用例；全量测试通过；
+浏览器实测商户经营抽屉、低库存筛选、批量栏和行内库存弹窗。
+
 ---
 
 ## 4. 前端（`frontend/`）
