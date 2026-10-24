@@ -1,0 +1,10 @@
+# 生产 profile：JSON 日志 + 关闭 SQL 明细
+#
+# 启动：SPRING_PROFILES_ACTIVE=prod
+# 日志文件：logs/its-my-go.log（按天/100MB 滚动，保留 14 天）
+logging:
+  level:
+    root: info
+    com.tsuk1.itsmygo: info
+    # SQL 参数可能含手机号/地址，生产不要开 DEBUG
+    com.tsuk1.itsmygo.mapper: info

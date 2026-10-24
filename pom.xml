@@ -32,6 +32,7 @@
         <jjwt.version>0.13.0</jjwt.version>
         <grpc.version>1.68.2</grpc.version>
         <protobuf.version>3.25.5</protobuf.version>
+        <logstash-logback.version>8.1</logstash-logback.version>
     </properties>
     <dependencyManagement>
         <dependencies>
@@ -147,6 +148,13 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-amqp</artifactId>
+        </dependency>
+
+        <!-- 生产日志输出 JSON，便于 Loki / ELK 采集 -->
+        <dependency>
+            <groupId>net.logstash.logback</groupId>
+            <artifactId>logstash-logback-encoder</artifactId>
+            <version>${logstash-logback.version}</version>
         </dependency>
         <!-- grpc 生成代码里的 @javax.annotation.Generated -->
         <dependency>

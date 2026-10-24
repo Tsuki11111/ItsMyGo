@@ -1,9 +1,15 @@
 package com.tsuk1.itsmygo.common.order;
 
+import com.tsuk1.itsmygo.common.logging.RequestIdFilter;
 import com.tsuk1.itsmygo.service.OrderService;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
+import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+
+import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 
 /**
  * 消费超时关单消息：按 orderId 做幂等取消。
@@ -23,8 +29,18 @@ public class OrderTimeoutConsumer {
     }
 
     @RabbitListener(queues = OrderTimeoutRabbitTopology.WORK_QUEUE)
-    public void onMessage(String payload) {
-        handlePayload(payload);
+    public void onMessage(Message message) {
+        String traceId = (String) message.getMessageProperties().getHeaders()
+                .get(RequestIdFilter.TRACE_HEADER);
+        if (traceId == null || traceId.isBlank()) {
+            traceId = "mq-" + UUID.randomUUID().toString().replace("-", "");
+        }
+        MDC.put(RequestIdFilter.TRACE_ID, traceId);
+        try {
+            handlePayload(new String(message.getBody(), StandardCharsets.UTF_8));
+        } finally {
+            MDC.remove(RequestIdFilter.TRACE_ID);
+        }
     }
 
     void handlePayload(String payload) {

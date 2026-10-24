@@ -1,8 +1,10 @@
 package com.tsuk1.itsmygo.common.order;
 
 import com.tsuk1.itsmygo.common.RedisCacheHelper;
+import com.tsuk1.itsmygo.common.logging.RequestIdFilter;
 import com.tsuk1.itsmygo.service.OrderService;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
@@ -44,6 +46,16 @@ public class OrderTimeoutScanJob {
 
     @Scheduled(fixedDelayString = "${itsmygo.order-timeout.scan-interval-ms:300000}")
     public void scan() {
+        MDC.put(RequestIdFilter.TRACE_ID,
+                "scan-" + UUID.randomUUID().toString().replace("-", ""));
+        try {
+            doScan();
+        } finally {
+            MDC.remove(RequestIdFilter.TRACE_ID);
+        }
+    }
+
+    private void doScan() {
         String token = UUID.randomUUID().toString();
         Boolean locked;
         try {
