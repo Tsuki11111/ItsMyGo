@@ -1613,6 +1613,39 @@ rag_helper 的 8001 导入服务；`AGENT_GRPC_KEY` / `AGENT_IMPORT_KEY` 只留�
 扩展名在 Java 侧被挡）；启动 8001 后实测文档列表 9 份、重复 PDF 正确查重、
 中文文件名透传正常；前端构建通过。
 
+### 3.32 管理员治理：bootstrap + 邀请 + 授权审计（2026-10-25）
+
+**目标**：管理员不再靠手工 SQL 开通；首个管理员由部署引导，后续走「邀请 → 另一位
+管理员批准 → 被邀请人接受」，每一步留痕。
+
+**bootstrap**（`AdminBootstrapRunner`）：
+- `.env` 配 `BOOTSTRAP_ADMIN_USERNAME` / `BOOTSTRAP_ADMIN_PASSWORD`；
+- 只有库中**没有活跃 ADMIN** 时才创建，已有管理员绝不覆盖；
+- 用户名已存在但不是 ADMIN 时拒绝自动提升（防止环境变量成为隐式提权入口）；
+- 密码沿用 8–64 位、字母+数字策略。
+
+**邀请**（V29 `admin_invitations`）：
+- 管理员只能邀请 `CUSTOMER` 且状态正常的账号；
+- 发起 → `PENDING_APPROVAL`；必须由**另一位**管理员批准 → `APPROVED`；
+- 被邀请人登录后带 token 接受 → 角色改 `ADMIN`、状态 `ACCEPTED`；
+- token 32 字节随机、只存 SHA-256，明文只在创建响应返回一次；默认 24 小时过期
+  （`ADMIN_INVITE_EXPIRY_HOURS`）；
+- 状态还有 `REVOKED` / `EXPIRED`；接受后旧 JWT 里的 role 仍是 CUSTOMER，
+  **必须重新登录**，服务层主动清授权快照。
+
+**接口与页面**：
+- `/api/admin/invitations`：创建 / 列表 / 批准 / 撤回（ADMIN）；
+- `/api/user/admin-invitation/accept`：被邀请人接受（登录即可，不要求 ADMIN）；
+- `/admin/invitations`：发起、复制一次性链接、批准 / 撤回；
+- `/admin-invite?token=...`：被邀请人接受页，成功后登出重登。
+
+**审计**：发起 / 批准 / 撤回走 `@AdminAudit`（`ADMIN_INVITE_*`）；
+接受是用户动作，服务内手动写 `ADMIN_INVITE_ACCEPT`（含 actor、目标、traceId、IP/UA）。
+
+**验证**：`AdminBootstrapRunnerTest` 4 条（首次创建、已有管理员跳过、拒绝提升已有
+CUSTOMER、拒绝弱密码）；`AdminInvitationControllerTest` 2 条（自批被拒、另一位管理员
+批准、token 一次性、重新登录变 ADMIN；非顾客/不存在用户被拒）；端到端实测。
+
 ---
 
 ## 4. 前端（`frontend/`）
@@ -2023,7 +2056,7 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 **测试跑在独立的库和 Redis database 上**（`its_mygo_test` / db 1），跟开发环境彻底分开 ——
 为什么非分不可、怎么配的，见 HANDOFF §5.20。
 
-覆盖重点（当前 **243** 条；CI 上跳过 4 条依赖 MinIO 的，跑 239）：
+覆盖重点（当前 **249** 条；CI 上跳过 4 条依赖 MinIO 的，跑 245）：
 
 | 测试类 | 覆盖 |
 |---|---|
@@ -2058,6 +2091,8 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 | **`SkuStockConcurrencyTest`** | 10 人抢 5 件的单一 SKU（恰好 5 成功、Redis 与库都对得上）；**同商品两款互不串扰**（黑 3 件售罄不影响白 10 件） |
 | `StorageServiceTest` | 上传成功 + **URL 可匿名读取**；**上传后生成 400×400 缩略图**；拒绝非图片；顾客不能上传 |
 | `AdminKnowledgeControllerTest` | 管理员列表 / 上传代理；顾客 403；扩展名在 Java 侧先挡，不调用导入服务 |
+| `AdminBootstrapRunnerTest` | 无活跃管理员才创建；已有管理员跳过；不提升已存在的 CUSTOMER；弱密码跳过 |
+| `AdminInvitationControllerTest` | 发起 → 另一位管理员批准 → 被邀请人接受；自批被拒；token 一次性；重新登录变 ADMIN；非顾客/不存在用户被拒 |
 | `SharedRedisTest` | 共用 Redis 连通；key 前缀；**TTL 存在**（见 HANDOFF §5.5） |
 | `MyBatisPlusCompatibilityTest` | 一次完整 CRUD，验证 MP 在 Boot 4.1.1 上可用 |
 

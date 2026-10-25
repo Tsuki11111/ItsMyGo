@@ -19,6 +19,24 @@ export interface PageResponse<T> {
   size: number
 }
 
+export interface AdminInvitationView {
+  id: number
+  targetUserId: number
+  targetUsername: string
+  targetNickname: string
+  invitedBy: number
+  inviterUsername: string
+  approvedBy: number | null
+  approverUsername: string
+  status: string
+  expiresAt: string
+  approvedAt: string | null
+  acceptedAt: string | null
+  createdAt: string
+  /** 只在创建成功的响应里出现一次 */
+  token?: string
+}
+
 /** 品牌专区：品牌名 + 在售商品数 */
 export interface BrandView {
   name: string

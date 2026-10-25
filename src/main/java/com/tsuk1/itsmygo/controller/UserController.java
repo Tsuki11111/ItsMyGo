@@ -2,10 +2,12 @@ package com.tsuk1.itsmygo.controller;
 
 import com.tsuk1.itsmygo.common.Result;
 import com.tsuk1.itsmygo.common.ratelimit.RateLimit;
+import com.tsuk1.itsmygo.dto.AdminInvitationAcceptRequest;
 import com.tsuk1.itsmygo.dto.ChangePasswordRequest;
 import com.tsuk1.itsmygo.dto.ProfileView;
 import com.tsuk1.itsmygo.dto.UpdateProfileRequest;
 import com.tsuk1.itsmygo.security.CurrentUser;
+import com.tsuk1.itsmygo.service.AdminInvitationService;
 import com.tsuk1.itsmygo.service.UserService;
 import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -29,9 +31,11 @@ import org.springframework.web.multipart.MultipartFile;
 public class UserController {
 
     private final UserService userService;
+    private final AdminInvitationService invitationService;
 
-    public UserController(UserService userService) {
+    public UserController(UserService userService, AdminInvitationService invitationService) {
         this.userService = userService;
+        this.invitationService = invitationService;
     }
 
     @GetMapping("/profile")
@@ -50,6 +54,15 @@ public class UserController {
     public Result<Void> changePassword(@AuthenticationPrincipal CurrentUser user,
                                        @Valid @RequestBody ChangePasswordRequest request) {
         userService.changePassword(user.id(), request);
+        return Result.ok();
+    }
+
+    /** 被邀请人接受管理员邀请；成功后旧 JWT 仍带 CUSTOMER，前端应主动重新登录 */
+    @RateLimit(scene = "admin-invite-accept", limit = 10, windowSeconds = 60, byUser = true)
+    @PostMapping("/admin-invitation/accept")
+    public Result<Void> acceptAdminInvitation(@AuthenticationPrincipal CurrentUser user,
+                                              @Valid @RequestBody AdminInvitationAcceptRequest request) {
+        invitationService.accept(user, request.token());
         return Result.ok();
     }
 

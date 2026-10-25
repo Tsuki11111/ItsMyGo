@@ -96,7 +96,10 @@ PDF / Markdown 上传、重复查重、任务进度轮询、文档列表与撤�
 代理到 rag_helper 8001，**不新增 gRPC 契约**，浏览器仍只跟 Java 说话。
 **密码策略已收紧（2026-10-25）**：注册与改密的新密码至少 8 位，且必须同时包含
 字母和数字；登录不重新校验强度，历史账号（含演示账号 `123456`）仍可登录。
-后端 **自动化测试 243 条**。
+**管理员治理已完成（M24，2026-10-25）**：`BOOTSTRAP_ADMIN_*` 引导首个管理员；
+后续走「管理员邀请 → 另一位管理员批准 → 被邀请人接受」，V29 `admin_invitations`，
+token 只存哈希、一次性、默认 24h；发起/批准/撤回/接受全部审计。
+后端 **自动化测试 249 条**。
 
 **下一步：用户与操作审计**（用户已选）—— 用户列表 / 状态、操作审计等。
 M8 催退款已完成（2026-10-23）；通用动作层（`agent_actions` + 确认门）可继续承载
@@ -258,7 +261,12 @@ npm run dev          # → http://localhost:5173
 ```
 
 **演示账号**：`testuser` / `123456`（顾客）
-**管理员**：先注册，再提权成 ADMIN（提权后要重新登录）：
+**管理员**：
+- **首次部署**：`.env` 配 `BOOTSTRAP_ADMIN_USERNAME` / `BOOTSTRAP_ADMIN_PASSWORD`，
+  启动时**只有库中没有活跃管理员才会创建**，已有管理员绝不覆盖；密码至少 8 位且含字母和数字。
+- **后续开通**：管理员在 `/admin/invitations` 发起邀请 → **另一位管理员**批准 →
+  被邀请人登录后打开邀请链接接受，接受后重新登录生效。
+- **本地兜底 SQL**（仅测试/恢复用；提权后必须重新登录）：
 ```bash
 docker exec -i mysql sh -c 'mysql --default-character-set=utf8mb4 -utsuk1 -p"$MYSQL_PASSWORD" its_mygo' -e "UPDATE users SET role='ADMIN' WHERE username='testuser';"
 ```
@@ -1245,6 +1253,20 @@ AND ps.status = 1 AND ps.stock <= 10)`。V26 加了 `product_skus(status, stock)
 ---
 
 ## 6. 历史记录
+
+### 2026-10-25 · 管理员治理（M24）
+
+**bootstrap**：`AdminBootstrapRunner` 只在库中没有活跃 ADMIN 时创建
+`BOOTSTRAP_ADMIN_*`，用户名已存在但不是 ADMIN 时拒绝自动提升。
+
+**邀请**：V29 `admin_invitations`；管理员邀请普通顾客 → `PENDING_APPROVAL` →
+另一位管理员批准 → `APPROVED` → 被邀请人接受 → `ACCEPTED`。token 32 字节随机、
+只存 SHA-256、一次性、默认 24h；发起人不能自批；接受后重登生效。
+
+**页面**：`/admin/invitations`（发起/复制链接/批准/撤回）、`/admin-invite`（接受）。
+**审计**：发起/批准/撤回走 AOP；接受手动写 `ADMIN_INVITE_ACCEPT`。
+
+**验证**：bootstrap 4 条、邀请 2 条单测；端到端实测并清理测试账号；全量 249 条通过。
 
 ### 2026-10-25 · 密码强度策略
 

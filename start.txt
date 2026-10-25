@@ -131,10 +131,15 @@ cd /d/PycharmProjects/rag_helper
 # MinIO 控制台：http://localhost:9001
 #
 # 演示账号：testuser / 123456
-# 管理员：testuser 需要是 ADMIN 角色（见下方 SQL），提权后要重新登录
 #
-# 提权 SQL（只需执行一次）：
+# 管理员开通：
+# 1) 首次部署：在 .env 配 BOOTSTRAP_ADMIN_USERNAME / BOOTSTRAP_ADMIN_PASSWORD，
+#    启动时只有库中没有活跃 ADMIN 才会创建（已有管理员绝不覆盖）；
+# 2) 后续：管理员在 /admin/invitations 发起邀请 → 另一位管理员批准 →
+#    被邀请人登录后打开邀请链接接受，接受后重新登录生效。
+# 本地兜底 SQL（仅测试/恢复用）：
 # docker exec -i mysql sh -c 'mysql --default-character-set=utf8mb4 -utsuk1 -p"$MYSQL_PASSWORD" its_mygo' -e "UPDATE users SET role='ADMIN' WHERE username='testuser';"
+# 提权后必须重新登录（JWT 里的 role 不会自动刷新）。
 
 
 # ─────────────────────────────────────────────

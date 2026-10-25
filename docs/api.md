@@ -497,10 +497,13 @@ Authorization: Bearer <token>
 | GET | `/api/user/profile` | 登录 | — | `ProfileView` |
 | PUT | `/api/user/profile` | 登录 | `{nickname, phone?}` | `ProfileView` |
 | PUT | `/api/user/password` | 登录 | `{oldPassword, newPassword}` | `null` |
+| POST | `/api/user/admin-invitation/accept` | 登录 | `{token}` | `null`（角色变为 ADMIN，需重新登录） |
 | POST | `/api/user/avatar` | 登录 | multipart `file` | `ProfileView` |
 
 - 改密码：`newPassword` 同样要求 **8–64 位且含字母和数字**；旧密码只要求正确，
   兼容历史弱密码。成功后服务端不吊销 JWT，前端应主动退出登录。
+- 接受管理员邀请：要求当前登录用户就是邀请目标；邀请必须已由另一位管理员批准。
+  成功后角色改为 ADMIN，旧 JWT 仍是 CUSTOMER，**必须重新登录**；token 一次性。
 - 头像：jpg/jpeg/png/gif/webp，≤2MB，存 MinIO `avatars/`；限流 10 次/分钟/用户。
 
 ---
@@ -971,6 +974,26 @@ Authorization: Bearer <token>
   商品图上传仍在 `StorageService` 单独限制 5MB。
 - 上传 / 撤回写 `admin_audit_logs`（`KNOWLEDGE_UPLOAD` / `KNOWLEDGE_REVOKE`）；
   上传限流 5 次/60s/用户。撤回不可恢复。
+
+### 17.13 管理员邀请
+
+| 方法 | 路径 | 请求/参数 | 返回 |
+|---|---|---|---|
+| POST | `/api/admin/invitations` | `{username}` | `AdminInvitationView`（**含一次性 token**） |
+| GET | `/api/admin/invitations` | `status?` | `AdminInvitationView[]`（不含 token） |
+| POST | `/api/admin/invitations/{id}/approve` | — | `AdminInvitationView` |
+| POST | `/api/admin/invitations/{id}/revoke` | — | `AdminInvitationView` |
+
+- 仅 ADMIN；只能邀请角色为 `CUSTOMER` 且状态正常的账号。
+- 发起人**不能批准自己的邀请**，必须由另一位管理员批准。
+- 状态：`PENDING_APPROVAL → APPROVED → ACCEPTED`，另有 `REVOKED` / `EXPIRED`。
+- token 只存 SHA-256，明文只在创建响应出现一次；有效期默认 24 小时
+  （`ADMIN_INVITE_EXPIRY_HOURS`）。
+- 发起 / 批准 / 撤回写 `admin_audit_logs`；接受由用户接口写入 `ADMIN_INVITE_ACCEPT`。
+
+**AdminInvitationView**：`id/targetUserId/targetUsername/targetNickname/
+invitedBy/inviterUsername/approvedBy/approverUsername/status/expiresAt/approvedAt/
+acceptedAt/createdAt`，创建响应额外带 `token`。
 
 ---
 

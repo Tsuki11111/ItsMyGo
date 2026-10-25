@@ -20,6 +20,12 @@ const router = createRouter({
     { path: '/order/:id', name: 'order-detail', component: () => import('@/views/OrderDetail.vue') },
     { path: '/coupons', name: 'coupon-center', component: () => import('@/views/CouponCenter.vue') },
     {
+      path: '/admin-invite',
+      name: 'admin-invite',
+      component: () => import('@/views/AdminInvite.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/merchant/apply',
       name: 'merchant-apply',
       component: () => import('@/views/merchant/Apply.vue'),
@@ -73,6 +79,7 @@ const router = createRouter({
         { path: 'reviews', name: 'admin-reviews', component: () => import('@/views/admin/Reviews.vue') },
         { path: 'merchants', name: 'admin-merchants', component: () => import('@/views/admin/Merchants.vue') },
         { path: 'knowledge', name: 'admin-knowledge', component: () => import('@/views/admin/Knowledge.vue') },
+        { path: 'invitations', name: 'admin-invitations', component: () => import('@/views/admin/Invitations.vue') },
       ],
     },
   ],

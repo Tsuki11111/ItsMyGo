@@ -112,6 +112,7 @@ Spring Boot 单体 + Vue 3 前后端分离，经 **gRPC 接入 RAG 客服智能�
 | **M21 商品图缩略图** | ✅ **完成（2026-10-24）** —— 上传/修改商品图自动生成 400×400 缩略图；列表用缩略图、详情用原图 |
 | **M22 知识库导入** | ✅ **完成（2026-10-25）** —— 管理后台 PDF / Markdown 上传、查重、进度、文档列表与撤回；Java 代理 rag_helper 8001 |
 | **M23 密码强度策略** | ✅ **完成（2026-10-25）** —— 注册 / 改密至少 8 位且含字母和数字；登录兼容历史账号 |
+| **M24 管理员治理** | ✅ **完成（2026-10-25）** —— bootstrap 首个管理员；邀请 → 另一管理员批准 → 被邀请人接受；授权审计 |
 
 **交易闭环已通**：浏览商品 → 加购 → 下单（扣库存）→ 支付 → 发货 → 收货，
 以及取消、超时自动取消、退款（申请 → 审核 → 回滚库存）。
@@ -163,6 +164,9 @@ Aolynk、RS PRO 八个品牌；首页品牌墙由 `GET /api/products/brands` 驱
 rag_helper 的 8001 导入服务，浏览器仍只跟 Java 说话，不新增 gRPC 契约。
 **密码强度（M23，2026-10-25）**：注册和修改密码的新密码至少 8 位，且必须同时包含
 字母和数字；登录不重新校验强度，历史账号（含演示账号 `123456`）仍可登录。
+**管理员治理（M24，2026-10-25）**：首次部署用 `BOOTSTRAP_ADMIN_*` 创建首个管理员；
+后续管理员在 `/admin/invitations` 邀请普通顾客，需另一位管理员批准，被邀请人登录后
+打开链接接受；发起、批准、撤回与接受全部留痕，接受后需重新登录生效。
 **AI 导购（M11–M13，2026-10-21）**：新增 product-guide 子 agent；支持按关键词、
 分类、价格搜索，关键词不足时语义检索；回复里渲染商品卡（图片 / 价格 / 库存 /
 销量 / 店铺），可直接让买小购准备订单，商品卡会随历史恢复。
@@ -194,14 +198,21 @@ agent 侧地址默认 `http://127.0.0.1:8080`，需要改就在 `rag_helper/.env
 `LOGISTICS_DELIVERY_MINUTES=2`。订单详情页的腾讯地图需要 Web 端（JavaScript API GL）Key，
 填进仓库根目录 `.env` 的 `VITE_TMAP_KEY`；发货地址弹窗的「解析坐标」还需要该 Key
 开通 WebServiceAPI 且当日额度未用完，否则可保存地址但物流走虚拟转运中心兜底。
-完整启动清单（含中间件、管理员提权、常见问题）见 [start.txt](start.txt)。
+完整启动清单（含中间件、管理员开通、常见问题）见 [start.txt](start.txt)。
 **商家**：注册普通账号后访问 `/merchant/apply` 提交入驻，平台管理员在 `/admin/merchants` 审核。
-管理端在登录后顶栏用户面板的「管理后台」或直接访问 `/admin`；
-管理员账号先注册再提权：`UPDATE users SET role='ADMIN' WHERE username='testuser';`，
-**提权后重新登录**。种子数据见 [sql/seed-data.sql](sql/seed-data.sql)（44 个商品，型号来自 `rag_helper/doc` 的产品手册），详见 [HANDOFF §3.4](HANDOFF.md)。
+管理端在登录后顶栏用户面板的「管理后台」或直接访问 `/admin`。
+**管理员开通**：
+- 首次部署在 `.env` 配 `BOOTSTRAP_ADMIN_USERNAME` / `BOOTSTRAP_ADMIN_PASSWORD`，
+  启动时**只有库中没有活跃管理员才会创建**，已有管理员绝不覆盖；
+  创建成功后建议从 `.env` 移除 bootstrap 密码并立即修改初始密码；
+- 后续在 `/admin/invitations` 发起邀请 → 另一位管理员批准 → 被邀请人登录后打开邀请链接接受，
+  接受后重新登录生效；
+- 本地也保留了 SQL 兜底：`UPDATE users SET role='ADMIN' WHERE username='testuser';`，
+  提权后重新登录。
+种子数据见 [sql/seed-data.sql](sql/seed-data.sql)（44 个商品，型号来自 `rag_helper/doc` 的产品手册），详见 [HANDOFF §3.4](HANDOFF.md)。
 
 **CI**：每次 push 自动在干净环境跑测试（[`.github/workflows/test.yml`](.github/workflows/test.yml)）。
-本地 243 条全绿，CI 跳过 4 条依赖 MinIO 的、跑 239 条（MinIO 已停止公开分发镜像，详见 [HANDOFF §5.12](HANDOFF.md)）。
+本地 249 条全绿，CI 跳过 4 条依赖 MinIO 的、跑 245 条（MinIO 已停止公开分发镜像，详见 [HANDOFF §5.12](HANDOFF.md)）。
 **测试跑在独立的库** `its_mygo_test`（Redis 用 db 1），和开发数据互不影响 —— 见 [HANDOFF §5.20](HANDOFF.md)。
 
 各里程碑的可验收产物见 [docs/decisions-ecommerce.md](docs/decisions-ecommerce.md) §4。

@@ -65,6 +65,12 @@ itsmygo:
   knowledge:
     import-url: ${AGENT_IMPORT_URL:http://127.0.0.1:8001}
     key: ${AGENT_IMPORT_KEY:${AGENT_GRPC_KEY:}}
+  # 管理员治理：首次部署引导账号 + 邀请有效期
+  # bootstrap 只在库中没有活跃 ADMIN 时创建，已有管理员时绝不覆盖
+  admin:
+    bootstrap-username: ${BOOTSTRAP_ADMIN_USERNAME:}
+    bootstrap-password: ${BOOTSTRAP_ADMIN_PASSWORD:}
+    invite-expiry-hours: ${ADMIN_INVITE_EXPIRY_HOURS:24}
   # 虚拟物流：ETA = 最终送达时间；默认 120 分钟后送达（本地演示用，可调成 2 分钟看完整轨迹）
   logistics:
     delivery-minutes: ${LOGISTICS_DELIVERY_MINUTES:120}
