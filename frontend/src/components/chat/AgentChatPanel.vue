@@ -826,6 +826,9 @@ onBeforeUnmount(() => {
 }
 
 .agent-bubble {
+  /* 固定宽度：思考 / 执行条不随回答内容长短伸缩 */
+  flex: none;
+  width: calc(100% - 34px);
   max-width: 88%;
   background: #fff;
   border: 1px solid var(--c-border);
