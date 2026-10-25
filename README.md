@@ -197,17 +197,35 @@ agent 侧地址默认 `http://127.0.0.1:8080`，需要改就在 `rag_helper/.env
 
 ## 本地运行
 
-中间件复用本机已有容器，**开工前先确认它们都在跑**（Docker Desktop 重启后不保证自动拉起）：
+**MySQL / Redis / MinIO 复用本机已有容器**，开工前先确认它们都在跑
+（Docker Desktop 重启后不保证自动拉起）：
 
 ```bash
 docker ps --filter "name=^(mysql|redis|minio)$" --format "table {{.Names}}\t{{.Status}}"
 docker start mysql redis minio     # 缺哪个就拉哪个
 ```
 
+**RabbitMQ 是本项目自有容器**（超时关单用，不属于共用中间件）。
+先从 `.env.example` 复制出 `.env`，填好 `RABBITMQ_USERNAME` / `RABBITMQ_PASSWORD`，
+再启动：
+
+```bash
+docker compose -f docker-compose.rabbitmq.yml up -d
+```
+
+AMQP 端口 `5672`，管理台 `http://localhost:15672`。不启动 RabbitMQ 时可在 `.env`
+设 `ORDER_TIMEOUT_MQ_ENABLED=false`，数据库扫描兜底仍会关单。
+
 然后启动应用：
 
 ```bash
 ./mvnw spring-boot:run
+```
+
+前端另开一个终端：
+
+```bash
+cd frontend && npm run dev
 ```
 
 凭据放项目根目录的 `.env`（从 `.env.example` 复制填写），该文件已被 `.gitignore` 排除。
