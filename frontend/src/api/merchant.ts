@@ -6,6 +6,7 @@ import type {
   CouponPayload,
   MerchantPayload,
   MerchantView,
+  MerchantDashboardView,
   Order,
   OrderView,
   PageResponse,
@@ -37,6 +38,11 @@ export function uploadMerchantApplyLogo(file: File): Promise<string> {
 /** 商家后台：自己的店铺资料 */
 export function fetchMerchantProfile(): Promise<MerchantView> {
   return get<MerchantView>('/merchant/profile')
+}
+
+/** 商家后台：经营看板（今日 / 30 天 / 待办 / 趋势 / 热销 / 低库存 / 最近订单） */
+export function fetchMerchantDashboard(): Promise<MerchantDashboardView> {
+  return get<MerchantDashboardView>('/merchant/stats')
 }
 
 export function updateMerchantProfile(payload: MerchantPayload): Promise<MerchantView> {

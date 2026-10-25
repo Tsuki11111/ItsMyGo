@@ -34,9 +34,10 @@ const router = createRouter({
     {
       path: '/merchant',
       component: () => import('@/views/merchant/MerchantLayout.vue'),
-      redirect: '/merchant/profile',
+      redirect: '/merchant/dashboard',
       meta: { requiresMerchant: true },
       children: [
+        { path: 'dashboard', name: 'merchant-dashboard', component: () => import('@/views/merchant/Dashboard.vue') },
         { path: 'products', name: 'merchant-products', component: () => import('@/views/merchant/Products.vue') },
         { path: 'orders', name: 'merchant-orders', component: () => import('@/views/merchant/Orders.vue') },
         { path: 'coupons', name: 'merchant-coupons', component: () => import('@/views/merchant/Coupons.vue') },

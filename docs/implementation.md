@@ -1647,6 +1647,27 @@ rag_helper 的 8001 导入服务；`AGENT_GRPC_KEY` / `AGENT_IMPORT_KEY` 只留�
 CUSTOMER、拒绝弱密码）；`AdminInvitationControllerTest` 2 条（自批被拒、另一位管理员
 批准、token 一次性、重新登录变 ADMIN；非顾客/不存在用户被拒）；端到端实测。
 
+### 3.33 商户经营看板（M25，2026-10-25）
+
+**接口**：`GET /api/merchant/stats`，merchantId **只来自登录态**，不接受客户端传参；
+`MerchantStatsMapper` 的所有 SQL 都强制带 `merchant_id`，无新表。
+
+**指标口径**：
+- 今日成交 / 近 30 天 GMV：`paid_at` 在区间内且状态为
+  `PAID/SHIPPED/COMPLETED/REFUNDING`，排除已退款与已取消；
+- 今日订单 / 近 30 天订单：`created_at` 在区间内（含取消单）；
+- 客单价：近 30 天 GMV / 已支付订单数；
+- 待发货：当前 `PAID` 单数；待退款：当前 `REFUNDING` 单数；
+- 在售商品：`products.status=1` 的去重商品数；低库存：在售 SKU `stock <= 10` 的数量；
+- 7 天趋势按支付日聚合；热销按商品 `sales` 倒序 Top5；低库存按 SKU 库存升序前 6；
+- 最近订单按订单 id 倒序 5 条，状态用 `OrderStatus.label()`。
+
+**页面**：商家后台默认进入 `/merchant/dashboard`，菜单新增「经营概览」；
+KPI 卡片、7 天趋势（复用 `TrendLineChart`）、热销商品、低库存、最近订单。
+
+**验证**：`MerchantStatsControllerTest` 2 条（本店 GMV/订单/待办/客单价/趋势/最近订单
+口径；顾客访问 403）；端到端插入商品与订单实测页面并清理测试数据；前端构建通过。
+
 ---
 
 ## 4. 前端（`frontend/`）
@@ -2057,7 +2078,7 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 **测试跑在独立的库和 Redis database 上**（`its_mygo_test` / db 1），跟开发环境彻底分开 ——
 为什么非分不可、怎么配的，见 HANDOFF §5.20。
 
-覆盖重点（当前 **249** 条；CI 上跳过 4 条依赖 MinIO 的，跑 245）：
+覆盖重点（当前 **251** 条；CI 上跳过 4 条依赖 MinIO 的，跑 247）：
 
 | 测试类 | 覆盖 |
 |---|---|
@@ -2094,6 +2115,7 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 | `AdminKnowledgeControllerTest` | 管理员列表 / 上传代理；顾客 403；扩展名在 Java 侧先挡，不调用导入服务 |
 | `AdminBootstrapRunnerTest` | 无活跃管理员才创建；已有管理员跳过；不提升已存在的 CUSTOMER；弱密码跳过 |
 | `AdminInvitationControllerTest` | 发起 → 另一位管理员批准 → 被邀请人接受；自批被拒；token 一次性；重新登录变 ADMIN；非顾客/不存在用户被拒 |
+| `MerchantStatsControllerTest` | 本店 GMV / 订单 / 待办 / 客单价 / 趋势 / 最近订单口径；顾客访问 403 |
 | `SharedRedisTest` | 共用 Redis 连通；key 前缀；**TTL 存在**（见 HANDOFF §5.5） |
 | `MyBatisPlusCompatibilityTest` | 一次完整 CRUD，验证 MP 在 Boot 4.1.1 上可用 |
 

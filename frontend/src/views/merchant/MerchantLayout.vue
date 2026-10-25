@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ChatDotRound, ChatLineRound, Discount, Goods, Shop, Tickets } from '@element-plus/icons-vue'
+import { ChatDotRound, ChatLineRound, DataBoard, Discount, Goods, Shop, Tickets } from '@element-plus/icons-vue'
 import { useChatStore } from '@/stores/chat'
 import { useUserStore } from '@/stores/user'
 
@@ -12,6 +12,7 @@ const userStore = useUserStore()
 const chatStore = useChatStore()
 
 const MENU = [
+  { path: '/merchant/dashboard', label: '经营概览', icon: DataBoard },
   { path: '/merchant/messages', label: '消息', icon: ChatLineRound },
   { path: '/merchant/products', label: '商品管理', icon: Goods },
   { path: '/merchant/orders', label: '订单管理', icon: Tickets },
@@ -22,7 +23,7 @@ const MENU = [
 
 const activeMenu = computed(() => {
   const hit = MENU.find((item) => route.path.startsWith(item.path))
-  return hit?.path ?? '/merchant/profile'
+  return hit?.path ?? '/merchant/dashboard'
 })
 
 function logout() {

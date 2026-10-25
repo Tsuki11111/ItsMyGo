@@ -787,6 +787,18 @@ Authorization: Bearer <token>
 - **没有商家创建会话的接口**：商家只能回复，不能主动私信。
 - 发送限流 30 次/分钟/用户。
 
+### 16.8 经营看板
+
+| 方法 | 路径 | 请求/参数 | 返回 |
+|---|---|---|---|
+| GET | `/api/merchant/stats` | — | `MerchantDashboardView` |
+
+- merchantId 只来自登录态，不能传参看别家数据。
+- 今日/30 天 GMV 按 `paid_at` 且状态为 `PAID/SHIPPED/COMPLETED/REFUNDING`；
+  订单数按 `created_at`；客单价 = 30 天 GMV / 已支付订单数。
+- 待发货 = 当前 `PAID`，待退款 = 当前 `REFUNDING`；低库存 = 在售 SKU `stock <= 10`。
+- 返回含 7 天趋势、热销 Top5、低库存前 6、最近 5 单；无新表。
+
 ---
 
 ## 17. 管理后台

@@ -605,6 +605,47 @@ export interface AdminMerchantOperationsView {
   }>
 }
 
+/** 商家后台经营看板 */
+export interface MerchantDashboardView {
+  merchantName: string
+  todayGmv: string
+  todayOrders: number
+  gmv30: string
+  paidOrders30: number
+  orders30: number
+  refunding30: number
+  avgOrderValue30: string
+  pendingShipment: number
+  pendingRefund: number
+  onSaleProducts: number
+  lowStockSkus: number
+  trend: AdminDashboardTrendPoint[]
+  topProducts: Array<{
+    productId: number
+    name: string
+    image: string
+    price: string
+    stock: number
+    sales: number
+  }>
+  lowStockList: Array<{
+    productId: number
+    productName: string
+    image: string
+    skuId: number
+    specText: string
+    stock: number
+  }>
+  recentOrders: Array<{
+    id: number
+    orderNo: string
+    totalAmount: string
+    status: string
+    statusLabel: string
+    createdAt: string
+  }>
+}
+
 /** 平台后台用户列表项（不含密码） */
 export interface AdminUserView {
   id: number
