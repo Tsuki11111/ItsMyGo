@@ -74,8 +74,9 @@ npm run dev
 # ─────────────────────────────────────────────
 # 2.5 客服智能体「买小购」（终端 3，占用 8003）
 # ─────────────────────────────────────────────
-# 让消息页的「买小购」可对话。依赖 Mongo / Milvus / Neo4j 等容器，
-# 这些容器不在本项目 Compose 里，需要时先确认它们都在跑。
+# 让消息页的「买小购」可对话。默认依赖 Mongo / Milvus 等容器；
+# Neo4j 默认关闭（rag_helper/.env 的 NEO4J_ENABLED=false），不启动也不影响问答，
+# 只有需要知识图谱检索时才改 true 并启动 neo4j 容器。
 cd /d/PycharmProjects/rag_helper
 .venv/Scripts/python.exe -m app.agent.api.grpc_service
 
