@@ -111,6 +111,7 @@ Spring Boot 单体 + Vue 3 前后端分离，经 **gRPC 接入 RAG 客服智能�
 | **M20 品牌专区** | ✅ **完成（2026-10-24）** —— 商品品牌字段与品牌筛选接口；首页品牌墙接口驱动，八个品牌图标 |
 | **M21 商品图缩略图** | ✅ **完成（2026-10-24）** —— 上传/修改商品图自动生成 400×400 缩略图；列表用缩略图、详情用原图 |
 | **M22 知识库导入** | ✅ **完成（2026-10-25）** —— 管理后台 PDF / Markdown 上传、查重、进度、文档列表与撤回；Java 代理 rag_helper 8001 |
+| **M23 密码强度策略** | ✅ **完成（2026-10-25）** —— 注册 / 改密至少 8 位且含字母和数字；登录兼容历史账号 |
 
 **交易闭环已通**：浏览商品 → 加购 → 下单（扣库存）→ 支付 → 发货 → 收货，
 以及取消、超时自动取消、退款（申请 → 审核 → 回滚库存）。
@@ -160,6 +161,8 @@ Aolynk、RS PRO 八个品牌；首页品牌墙由 `GET /api/products/brands` 驱
 **知识库导入（M22，2026-10-25）**：管理员在 `/admin/knowledge` 上传 PDF / Markdown，
 按文件内容查重、轮询导入进度、查看已导入文档并撤回；Java 带访问密钥代理到
 rag_helper 的 8001 导入服务，浏览器仍只跟 Java 说话，不新增 gRPC 契约。
+**密码强度（M23，2026-10-25）**：注册和修改密码的新密码至少 8 位，且必须同时包含
+字母和数字；登录不重新校验强度，历史账号（含演示账号 `123456`）仍可登录。
 **AI 导购（M11–M13，2026-10-21）**：新增 product-guide 子 agent；支持按关键词、
 分类、价格搜索，关键词不足时语义检索；回复里渲染商品卡（图片 / 价格 / 库存 /
 销量 / 店铺），可直接让买小购准备订单，商品卡会随历史恢复。
@@ -174,6 +177,7 @@ agent 查订单时能看到「运输中 / 派送中 / 预计 X 送达」。
 
 两个终端：后端 `./mvnw spring-boot:run`，前端 `cd frontend && npm run dev`，
 然后开 http://localhost:5173（演示账号 `testuser` / `123456`）。
+新注册密码要求至少 8 位，且同时包含字母和数字；演示账号保持原密码，仅用于本地演示。
 要验证 MQ 超时关单，先在 `.env` 填 `RABBITMQ_USERNAME` / `RABBITMQ_PASSWORD`，
 再 `docker compose -f docker-compose.rabbitmq.yml up -d`
 （AMQP 5672 / 管理台 15672）；不启动时在 `.env` 设
@@ -197,7 +201,7 @@ agent 侧地址默认 `http://127.0.0.1:8080`，需要改就在 `rag_helper/.env
 **提权后重新登录**。种子数据见 [sql/seed-data.sql](sql/seed-data.sql)（44 个商品，型号来自 `rag_helper/doc` 的产品手册），详见 [HANDOFF §3.4](HANDOFF.md)。
 
 **CI**：每次 push 自动在干净环境跑测试（[`.github/workflows/test.yml`](.github/workflows/test.yml)）。
-本地 241 条全绿，CI 跳过 4 条依赖 MinIO 的、跑 237 条（MinIO 已停止公开分发镜像，详见 [HANDOFF §5.12](HANDOFF.md)）。
+本地 243 条全绿，CI 跳过 4 条依赖 MinIO 的、跑 239 条（MinIO 已停止公开分发镜像，详见 [HANDOFF §5.12](HANDOFF.md)）。
 **测试跑在独立的库** `its_mygo_test`（Redis 用 db 1），和开发数据互不影响 —— 见 [HANDOFF §5.20](HANDOFF.md)。
 
 各里程碑的可验收产物见 [docs/decisions-ecommerce.md](docs/decisions-ecommerce.md) §4。

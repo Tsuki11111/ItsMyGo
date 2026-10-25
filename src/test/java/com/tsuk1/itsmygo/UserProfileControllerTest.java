@@ -110,6 +110,20 @@ class UserProfileControllerTest extends ApiTestBase {
     }
 
     @Test
+    void weakNewPasswordIsRejected() throws Exception {
+        String token = customerToken("pw" + System.nanoTime());
+
+        mockMvc.perform(put("/api/user/password")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new ChangePasswordRequest("secret123", "12345678"))))
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.message")
+                        .value("新密码至少 8 位，且必须同时包含字母和数字"));
+    }
+
+    @Test
     void newPasswordCannotEqualOld() throws Exception {
         String token = customerToken("pw" + System.nanoTime());
 

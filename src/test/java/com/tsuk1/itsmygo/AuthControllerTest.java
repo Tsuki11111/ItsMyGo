@@ -103,6 +103,26 @@ class AuthControllerTest extends ApiTestBase {
     }
 
     @Test
+    void weakRegisterPasswordsAreRejected() throws Exception {
+        String username = "w" + System.nanoTime();
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new RegisterRequest(username, "12345678", null))))
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.message")
+                        .value("密码至少 8 位，且必须同时包含字母和数字"));
+
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new RegisterRequest(username + "a", "abcdefgh", null))))
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.message")
+                        .value("密码至少 8 位，且必须同时包含字母和数字"));
+    }
+
+    @Test
     void invalidRegisterRequestIsRejected() throws Exception {
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)

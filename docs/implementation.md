@@ -81,6 +81,10 @@ GET /api/products?keyword=HAK          Authorization: Bearer <JWT>
 **登录**（`login`）：查库 → `passwordEncoder.matches()` → 签发 JWT。
 用户不存在与密码错误返回**同一句提示**，不泄露「这个账号是否注册过」。
 
+**密码策略**：注册与改密的新密码必须 **8–64 位，且同时包含字母和数字**
+（`RegisterRequest` / `ChangePasswordRequest` 的 `@Pattern`）。登录不重新校验强度，
+兼容历史账号；演示账号 `123456` 仍可登录。
+
 **JWT 内容**（`JwtService`）：subject = userId，claim = username + role，
 HS256 签名，有效期取 `itsmygo.jwt.expire-minutes`。
 
@@ -2019,13 +2023,13 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 **测试跑在独立的库和 Redis database 上**（`its_mygo_test` / db 1），跟开发环境彻底分开 ——
 为什么非分不可、怎么配的，见 HANDOFF §5.20。
 
-覆盖重点（当前 **241** 条；CI 上跳过 4 条依赖 MinIO 的，跑 237）：
+覆盖重点（当前 **243** 条；CI 上跳过 4 条依赖 MinIO 的，跑 239）：
 
 | 测试类 | 覆盖 |
 |---|---|
-| `AuthControllerTest` | 注册→登录→访问受保护接口；无 token / 坏 token 401；重复用户名；密码错误；参数校验 |
+| `AuthControllerTest` | 注册→登录→访问受保护接口；无 token / 坏 token 401；重复用户名；密码错误；参数校验；**弱密码（纯数字 / 纯字母）被拒** |
 | `AddressControllerTest` | 本人 CRUD；**越权返回 404**；默认地址唯一；**独立的设默认接口（含幂等与越权）**；**删除默认后不递补**；未登录 401 |
-| **`UserProfileControllerTest`** | 未登录 401；资料回显（昵称回退用户名）；改昵称手机；空昵称 400；**旧密码错 400 而不是 401**；新旧相同被拒；改密后旧密码登录失败、新密码成功；**头像上传（StorageService 用 @MockitoBean 替身，不依赖 MinIO）** |
+| **`UserProfileControllerTest`** | 未登录 401；资料回显（昵称回退用户名）；改昵称手机；空昵称 400；**旧密码错 400 而不是 401**；新旧相同被拒；**改密弱新密码 400**；改密后旧密码登录失败、新密码成功；**头像上传（StorageService 用 @MockitoBean 替身，不依赖 MinIO）** |
 | `CategoryControllerTest` | 树形结构；停用分类对顾客隐藏；非管理员 403；有子分类/有商品时禁删 |
 | `ProductControllerTest` | 上架可见/下架隐藏；关键词搜名称与副标题；分类筛选；分页；**品牌聚合与按品牌精确筛选**；非管理员 403 |
 | `CartControllerTest` | 重复加购累加数量；总价只算已勾选且可购买；超库存被拒；**越权 404**；需登录 |

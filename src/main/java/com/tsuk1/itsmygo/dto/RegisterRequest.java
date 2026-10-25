@@ -1,6 +1,7 @@
 package com.tsuk1.itsmygo.dto;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 public record RegisterRequest(
@@ -9,7 +10,8 @@ public record RegisterRequest(
         String username,
 
         @NotBlank(message = "密码不能为空")
-        @Size(min = 6, max = 64, message = "密码长度需在 6-64 个字符之间")
+        @Pattern(regexp = "^(?=.*[A-Za-z])(?=.*\\d).{8,64}$",
+                message = "密码至少 8 位，且必须同时包含字母和数字")
         String password,
 
         @Size(max = 32, message = "昵称最长 32 个字符")

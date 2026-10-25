@@ -482,7 +482,9 @@ Authorization: Bearer <token>
 | POST | `/api/auth/login` | 公开 | `{username, password}` | `LoginResponse` |
 | GET | `/api/auth/me` | 登录 | — | `CurrentUser` |
 
-- 注册：用户名 3–32 位；密码 6–64 位；昵称 ≤32；**注册出来的角色固定是 CUSTOMER**。
+- 注册：用户名 3–32 位；密码 **8–64 位，且必须同时包含字母和数字**；昵称 ≤32；
+  **注册出来的角色固定是 CUSTOMER**。
+- 登录不重新校验密码强度，兼容历史账号（演示账号 `123456` 仍可登录）。
 - 限流：注册 5 次/分钟/IP；登录 10 次/分钟/IP。
 - 商家身份只能通过入驻审核获得，不能注册时指定。
 
@@ -497,7 +499,8 @@ Authorization: Bearer <token>
 | PUT | `/api/user/password` | 登录 | `{oldPassword, newPassword}` | `null` |
 | POST | `/api/user/avatar` | 登录 | multipart `file` | `ProfileView` |
 
-- 改密码成功后服务端不吊销 JWT，前端应主动退出登录。
+- 改密码：`newPassword` 同样要求 **8–64 位且含字母和数字**；旧密码只要求正确，
+  兼容历史弱密码。成功后服务端不吊销 JWT，前端应主动退出登录。
 - 头像：jpg/jpeg/png/gif/webp，≤2MB，存 MinIO `avatars/`；限流 10 次/分钟/用户。
 
 ---

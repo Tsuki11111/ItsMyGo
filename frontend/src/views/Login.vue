@@ -20,8 +20,10 @@ const form = reactive({
   nickname: '',
 })
 
-// 与后端 RegisterRequest 的约束保持一致（登录接口只要求非空，
-// 但合法密码必然 ≥6 位，多校验一步不会挡住任何正常用户）
+// 与后端 DTO 保持一致：注册要求至少 8 位且同时含字母和数字；
+// 登录只做基本长度校验，兼容历史账号（如演示账号 123456）。
+const STRONG_PASSWORD = /^(?=.*[A-Za-z])(?=.*\d).{8,64}$/
+
 const rules: FormRules = {
   username: [
     { required: true, message: '请输入用户名', trigger: 'blur' },
@@ -29,7 +31,24 @@ const rules: FormRules = {
   ],
   password: [
     { required: true, message: '请输入密码', trigger: 'blur' },
-    { min: 6, max: 64, message: '密码长度需在 6-64 个字符之间', trigger: 'blur' },
+    {
+      validator: (_rule, value, callback) => {
+        if (!value) {
+          callback()
+          return
+        }
+        if (mode.value === 'register' && !STRONG_PASSWORD.test(value)) {
+          callback(new Error('密码至少 8 位，且需同时包含字母和数字'))
+          return
+        }
+        if (mode.value === 'login' && (value.length < 6 || value.length > 64)) {
+          callback(new Error('密码长度需在 6-64 个字符之间'))
+          return
+        }
+        callback()
+      },
+      trigger: 'blur',
+    },
   ],
   nickname: [{ max: 32, message: '昵称最长 32 个字符', trigger: 'blur' }],
 }
@@ -104,7 +123,7 @@ async function submit() {
           <el-input
             v-model="form.password"
             type="password"
-            placeholder="至少 6 位"
+            :placeholder="mode === 'register' ? '至少 8 位，含字母和数字' : '请输入密码'"
             show-password
             @keyup.enter="submit"
           />

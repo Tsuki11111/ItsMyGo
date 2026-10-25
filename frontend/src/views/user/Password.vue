@@ -18,11 +18,22 @@ const form = reactive({
   confirmPassword: '',
 })
 
+const STRONG_PASSWORD = /^(?=.*[A-Za-z])(?=.*\d).{8,64}$/
+
 const rules: FormRules = {
   oldPassword: [{ required: true, message: '请输入旧密码', trigger: 'blur' }],
   newPassword: [
     { required: true, message: '请输入新密码', trigger: 'blur' },
-    { min: 6, max: 64, message: '密码长度需在 6-64 个字符之间', trigger: 'blur' },
+    {
+      validator: (_rule, value, callback) => {
+        if (!STRONG_PASSWORD.test(value || '')) {
+          callback(new Error('新密码至少 8 位，且需同时包含字母和数字'))
+          return
+        }
+        callback()
+      },
+      trigger: 'blur',
+    },
   ],
   confirmPassword: [
     { required: true, message: '请再输入一次新密码', trigger: 'blur' },
@@ -69,7 +80,7 @@ async function submit() {
           <el-input v-model="form.oldPassword" type="password" show-password />
         </el-form-item>
         <el-form-item label="新密码" prop="newPassword">
-          <el-input v-model="form.newPassword" type="password" show-password placeholder="6-64 个字符" />
+          <el-input v-model="form.newPassword" type="password" show-password placeholder="至少 8 位，含字母和数字" />
         </el-form-item>
         <el-form-item label="确认新密码" prop="confirmPassword">
           <el-input v-model="form.confirmPassword" type="password" show-password />
