@@ -1,0 +1,10 @@
+.git
+.env
+.env.*
+!.env.example
+target
+logs
+frontend/node_modules
+frontend/dist
+.idea
+*.iml

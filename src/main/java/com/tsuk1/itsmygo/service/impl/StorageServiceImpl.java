@@ -60,10 +60,11 @@ public class StorageServiceImpl implements StorageService {
 
     public StorageServiceImpl(MinioClient minioClient,
                               @Value("${itsmygo.minio.bucket}") String bucket,
-                              @Value("${itsmygo.minio.endpoint}") String endpoint) {
+                              @Value("${itsmygo.minio.public-endpoint}") String publicEndpoint) {
         this.minioClient = minioClient;
         this.bucket = bucket;
-        this.publicPrefix = endpoint.endsWith("/") ? endpoint + bucket : endpoint + "/" + bucket;
+        this.publicPrefix = publicEndpoint.endsWith("/")
+                ? publicEndpoint + bucket : publicEndpoint + "/" + bucket;
     }
 
     /** 头像和店铺 Logo 单独限 2MB —— 商品图有 5MB 上限兜着 */

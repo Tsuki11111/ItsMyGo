@@ -129,6 +129,52 @@ Authorization: Bearer xxx
 
 Flyway 自己建的 `flyway_schema_history` 表是迁移记录，**不要动**。
 
+### 2.5 容器化部署（Dockerfile / Compose）
+
+**后端镜像**（根 `Dockerfile`）：`maven:3.9.9-eclipse-temurin-17` 里
+`mvn -DskipTests package`，产物拷进 `eclipse-temurin:17-jre`；启动参数
+`-XX:MaxRAMPercentage=75`。`.dockerignore` 排除 `target`、`.env`、前端 `node_modules`。
+
+**前端镜像**（`frontend/Dockerfile`）：Node 22 `npm ci && npm run build`，
+产物交给 `nginx:1.27-alpine`。`frontend/nginx.conf` 负责三件事：
+`/api/` 反代 `http://backend:8080`；`proxy_buffering off` 保证 SSE 实时；
+`client_max_body_size 210m` 放行知识库 PDF。SPA 路由用 `try_files ... /index.html`。
+
+**Compose 拓扑**（根 `docker-compose.yml`）：MySQL / Redis / MinIO / RabbitMQ /
+backend / frontend 六服务 + `seed` profile。容器、卷、网络统一 `its-my-go-*`；
+中间件都带 healthcheck，backend `depends_on ... service_healthy`；
+frontend 依赖 backend。seed 用 MySQL 客户端镜像导入 `sql/seed-data.sql`，
+**客户端必须带 `--default-character-set=utf8mb4`**（否则中文按 latin1 入库变乱码）。
+
+**两套地址必须分开**：
+
+| 配置 | 谁用 | Compose 值 |
+|---|---|---|
+| `itsmygo.minio.endpoint` | 后端 SDK 上传/读取 | `http://minio:9000` |
+| `itsmygo.minio.public-endpoint` | 浏览器 `<img src>` | `http://localhost:9000` 或内网 IP |
+
+`StorageServiceImpl` 构造时注入两者，对象 key 用 endpoint 操作，返回 URL 一律用
+`public-endpoint` 拼。否则容器部署时浏览器会拿到 `http://minio:9000/...` —— 域名不可解析。
+
+**环境变量来源**：Compose 的 `environment` 覆盖 `env_file: .env`。本地调试用的
+`AGENT_GRPC_TARGET=127.0.0.1:8003` 不能直接进容器，因此 Compose 读的是
+`RAG_AGENT_GRPC_TARGET` / `RAG_AGENT_IMPORT_URL`（默认服务别名
+`rag-agent:8003` / `http://rag-import:8001`）。`.env` 里的 `AGENT_GRPC_KEY`
+仍然直接传入，联合部署脚本用 shell 环境变量保证两边一致。
+
+**共享网络与联合部署**：backend 在 `its-my-go-net` 上增加别名 `its-my-go-backend`；
+rag_helper 的覆盖文件 `docker-compose.itsmygo.yml` 把三个 agent 服务接入同一网络，
+分别提供 `rag-agent` / `rag-chat` / `rag-import` 别名，并把 agent 回调 Java 的地址
+改成 `http://its-my-go-backend:8080`。网络声明为 `external: true`，所以必须先起
+ItsMyGo（`rag_helper/scripts/joint-up.sh` 已处理顺序与共享密钥）。
+
+**前端构建期变量**：`VITE_TMAP_KEY` 被 Vite 写死进静态文件，Docker 构建 context
+只有 `frontend/`，拿不到仓库根 `.env`；由 Compose build args → `ARG` → `ENV` 传入。
+
+**脚本**：`scripts/docker-up.sh` / `.ps1` 自动复制 `.env` 并 `docker compose up -d --build`；
+`docker-down.*` 保留卷停止。联合部署脚本在 rag_helper（见其 implementation §9）。
+
+
 ---
 
 ## 3. 业务模块实现要点
@@ -232,8 +278,12 @@ MultipartFile
   → ensureBucket()：懒初始化，bucket 不存在就建 + 配公开只读策略
   → objectName = prefix + UUID + "." + 扩展名    ← UUID 防重名/防路径穿越
   → minioClient.putObject(...)
-  → 返回 http://localhost:9000/its-my-go-product-images/{prefix}xxx.png
+  → 返回 {public-endpoint}/its-my-go-product-images/{prefix}xxx.png
 ```
+
+> URL 的 host 来自 `itsmygo.minio.public-endpoint`，不是后端连接用的 endpoint。
+> 本地两者都是 `http://localhost:9000`；容器部署时分别是 `http://minio:9000` 与
+> 浏览器可达地址（见 §2.5）。
 
 按用途分三个前缀：商品图 `products/`（5MB multipart 上限）、头像 `avatars/`（2MB）、
 店铺 Logo `merchants/`（2MB）。店铺 Logo 有两个入口：商家后台走

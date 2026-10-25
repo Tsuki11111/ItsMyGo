@@ -67,6 +67,60 @@ Spring Boot 单体 + Vue 3 前后端分离，经 **gRPC 接入 RAG 客服智能�
 
 ## 部署方式
 
+支持两种方式：**Docker Compose 一键栈**（新克隆推荐，自带全部中间件）和
+**本地开发**（复用本机已有 `mysql` / `redis` / `minio`，见「本地运行」）。
+
+### 方式 A：Docker Compose 一键栈（推荐）
+
+镜像、编排和脚本都在仓库里，clone 后只需要准备 `.env`：
+
+```bash
+cp .env.example .env
+# 至少填 MINIO_ACCESS_KEY / MINIO_SECRET_KEY；需要首个管理员再加 BOOTSTRAP_ADMIN_*
+docker compose up -d --build
+# 或者：./scripts/docker-up.sh       Windows PowerShell：.\scripts\docker-up.ps1
+```
+
+启动后：
+
+| 入口 | 地址 |
+|---|---|
+| 前端（Nginx） | http://localhost:8088 |
+| 后端健康检查 | http://localhost:8080/api/health |
+| MySQL / Redis | `localhost:3306` / `localhost:6379` |
+| MinIO API / 控制台 | `localhost:9000` / `localhost:9001` |
+| RabbitMQ / 管理台 | `localhost:5672` / `http://localhost:15672` |
+
+- 容器、卷、网络全部以 `its-my-go-*` 命名（网络 `its-my-go-net`），
+  **不会碰本机已有的 `mysql` / `redis` / `minio` 容器**。
+- 端口冲突时在 `.env` 改 `MYSQL_PORT` / `REDIS_PORT` / `MINIO_PORT` /
+  `BACKEND_PORT` / `FRONTEND_PORT` 等变量即可。
+- 浏览器里的商品图地址由 `MINIO_PUBLIC_ENDPOINT` 决定；Docker / 内网部署时
+  改成浏览器真实可达的地址（如 `http://192.168.1.20:9000`），不能写容器内的 `minio:9000`。
+- 演示数据（44 个商品）在后端建完表后导入：
+
+  ```bash
+  docker compose --profile seed run --rm seed
+  ```
+
+  > seed 脚本会先清空商品 / 分类等演示表，**只对本地或演示库执行**，不要指向生产库。
+
+- 停止：`./scripts/docker-down.sh`（保留数据卷）；连数据一起清掉用 `docker compose down -v`。
+
+> **Docker Hub 拉不动时**：本机访问 Docker Hub 可能超时。可以先用国内镜像站拉基础镜像，
+> 再打成 Dockerfile 里使用的标准名，例如：
+>
+> ```bash
+> docker pull docker.m.daocloud.io/library/mysql:8.0
+> docker tag docker.m.daocloud.io/library/mysql:8.0 mysql:8.0
+> ```
+>
+> 需要的基础镜像：`maven:3.9.9-eclipse-temurin-17`、`eclipse-temurin:17-jre`、
+> `node:22-alpine`、`nginx:1.27-alpine`、`mysql:8.0`、`redis:7-alpine`、
+> `minio/minio:latest`、`rabbitmq:4-management`。
+
+### 方式 B：本地开发（复用本机中间件）
+
 **全本地，不部署云。** 中间件**复用本机已有容器**，不另起：
 
 | 中间件 | 容器 | 连接 |
@@ -80,6 +134,46 @@ Spring Boot 单体 + Vue 3 前后端分离，经 **gRPC 接入 RAG 客服智能�
 **RabbitMQ 是本项目自有容器**（不是共用中间件），用根目录
 `docker-compose.rabbitmq.yml` 启动；账号在 `.env` 的 `RABBITMQ_*`，管理台
 `http://localhost:15672`。
+
+### 与客服智能体联合部署（内网）
+
+两个仓库放成同级目录（`ItsMyGo/` 与 `rag_helper/`），在 `rag_helper` 里执行：
+
+```bash
+cd rag_helper
+./scripts/joint-up.sh
+# Windows PowerShell：.\scripts\joint-up.ps1
+```
+
+脚本会：
+
+1. 准备两边缺失的 `.env`；
+2. 生成 / 复用共享访问密钥 `.agent-key`（已 gitignore），并注入两个 Compose；
+3. 先启动 ItsMyGo（创建共享网络 `its-my-go-net`），再启动 rag_helper 的三个服务；
+4. 把密钥幂等写入 agent 的 MongoDB（`agent-key-init`）。
+
+联合拓扑里 Java 通过服务别名访问 agent，不经过宿主机端口：
+
+| Java 变量 | 联合部署值 |
+|---|---|
+| `AGENT_GRPC_TARGET` | `rag-agent:8003` |
+| `AGENT_IMPORT_URL` | `http://rag-import:8001` |
+| agent → Java | `http://its-my-go-backend:8080` |
+
+手工等价命令：
+
+```bash
+# 1. 先起 ItsMyGo（创建 its-my-go-net）
+docker compose up -d --build
+
+# 2. 在 rag_helper 里叠加联合覆盖文件
+export AGENT_GRPC_KEY="$(cat .agent-key)" AGENT_IMPORT_KEY="$(cat .agent-key)"
+export RAG_AGENT_GRPC_TARGET=rag-agent:8003 RAG_AGENT_IMPORT_URL=http://rag-import:8001
+docker compose -f docker-compose.yml -f docker-compose.itsmygo.yml up -d --build
+```
+
+Neo4j 默认不启动（`rag_helper/.env` 的 `NEO4J_ENABLED=false`）。需要知识图谱时在
+rag_helper 里加 `--profile graph`。停止两套：`rag_helper/scripts/joint-down.sh`。
 
 ## 进度
 
@@ -223,6 +317,9 @@ agent 侧地址默认 `http://127.0.0.1:8080`，需要改就在 `rag_helper/.env
 各里程碑的可验收产物见 [docs/decisions-ecommerce.md](docs/decisions-ecommerce.md) §4。
 
 ## 本地运行
+
+> 不想手工起中间件：直接用「部署方式 → 方式 A」的 Docker Compose 全栈，
+> 一条命令起前端 + 后端 + MySQL + Redis + MinIO + RabbitMQ。
 
 **MySQL / Redis / MinIO 复用本机已有容器**，开工前先确认它们都在跑
 （Docker Desktop 重启后不保证自动拉起）：

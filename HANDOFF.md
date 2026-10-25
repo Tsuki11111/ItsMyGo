@@ -104,7 +104,16 @@ token 只存哈希、一次性、默认 24h；发起/批准/撤回/接受全部�
 所有查询按登录 merchantId 过滤，不新增表。
 后端 **自动化测试 251 条**。
 
-**下一步：用户与操作审计**（用户已选）—— 用户列表 / 状态、操作审计等。
+**Docker 部署已补齐（2026-10-25）**：根目录 `Dockerfile`（后端多阶段）、
+`frontend/Dockerfile` + `nginx.conf`（静态站 + `/api` 反代 + SSE 不缓冲）、
+`docker-compose.yml`（MySQL / Redis / MinIO / RabbitMQ / backend / frontend，
+seed profile）；MinIO 拆成容器内 `endpoint` 与浏览器 `public-endpoint` 两套地址。
+配套 `scripts/docker-up.*` / `docker-down.*`，clone 后复制 `.env` 即可起。
+与 rag_helper 的联合部署走 `its-my-go-net` + 服务别名（见 §4.7），
+`rag_helper/scripts/joint-up.*` 会自动生成共享密钥并启动两套。
+
+**下一步**：部署验证与文档收尾之后，可选商户与商品运营二期（商品审核 / 券运营等）。
+
 M8 催退款已完成（2026-10-23）；通用动作层（`agent_actions` + 确认门）可继续承载
 商家侧动作。也可以做 M14 导购增强（商品对比 / 加入购物车）或商家侧动作。联调需要先启动
 rag_helper gRPC（8003）和 Java 后端（8080），并在 `.env` 配好 `AGENT_GRPC_KEY`；
@@ -443,6 +452,44 @@ Conventional Commits，**描述用中文**（与 `rag_helper` 保持一致）：
 
 `type` 取 `feat` / `fix` / `docs` / `style` / `refactor` / `perf` / `test` /
 `build` / `ci` / `chore` / `revert`；`scope` 用短词（如 `order` / `product` / `auth`）。
+
+### 4.7 Docker 部署（2026-10-25 新增）
+
+**两套运行方式并存**：
+
+| 方式 | 适用 | 命令 |
+|---|---|---|
+| 本机开发 | 日常改代码，复用共用中间件 | 见 §4.0 / start.txt |
+| Compose 全栈 | 新克隆、演示、内网部署 | `cp .env.example .env && docker compose up -d --build` |
+
+**Compose 服务与端口**（都可用 `.env` 覆盖）：
+
+| 服务 | 容器 | 宿主机端口 | 变量 |
+|---|---|---|---|
+| MySQL 8 | `its-my-go-mysql` | 3306 | `MYSQL_PORT` |
+| Redis 7 | `its-my-go-redis` | 6379 | `REDIS_PORT` |
+| MinIO | `its-my-go-minio` | 9000 / 9001 | `MINIO_PORT` / `MINIO_CONSOLE_PORT` |
+| RabbitMQ | `its-my-go-rabbitmq` | 5672 / 15672 | `RABBITMQ_PORT` / `RABBITMQ_CONSOLE_PORT` |
+| 后端 | `its-my-go-backend` | 8080 | `BACKEND_PORT` |
+| 前端 Nginx | `its-my-go-frontend` | 8088 | `FRONTEND_PORT` |
+
+**地址分离（关键）**：`itsmygo.minio.endpoint` 是**后端容器**访问 MinIO 的地址
+（`http://minio:9000`）；`itsmygo.minio.public-endpoint` 是**浏览器**访问图片的地址
+（`http://localhost:9000` 或内网 IP）。`StorageServiceImpl` 只把后者拼进返回 URL；
+若混用，浏览器会拿到 `minio:9000` 这种解析不了的地址。
+
+**前端构建**：`VITE_TMAP_KEY` 在 `npm run build` 时写进静态文件，因此通过 Compose
+build args 传入，改运行时环境变量无效。
+
+**命名**：容器/卷/网络全部 `its-my-go-*`；网络 `its-my-go-net` 同时用于联合部署。
+**seed profile**：`docker compose --profile seed run --rm seed`，导入 `sql/seed-data.sql`。
+
+**联合部署**：ItsMyGo 的 backend 在 `its-my-go-net` 上有别名 `its-my-go-backend`；
+rag_helper 的 `agent-grpc` / `agent-import` 分别别名 `rag-agent` / `rag-import`。
+Java 侧用 `RAG_AGENT_GRPC_TARGET=rag-agent:8003`、`RAG_AGENT_IMPORT_URL=http://rag-import:8001`
+（注意：Compose 读的是 `RAG_` 前缀变量，避免 `.env` 里本地调试的
+`AGENT_GRPC_TARGET=127.0.0.1:8003` 泄漏进容器）。完整命令见 README「与客服智能体联合部署」。
+
 
 ---
 
@@ -1255,7 +1302,60 @@ AND ps.status = 1 AND ps.stock <= 10)`。V26 加了 `product_skus(status, stock)
 
 ---
 
+### 5.38 ★ Docker 化时的五个坑（2026-10-25 踩到 / 补齐）
+
+**① `.env` 同时服务本地调试与 Compose，`127.0.0.1` 会泄漏进容器。**
+`.env.example` 里的 `AGENT_GRPC_TARGET=127.0.0.1:8003` 对本地 `mvnw spring-boot:run`
+是对的，但 Compose 容器里指向自己。解法：Compose 用独立的 `RAG_AGENT_GRPC_TARGET` /
+`RAG_AGENT_IMPORT_URL`，默认值就是服务别名；本地变量照旧。
+
+**② MinIO 有两套地址。** 后端容器解析 `minio:9000`，浏览器只认宿主机 / 内网 IP。
+`StorageServiceImpl` 必须用 `public-endpoint` 拼 URL；只改 `endpoint` 会让图片全裂。
+
+**③ Vite 的 `VITE_*` 是构建期常量。** Docker build 的 context 是 `frontend/`，
+拿不到仓库根 `.env`；必须用 `ARG VITE_TMAP_KEY` + Compose build args，
+运行期再改环境变量不会生效。
+
+**④ 联合部署的网络必须先存在。** rag_helper 的覆盖文件把 `its-my-go-net` 声明为
+`external: true`，所以要先起 ItsMyGo；`joint-up` 脚本已保证顺序，手工执行时别颠倒。
+
+**⑤ 本机共用中间件会撞端口。** 默认 3306 / 6379 / 9000 已被共用容器占用；
+Compose 全栈要先把 `MYSQL_PORT` / `REDIS_PORT` / `MINIO_PORT` 等改成空闲端口，
+或先停共用容器（不推荐，会影响别的项目）。
+
+**⑥ seed 导入必须显式 `utf8mb4`。** `mysql` 客户端在容器里默认不是 utf8mb4，
+直接 `< seed-data.sql` 会把中文按 latin1 写进去（表现为接口返回 `æ•°å­—`）。
+`docker-compose.yml` 的 seed 服务已带 `--default-character-set=utf8mb4`；
+手工导入时也要加。校验：`SELECT HEX(name) ...` 应是 `E5...` 而不是 `C3A5...`。
+
+---
+
 ## 6. 历史记录
+
+### 2026-10-25 · Docker 一键部署与联合启动
+
+**新增**：后端 `Dockerfile`（Maven 多阶段 → JRE 17）、`frontend/Dockerfile`
+（Node 构建 → Nginx）、`frontend/nginx.conf`（`/api` 反代 backend、SSE 关闭缓冲、
+200MB 上传上限）、根 `docker-compose.yml`、`.dockerignore`、
+`scripts/docker-up.*` / `docker-down.*`。
+
+**地址分离**：`application.yml` 增加 `itsmygo.minio.public-endpoint`；
+`StorageServiceImpl` 用 public endpoint 拼浏览器 URL。Compose 内
+`ITSMYGO_MINIO_ENDPOINT=http://minio:9000`，public 取 `MINIO_PUBLIC_ENDPOINT`。
+
+**联合部署**：backend 在 `its-my-go-net` 增加别名 `its-my-go-backend`；
+Compose 的 agent 地址改用 `RAG_AGENT_GRPC_TARGET` / `RAG_AGENT_IMPORT_URL`；
+frontend 通过 build args 接收 `VITE_TMAP_KEY`。
+
+**验证**：`docker compose config` 通过。用「独立容器名 + 独立卷 + 备用端口」起冒烟栈实测：
+MySQL healthy、Flyway 到 V29、backend `/api/health` 200、Nginx `/api` 反代 200、
+bootstrap 管理员创建成功、seed 导入 44 个商品（修正 utf8mb4 后中文正常）、
+上传测试图返回的 URL 用 `MINIO_PUBLIC_ENDPOINT` 且浏览器可 200 访问。
+联合部署实测 Java → `rag-import` 上传 Markdown 并跑完导入、Java → `rag-agent`
+gRPC 对话返回 SSE final；双向服务别名解析正常。
+标准 Dockerfile 的 Maven/Node 基础镜像在本机 Docker Hub 受限，已用本地
+`mvn package` + `eclipse-temurin:17-jre` 等价验证运行时，构建文件本身未改动逻辑。
+全量测试 **251 条通过**。
 
 ### 2026-10-25 · 商户经营看板（M25）
 

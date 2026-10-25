@@ -1,0 +1,194 @@
+# ItsMyGo 本地一键栈：MySQL / Redis / MinIO / RabbitMQ + 后端 + 前端
+#
+# 快速开始（在仓库根目录）：
+#   docker compose up -d --build
+#   浏览器打开 http://localhost:8088
+#
+# 首次启动没有管理员：在 .env 配 BOOTSTRAP_ADMIN_USERNAME / BOOTSTRAP_ADMIN_PASSWORD，
+# 或注册后按 README 的 SQL 兜底提权。
+#
+# 所有容器/卷都以 its-my-go 开头，不会碰本机共用 mysql/redis/minio。
+name: its-my-go
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: its-my-go-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-itsmygo_root_local}
+      MYSQL_DATABASE: ${DB_NAME:-its_mygo}
+      MYSQL_USER: ${DB_USERNAME:-itsmygo}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-itsmygo_local_password}
+      TZ: Asia/Shanghai
+    command:
+      - --default-time-zone=+08:00
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - its-my-go-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    networks:
+      - its-my-go-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: its-my-go-redis
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb",
+              "--maxmemory-policy", "volatile-lru"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - its-my-go-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - its-my-go-net
+
+  minio:
+    image: minio/minio:latest
+    container_name: its-my-go-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - its-my-go-minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - its-my-go-net
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    container_name: its-my-go-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-itsmygo}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-itsmygo_local_password}
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_CONSOLE_PORT:-15672}:15672"
+    volumes:
+      - its-my-go-rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    networks:
+      - its-my-go-net
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: its-my-go-backend
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      DB_USERNAME: ${DB_USERNAME:-itsmygo}
+      DB_PASSWORD: ${DB_PASSWORD:-itsmygo_local_password}
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${DB_NAME:-its_mygo}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      ITSMYGO_MINIO_ENDPOINT: http://minio:9000
+      ITSMYGO_MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-itsmygo}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-itsmygo_local_password}
+      JWT_SECRET: ${JWT_SECRET:-dev-only-please-change-this-jwt-secret-0123456789abcdef}
+      BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+      ADMIN_INVITE_EXPIRY_HOURS: ${ADMIN_INVITE_EXPIRY_HOURS:-24}
+      AGENT_GRPC_TARGET: ${RAG_AGENT_GRPC_TARGET:-rag-agent:8003}
+      AGENT_GRPC_KEY: ${AGENT_GRPC_KEY:-}
+      AGENT_GRPC_DEADLINE_SECONDS: ${AGENT_GRPC_DEADLINE_SECONDS:-240}
+      AGENT_ACTIONS_ENABLED: ${AGENT_ACTIONS_ENABLED:-true}
+      AGENT_ACTION_EXPIRY_SECONDS: ${AGENT_ACTION_EXPIRY_SECONDS:-600}
+      AGENT_IMPORT_URL: ${RAG_AGENT_IMPORT_URL:-http://rag-import:8001}
+      AGENT_IMPORT_KEY: ${AGENT_IMPORT_KEY:-}
+      ORDER_TIMEOUT_MQ_ENABLED: ${ORDER_TIMEOUT_MQ_ENABLED:-true}
+      ORDER_TIMEOUT_MINUTES: ${ORDER_TIMEOUT_MINUTES:-30}
+      ORDER_TIMEOUT_SCAN_ENABLED: ${ORDER_TIMEOUT_SCAN_ENABLED:-true}
+      LOGISTICS_DELIVERY_MINUTES: ${LOGISTICS_DELIVERY_MINUTES:-120}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    networks:
+      its-my-go-net:
+        aliases:
+          # rag_helper 的 agent 通过这个固定别名回调 Java
+          - its-my-go-backend
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Vite 在构建时把地图 Key 写进静态文件；运行时改环境变量不生效
+        VITE_TMAP_KEY: ${VITE_TMAP_KEY:-}
+    container_name: its-my-go-frontend
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-8088}:80"
+    networks:
+      - its-my-go-net
+
+  # 可选：导入种子数据（44 个商品；先等后端启动并建好表再执行）
+  #   docker compose --profile seed run --rm seed
+  # 导入后重启 backend，或调用管理端「重建布隆过滤器」。
+  seed:
+    image: mysql:8.0
+    container_name: its-my-go-seed
+    profiles: ["seed"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      DB_USERNAME: ${DB_USERNAME:-itsmygo}
+      MYSQL_PWD: ${DB_PASSWORD:-itsmygo_local_password}
+    volumes:
+      - ./sql:/seed:ro
+    entrypoint: ["sh", "-c", "mysql --default-character-set=utf8mb4 -h mysql -u\"$$DB_USERNAME\" ${DB_NAME:-its_mygo} < /seed/seed-data.sql"]
+    networks:
+      - its-my-go-net
+
+volumes:
+  its-my-go-mysql-data:
+    name: its-my-go-mysql-data
+  its-my-go-redis-data:
+    name: its-my-go-redis-data
+  its-my-go-minio-data:
+    name: its-my-go-minio-data
+  its-my-go-rabbitmq-data:
+    name: its-my-go-rabbitmq-data
+
+networks:
+  its-my-go-net:
+    name: its-my-go-net
