@@ -1636,7 +1636,8 @@ rag_helper 的 8001 导入服务；`AGENT_GRPC_KEY` / `AGENT_IMPORT_KEY` 只留�
 **接口与页面**：
 - `/api/admin/invitations`：创建 / 列表 / 批准 / 撤回（ADMIN）；
 - `/api/user/admin-invitation/accept`：被邀请人接受（登录即可，不要求 ADMIN）；
-- `/admin/invitations`：发起、复制一次性链接、批准 / 撤回；
+- `/admin/invitations`：按用户名 / 昵称 / 手机号远程搜索顾客并选中，发起、复制一次性
+  链接、批准 / 撤回；
 - `/admin-invite?token=...`：被邀请人接受页，成功后登出重登。
 
 **审计**：发起 / 批准 / 撤回走 `@AdminAudit`（`ADMIN_INVITE_*`）；

@@ -1,23 +1,27 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CopyDocument, Refresh, UserFilled } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
+import { fetchAdminUsers } from '@/api/admin'
 import {
   approveAdminInvitation,
   createAdminInvitation,
   fetchAdminInvitations,
   revokeAdminInvitation,
 } from '@/api/adminInvitation'
-import type { AdminInvitationView } from '@/api/types'
+import type { AdminInvitationView, AdminUserView } from '@/api/types'
 
 const userStore = useUserStore()
 const rows = ref<AdminInvitationView[]>([])
 const loading = ref(false)
 const creating = ref(false)
-const username = ref('')
+const selectedUser = ref<AdminUserView | null>(null)
+const userOptions = ref<AdminUserView[]>([])
+const searching = ref(false)
 const statusFilter = ref('')
 const created = ref<AdminInvitationView | null>(null)
+let searchTimer: number | undefined
 
 const STATUS_META: Record<string, { label: string; type: 'warning' | 'success' | 'info' }> = {
   PENDING_APPROVAL: { label: '待批准', type: 'warning' },
@@ -59,15 +63,14 @@ async function load() {
 }
 
 async function create() {
-  const name = username.value.trim()
-  if (!name) {
-    ElMessage.warning('请输入要邀请的用户名')
+  if (!selectedUser.value) {
+    ElMessage.warning('请先搜索并选择一个顾客账号')
     return
   }
   creating.value = true
   try {
-    created.value = await createAdminInvitation(name)
-    username.value = ''
+    created.value = await createAdminInvitation(selectedUser.value.username)
+    selectedUser.value = null
     ElMessage.success('邀请已创建，请等待另一位管理员批准')
     await load()
   } catch {
@@ -75,6 +78,33 @@ async function create() {
   } finally {
     creating.value = false
   }
+}
+
+async function searchUsers(query: string) {
+  searching.value = true
+  try {
+    const result = await fetchAdminUsers({
+      page: 1,
+      size: 20,
+      keyword: query.trim() || undefined,
+      role: 'CUSTOMER',
+      status: 1,
+    })
+    const records = result.records
+    // 已选用户不在新搜索结果里时也保留，避免选择框显示成空
+    if (selectedUser.value && !records.some((user) => user.id === selectedUser.value!.id)) {
+      records.unshift(selectedUser.value)
+    }
+    userOptions.value = records
+  } finally {
+    searching.value = false
+  }
+}
+
+/** 输入防抖 250ms，别每敲一个字就打一次管理端用户接口 */
+function onSearch(query: string) {
+  window.clearTimeout(searchTimer)
+  searchTimer = window.setTimeout(() => void searchUsers(query), 250)
 }
 
 async function approve(row: AdminInvitationView) {
@@ -124,7 +154,12 @@ async function copy(text: string, label: string) {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  void load()
+  void searchUsers('')
+})
+
+onBeforeUnmount(() => window.clearTimeout(searchTimer))
 </script>
 
 <template>
@@ -148,17 +183,41 @@ onMounted(load)
 
     <section class="invite-card">
       <div class="invite-row">
-        <el-input
-          v-model="username"
-          placeholder="输入普通顾客的用户名"
+        <el-select
+          v-model="selectedUser"
+          filterable
+          remote
           clearable
-          style="width: 280px"
-          @keyup.enter="create"
-        />
-        <el-button type="primary" :icon="UserFilled" :loading="creating" @click="create">
+          value-key="id"
+          :remote-method="onSearch"
+          :loading="searching"
+          placeholder="搜索用户名 / 昵称 / 手机号"
+          style="width: 340px"
+        >
+          <el-option
+            v-for="user in userOptions"
+            :key="user.id"
+            :label="user.nickname || user.username"
+            :value="user"
+          >
+            <div class="user-option">
+              <span class="user-name">{{ user.nickname || user.username }}</span>
+              <span class="user-sub">
+                @{{ user.username }}<template v-if="user.phone"> · {{ user.phone }}</template>
+              </span>
+            </div>
+          </el-option>
+        </el-select>
+        <el-button
+          type="primary"
+          :icon="UserFilled"
+          :loading="creating"
+          :disabled="!selectedUser"
+          @click="create"
+        >
           创建邀请
         </el-button>
-        <span class="muted">只能邀请角色为 CUSTOMER 的账号</span>
+        <span class="muted">只显示可邀请的普通顾客，支持模糊搜索</span>
       </div>
     </section>
 
@@ -294,6 +353,22 @@ onMounted(load)
   margin-bottom: 8px;
   font-size: 13px;
   font-weight: 600;
+}
+
+.user-option {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.user-name {
+  font-size: 13px;
+  color: var(--el-text-color-primary);
+}
+
+.user-sub {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 
 .link-actions {

@@ -1263,7 +1263,8 @@ AND ps.status = 1 AND ps.stock <= 10)`。V26 加了 `product_skus(status, stock)
 另一位管理员批准 → `APPROVED` → 被邀请人接受 → `ACCEPTED`。token 32 字节随机、
 只存 SHA-256、一次性、默认 24h；发起人不能自批；接受后重登生效。
 
-**页面**：`/admin/invitations`（发起/复制链接/批准/撤回）、`/admin-invite`（接受）。
+**页面**：`/admin/invitations`（按用户名/昵称/手机号远程搜索顾客，发起/复制链接/批准/撤回）、
+`/admin-invite`（接受）。
 **审计**：发起/批准/撤回走 AOP；接受手动写 `ADMIN_INVITE_ACCEPT`。
 
 **验证**：bootstrap 4 条、邀请 2 条单测；端到端实测并清理测试账号；全量 249 条通过。
