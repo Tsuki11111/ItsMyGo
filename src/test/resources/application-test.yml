@@ -31,3 +31,7 @@ itsmygo:
   order-timeout:
     mq-enabled: false
     scan-enabled: false
+  # 测试不连真实 agent：下单确认等内部事件不应在单测里发 gRPC
+  agent:
+    grpc:
+      key: ""

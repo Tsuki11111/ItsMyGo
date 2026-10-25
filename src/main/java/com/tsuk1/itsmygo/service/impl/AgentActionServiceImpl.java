@@ -501,6 +501,9 @@ public class AgentActionServiceImpl implements AgentActionService {
             action.setErrorMessage("");
             action.setExecutedAt(LocalDateTime.now());
             actionMapper.updateById(action);
+            if (AgentActionType.CREATE_ORDER.name().equals(action.getType())) {
+                notifyOrderConfirmed(userId, action, result);
+            }
             return toView(action);
         } catch (BizException e) {
             markFailed(action, e.getMessage());
@@ -711,6 +714,35 @@ public class AgentActionServiceImpl implements AgentActionService {
         result.put("statusLabel", status.label());
         result.put("messageId", message.id());
         return result;
+    }
+
+    /**
+     * 下单成功后补一条买小购回复：订单已经创建成功，通知失败只记日志，
+     * 不能让用户误以为下单失败；动作卡片仍会展示订单结果。
+     */
+    private void notifyOrderConfirmed(long userId, AgentAction action, Object result) {
+        if (!agentGateway.configured() || !StringUtils.hasText(action.getSessionId())) {
+            return;
+        }
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("actionNo", action.getActionNo());
+        if (result instanceof Map<?, ?> map) {
+            payload.put("orders", map.get("orders"));
+            payload.put("note", map.get("note"));
+        }
+        try {
+            String ticket = ticketService.issue(userId, action.getSessionId());
+            Iterator<Event> events = agentGateway.internalEvent(userId, action.getSessionId(),
+                    "order-confirmed", json(payload), ticket, Duration.ofSeconds(5));
+            while (events.hasNext()) {
+                Event event = events.next();
+                if (event.hasError()) {
+                    log.warn("下单确认消息生成失败: {}", event.getError().getMessage());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("下单确认消息生成失败: {}", action.getActionNo(), e);
+        }
     }
 
     /**

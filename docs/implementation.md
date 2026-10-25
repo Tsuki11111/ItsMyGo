@@ -1158,12 +1158,18 @@ SUCCEEDED / FAILED`，另有 `CANCELLED` / `EXPIRED`。
 - 退款：解析快照里的 orderId，调 `OrderService.applyRefund`。
 - 成功写 `result_json`；业务失败写 `FAILED + error_message`；过期直接 `EXPIRED`；
   卡在 EXECUTING 超过 5 分钟视为执行中断，标记 FAILED 让用户重来。
+- **下单成功后补一条买小购回复**：Java 用 gRPC 内部事件 `order-confirmed`
+  把订单摘要（订单号 / 金额 / 状态）带给 agent，agent 写入一条 assistant 历史；
+  前端收到确认结果后刷新历史显示「下单成功…」。通知失败只记 warn，
+  **不影响订单创建**，动作卡片仍会展示订单与「去支付」入口。
 - `cancel` 只能取消 PENDING_CONFIRM；`GET /api/agent/actions?sessionId=` 返回
   该会话的动作，前端刷新后靠它恢复卡片。
 
 **前端**：`AgentActionCard.vue` 渲染订单 / 退款两类卡片；`AgentChatPanel.vue`
 在 `done` 和加载历史时拉取动作列表，确认 / 取消后就地更新；`visibilitychange`
 时也会重新拉一次。卡片由 Java 数据驱动，不依赖模型在回复里写什么。
+`CREATE_ORDER` 确认成功、以及催办成功 / 失败后会重新拉一次历史，
+把 agent 写入的确认回复显示出来。
 
 前端只展示**还需要用户关注**的卡片：待确认 / 执行中 / 失败；已取消、已过期、
 已完成默认隐藏。唯一例外是下单成功但订单仍 `PENDING_PAYMENT` —— 保留卡片给

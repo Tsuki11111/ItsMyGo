@@ -1218,6 +1218,8 @@ agent 服务在对话过程中需要实时数据时，会反向回调 Java 的�
 - 限流：confirm / cancel 10 次/60s/用户；总开关 `AGENT_ACTIONS_ENABLED=false`。
 - 下单成功后的 `result.orders[]` 带 `id / orderNo / status / statusLabel / totalAmount`，
   前端据此给「去支付」入口；支付仍走 `POST /api/orders/{id}/pay`。
+- `CREATE_ORDER` 成功后 Java 会触发 agent 内部事件 `order-confirmed`，agent 写入一条
+  assistant 历史（订单号 / 金额 / 待支付）；该通知失败不影响订单创建。
 - 智能下单暂不支持优惠券。
 
 **AgentActionView**

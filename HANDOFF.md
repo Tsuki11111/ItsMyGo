@@ -87,6 +87,9 @@ JSON 文件（14 天滚动）；`RequestIdFilter` 注入 MDC + `X-Trace-Id` 响�
 （`products/thumbs/...`），商品创建/更新与 SKU 保存时图片变化会自动刷新；
 列表页用 `thumb_image`，详情页仍用原图；存量数据通过
 `POST /api/admin/products/backfill-thumbnails` 补齐。
+**AI 下单成功回复已补齐（2026-10-25）**：`CREATE_ORDER` 确认成功后 Java 触发 agent
+内部事件 `order-confirmed`，agent 写入一条 assistant 历史（订单号 / 金额 / 待支付）；
+前端刷新历史显示回复。通知失败只记日志，不影响订单创建。
 后端 **自动化测试 238 条**。
 
 **下一步：用户与操作审计**（用户已选）—— 用户列表 / 状态、操作审计等。
@@ -1236,6 +1239,20 @@ AND ps.status = 1 AND ps.stock <= 10)`。V26 加了 `product_skus(status, stock)
 ---
 
 ## 6. 历史记录
+
+### 2026-10-25 · AI 下单成功回复
+
+**问题**：用户在聊天里确认订单草稿后，Java 创建订单并更新动作卡片，但 agent 没有
+生成任何 assistant 消息，聊天里只剩卡片变化。
+
+**修复**：`AgentActionServiceImpl.confirm` 在下单成功后调用 agent 内部事件
+`order-confirmed`（payload：动作号 + 订单摘要），agent 侧 `order_confirmed_graph.py`
+写一条「下单成功 + 订单号 / 金额 / 待支付」的 assistant 历史；Java 侧通知失败只 warn，
+不影响订单。前端 `AgentChatPanel.onActionUpdated` 在 `CREATE_ORDER` SUCCEEDED 后
+重新拉历史，把这条回复显示出来。
+
+**验证**：真实下单流程（奔图 P3030 ×1）确认后 1 秒内出现回复；刷新页面历史仍在；
+agent 离线回归新增「下单确认回复」用例，全量 59 条 PASS。
 
 ### 2026-10-25 · 智能体执行条固定宽度
 
