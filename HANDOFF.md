@@ -88,7 +88,8 @@ JSON 文件（14 天滚动）；`RequestIdFilter` 注入 MDC + `X-Trace-Id` 响�
 列表页用 `thumb_image`，详情页仍用原图；存量数据通过
 `POST /api/admin/products/backfill-thumbnails` 补齐。
 **AI 下单成功回复已补齐（2026-10-25）**：`CREATE_ORDER` 确认成功后 Java 触发 agent
-内部事件 `order-confirmed`，agent 写入一条 assistant 历史（订单号 / 金额 / 待支付）；
+内部事件 `order-confirmed`，agent 写入一条 assistant 历史（订单号 / 应付金额；
+**不写待支付等易变状态**，状态以订单详情页为准）；
 前端刷新历史显示回复。通知失败只记日志，不影响订单创建。
 后端 **自动化测试 238 条**。
 
@@ -1247,7 +1248,8 @@ AND ps.status = 1 AND ps.stock <= 10)`。V26 加了 `product_skus(status, stock)
 
 **修复**：`AgentActionServiceImpl.confirm` 在下单成功后调用 agent 内部事件
 `order-confirmed`（payload：动作号 + 订单摘要），agent 侧 `order_confirmed_graph.py`
-写一条「下单成功 + 订单号 / 金额 / 待支付」的 assistant 历史；Java 侧通知失败只 warn，
+写一条「下单成功 + 订单号 / 应付金额」的 assistant 历史；**历史消息刻意不写
+「当前待支付」这类会过期的状态**，状态以动作卡片和订单详情页为准；Java 侧通知失败只 warn，
 不影响订单。前端 `AgentChatPanel.onActionUpdated` 在 `CREATE_ORDER` SUCCEEDED 后
 重新拉历史，把这条回复显示出来。
 

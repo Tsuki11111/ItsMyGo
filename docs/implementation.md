@@ -1159,7 +1159,8 @@ SUCCEEDED / FAILED`，另有 `CANCELLED` / `EXPIRED`。
 - 成功写 `result_json`；业务失败写 `FAILED + error_message`；过期直接 `EXPIRED`；
   卡在 EXECUTING 超过 5 分钟视为执行中断，标记 FAILED 让用户重来。
 - **下单成功后补一条买小购回复**：Java 用 gRPC 内部事件 `order-confirmed`
-  把订单摘要（订单号 / 金额 / 状态）带给 agent，agent 写入一条 assistant 历史；
+  把订单摘要（订单号 / 应付金额）带给 agent，agent 写入一条 assistant 历史；
+  消息**不写「当前待支付」等易变状态**，避免支付后历史消息仍显示待支付；
   前端收到确认结果后刷新历史显示「下单成功…」。通知失败只记 warn，
   **不影响订单创建**，动作卡片仍会展示订单与「去支付」入口。
 - `cancel` 只能取消 PENDING_CONFIRM；`GET /api/agent/actions?sessionId=` 返回
