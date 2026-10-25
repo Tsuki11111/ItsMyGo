@@ -5,22 +5,19 @@
 # 前置：Docker Desktop 已启动。
 #
 # ═════════════════════════════════════════════
-# 方式 A：Docker Compose 全栈（新克隆推荐）
+# 方式 A：Docker Compose 全栈（推荐）
 # ═════════════════════════════════════════════
 # 自带 MySQL / Redis / MinIO / RabbitMQ / 后端 / 前端，不依赖下面的共用容器。
-# 端口冲突时在 .env 改 MYSQL_PORT / REDIS_PORT / MINIO_PORT / BACKEND_PORT / FRONTEND_PORT。
 #
 # cd /c/Users/28470/IdeaProjects/ItsMyGo
-# cp .env.example .env      # 填 MINIO_ACCESS_KEY / MINIO_SECRET_KEY；首个管理员配 BOOTSTRAP_ADMIN_*
-# docker compose up -d --build
-# # 或：./scripts/docker-up.sh
-# # 首次管理员：配好 BOOTSTRAP_ADMIN_* 后 docker compose up -d backend
-# # 演示数据：docker compose --profile seed run --rm seed
+# ./deploy.sh
+# # 首次自动生成 .env、管理员密码（见 .env）并导入 44 个演示商品
+# # 跳过演示数据：./deploy.sh up --no-seed
 # # 前端：http://localhost:8088    后端健康：http://localhost:8080/api/health
-# # 停止：./scripts/docker-down.sh
+# # 停止：./deploy.sh down
 #
-# 与 rag_helper 联合部署（两个仓库同级）：
-# cd /d/PycharmProjects/rag_helper && ./scripts/joint-up.sh
+# 与 rag_helper 联合部署：
+# cd /d/PycharmProjects/rag_helper && ./deploy.sh joint
 #
 # ═════════════════════════════════════════════
 # 方式 B：本机开发（复用共用中间件）

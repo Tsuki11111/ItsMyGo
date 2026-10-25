@@ -108,9 +108,10 @@ token 只存哈希、一次性、默认 24h；发起/批准/撤回/接受全部�
 `frontend/Dockerfile` + `nginx.conf`（静态站 + `/api` 反代 + SSE 不缓冲）、
 `docker-compose.yml`（MySQL / Redis / MinIO / RabbitMQ / backend / frontend，
 seed profile）；MinIO 拆成容器内 `endpoint` 与浏览器 `public-endpoint` 两套地址。
-配套 `scripts/docker-up.*` / `docker-down.*`，clone 后复制 `.env` 即可起。
+配套根目录 `deploy.sh` / `deploy.ps1`，clone 后直接 `./deploy.sh` 即可起：
+首次自动生成 `.env`、管理员密码，并在商品表为空时导入演示数据。
 与 rag_helper 的联合部署走 `its-my-go-net` + 服务别名（见 §4.7），
-`rag_helper/scripts/joint-up.*` 会自动生成共享密钥并启动两套。
+`rag_helper/deploy.sh joint` 会自动生成共享密钥并启动两套。
 
 **下一步**：部署验证与文档收尾之后，可选商户与商品运营二期（商品审核 / 券运营等）。
 
@@ -460,7 +461,12 @@ Conventional Commits，**描述用中文**（与 `rag_helper` 保持一致）：
 | 方式 | 适用 | 命令 |
 |---|---|---|
 | 本机开发 | 日常改代码，复用共用中间件 | 见 §4.0 / start.txt |
-| Compose 全栈 | 新克隆、演示、内网部署 | `cp .env.example .env && docker compose up -d --build` |
+| Compose 全栈 | 新克隆、演示、内网部署 | `./deploy.sh` |
+
+**`deploy.sh` 做了什么**（`deploy.ps1` 等价）：复制 `.env.example` 为 `.env` →
+补齐 JWT / DB / RabbitMQ / MinIO 随机密码 → 生成 `admin` 初始密码并打印一次 →
+`docker compose up -d --build` → 等 `/api/health` → 商品表为空时导入 44 个演示商品。
+`up --no-seed` 跳过演示数据；密码都写在 `.env`，重复执行不会重新生成。
 
 **Compose 服务与端口**（都可用 `.env` 覆盖）：
 
@@ -1317,7 +1323,7 @@ AND ps.status = 1 AND ps.stock <= 10)`。V26 加了 `product_skus(status, stock)
 运行期再改环境变量不会生效。
 
 **④ 联合部署的网络必须先存在。** rag_helper 的覆盖文件把 `its-my-go-net` 声明为
-`external: true`，所以要先起 ItsMyGo；`joint-up` 脚本已保证顺序，手工执行时别颠倒。
+`external: true`，所以要先起 ItsMyGo；`rag_helper/deploy.sh joint` 已保证顺序，手工执行时别颠倒。
 
 **⑤ 本机共用中间件会撞端口。** 默认 3306 / 6379 / 9000 已被共用容器占用；
 Compose 全栈要先把 `MYSQL_PORT` / `REDIS_PORT` / `MINIO_PORT` 等改成空闲端口，
@@ -1337,7 +1343,8 @@ Compose 全栈要先把 `MYSQL_PORT` / `REDIS_PORT` / `MINIO_PORT` 等改成空�
 **新增**：后端 `Dockerfile`（Maven 多阶段 → JRE 17）、`frontend/Dockerfile`
 （Node 构建 → Nginx）、`frontend/nginx.conf`（`/api` 反代 backend、SSE 关闭缓冲、
 200MB 上传上限）、根 `docker-compose.yml`、`.dockerignore`、
-`scripts/docker-up.*` / `docker-down.*`。
+`deploy.sh` / `deploy.ps1`（唯一入口：自动生成 .env / 管理员 / 演示数据，
+提供 up / down / logs / status / seed / reset）。
 
 **地址分离**：`application.yml` 增加 `itsmygo.minio.public-endpoint`；
 `StorageServiceImpl` 用 public endpoint 拼浏览器 URL。Compose 内

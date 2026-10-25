@@ -65,115 +65,26 @@ Spring Boot 单体 + Vue 3 前后端分离，经 **gRPC 接入 RAG 客服智能�
 
 **对接契约**以 `rag_helper/evolution-plan.md` §5/§6 与 `rag_helper/proto/agent.proto` 为唯一权威。
 
-## 部署方式
+## 快速启动（Docker）
 
-支持两种方式：**Docker Compose 一键栈**（新克隆推荐，自带全部中间件）和
-**本地开发**（复用本机已有 `mysql` / `redis` / `minio`，见「本地运行」）。
-
-### 方式 A：Docker Compose 一键栈（推荐）
-
-镜像、编排和脚本都在仓库里，clone 后只需要准备 `.env`：
+前置：Docker Desktop。
 
 ```bash
-cp .env.example .env
-# 至少填 MINIO_ACCESS_KEY / MINIO_SECRET_KEY；需要首个管理员再加 BOOTSTRAP_ADMIN_*
-docker compose up -d --build
-# 或者：./scripts/docker-up.sh       Windows PowerShell：.\scripts\docker-up.ps1
+./deploy.sh
 ```
 
-启动后：
+Windows PowerShell 用 `./deploy.ps1`，参数相同。
 
-| 入口 | 地址 |
-|---|---|
-| 前端（Nginx） | http://localhost:8088 |
-| 后端健康检查 | http://localhost:8080/api/health |
-| MySQL / Redis | `localhost:3306` / `localhost:6379` |
-| MinIO API / 控制台 | `localhost:9000` / `localhost:9001` |
-| RabbitMQ / 管理台 | `localhost:5672` / `http://localhost:15672` |
+打开 `http://localhost:8088`。首次会自动生成 `.env`、管理员密码，并导入 44 个演示商品。
+停止用 `./deploy.sh down`；想跳过演示数据用 `./deploy.sh up --no-seed`。
 
-- 容器、卷、网络全部以 `its-my-go-*` 命名（网络 `its-my-go-net`），
-  **不会碰本机已有的 `mysql` / `redis` / `minio` 容器**。
-- 端口冲突时在 `.env` 改 `MYSQL_PORT` / `REDIS_PORT` / `MINIO_PORT` /
-  `BACKEND_PORT` / `FRONTEND_PORT` 等变量即可。
-- 浏览器里的商品图地址由 `MINIO_PUBLIC_ENDPOINT` 决定；Docker / 内网部署时
-  改成浏览器真实可达的地址（如 `http://192.168.1.20:9000`），不能写容器内的 `minio:9000`。
-- 演示数据（44 个商品）在后端建完表后导入：
-
-  ```bash
-  docker compose --profile seed run --rm seed
-  ```
-
-  > seed 脚本会先清空商品 / 分类等演示表，**只对本地或演示库执行**，不要指向生产库。
-
-- 停止：`./scripts/docker-down.sh`（保留数据卷）；连数据一起清掉用 `docker compose down -v`。
-
-> **Docker Hub 拉不动时**：本机访问 Docker Hub 可能超时。可以先用国内镜像站拉基础镜像，
-> 再打成 Dockerfile 里使用的标准名，例如：
->
-> ```bash
-> docker pull docker.m.daocloud.io/library/mysql:8.0
-> docker tag docker.m.daocloud.io/library/mysql:8.0 mysql:8.0
-> ```
->
-> 需要的基础镜像：`maven:3.9.9-eclipse-temurin-17`、`eclipse-temurin:17-jre`、
-> `node:22-alpine`、`nginx:1.27-alpine`、`mysql:8.0`、`redis:7-alpine`、
-> `minio/minio:latest`、`rabbitmq:4-management`。
-
-### 方式 B：本地开发（复用本机中间件）
-
-**全本地，不部署云。** 中间件**复用本机已有容器**，不另起：
-
-| 中间件 | 容器 | 连接 |
-|---|---|---|
-| MySQL 8.0 | `mysql` | `localhost:3306`，库 `its_mygo`（测试用 `its_mygo_test`） |
-| Redis 7 | `redis` | `localhost:6379`，key 前缀 `its-mygo:` |
-| MinIO | `minio` | `localhost:9000`（Console `:9001`），bucket `its-mygo-product-images` |
-
-> `mysql` 容器**没有 restart policy**，Docker Desktop 重启后需手动 `docker start mysql`。
-
-**RabbitMQ 是本项目自有容器**（不是共用中间件），用根目录
-`docker-compose.rabbitmq.yml` 启动；账号在 `.env` 的 `RABBITMQ_*`，管理台
-`http://localhost:15672`。
-
-### 与客服智能体联合部署（内网）
-
-两个仓库放成同级目录（`ItsMyGo/` 与 `rag_helper/`），在 `rag_helper` 里执行：
+联合客服智能体（两个仓库同级）：
 
 ```bash
-cd rag_helper
-./scripts/joint-up.sh
-# Windows PowerShell：.\scripts\joint-up.ps1
+cd ../rag_helper && ./deploy.sh joint
 ```
 
-脚本会：
-
-1. 准备两边缺失的 `.env`；
-2. 生成 / 复用共享访问密钥 `.agent-key`（已 gitignore），并注入两个 Compose；
-3. 先启动 ItsMyGo（创建共享网络 `its-my-go-net`），再启动 rag_helper 的三个服务；
-4. 把密钥幂等写入 agent 的 MongoDB（`agent-key-init`）。
-
-联合拓扑里 Java 通过服务别名访问 agent，不经过宿主机端口：
-
-| Java 变量 | 联合部署值 |
-|---|---|
-| `AGENT_GRPC_TARGET` | `rag-agent:8003` |
-| `AGENT_IMPORT_URL` | `http://rag-import:8001` |
-| agent → Java | `http://its-my-go-backend:8080` |
-
-手工等价命令：
-
-```bash
-# 1. 先起 ItsMyGo（创建 its-my-go-net）
-docker compose up -d --build
-
-# 2. 在 rag_helper 里叠加联合覆盖文件
-export AGENT_GRPC_KEY="$(cat .agent-key)" AGENT_IMPORT_KEY="$(cat .agent-key)"
-export RAG_AGENT_GRPC_TARGET=rag-agent:8003 RAG_AGENT_IMPORT_URL=http://rag-import:8001
-docker compose -f docker-compose.yml -f docker-compose.itsmygo.yml up -d --build
-```
-
-Neo4j 默认不启动（`rag_helper/.env` 的 `NEO4J_ENABLED=false`）。需要知识图谱时在
-rag_helper 里加 `--profile graph`。停止两套：`rag_helper/scripts/joint-down.sh`。
+端口、环境变量、手工 Compose、镜像源等问题见 [docs/deployment.md](docs/deployment.md)。
 
 ## 进度
 
@@ -276,89 +187,24 @@ agent 查订单时能看到「运输中 / 派送中 / 预计 X 送达」。
 代设（平台自营同一入口）；有坐标时物流地图从「店铺名 + 发货仓」出发，
 未解析坐标时回退虚拟转运中心。
 
-## 本地起来看看
+## 本地开发
 
-两个终端：后端 `./mvnw spring-boot:run`，前端 `cd frontend && npm run dev`，
-然后开 http://localhost:5173（演示账号 `testuser` / `123456`）。
-新注册密码要求至少 8 位，且同时包含字母和数字；演示账号保持原密码，仅用于本地演示。
-要验证 MQ 超时关单，先在 `.env` 填 `RABBITMQ_USERNAME` / `RABBITMQ_PASSWORD`，
-再 `docker compose -f docker-compose.rabbitmq.yml up -d`
-（AMQP 5672 / 管理台 15672）；不启动时在 `.env` 设
-`ORDER_TIMEOUT_MQ_ENABLED=false`，数据库扫描兜底仍会关单。
-客服对话还需要启动外部 agent 服务（第三个终端）：
-`cd D:/PycharmProjects/rag_helper && .venv/Scripts/python.exe -m app.agent.api.grpc_service`；
-并把 `rag_helper/admin-key.txt` **第一行**的密钥填进本项目 `.env` 的 `AGENT_GRPC_KEY`。
-**管理端知识库导入**还需要启动 rag_helper 的 8001 导入服务（第四个终端）：
-`cd D:/PycharmProjects/rag_helper && .venv/Scripts/python.exe -m app.import_process.api.file_import_service`；
-后台入口 `/admin/knowledge`，默认 `http://127.0.0.1:8001`，密钥默认复用 `AGENT_GRPC_KEY`。
-**订单查询需要 Java 后端同时在 8080 跑着**（agent 会回调 `/internal/agent/**`）；
-agent 侧地址默认 `http://127.0.0.1:8080`，需要改就在 `rag_helper/.env` 设 `ITS_MYGO_BASE_URL`。
-**虚拟物流**默认 120 分钟送达；想快速看完整轨迹，启动后端时设
-`LOGISTICS_DELIVERY_MINUTES=2`。订单详情页的腾讯地图需要 Web 端（JavaScript API GL）Key，
-填进仓库根目录 `.env` 的 `VITE_TMAP_KEY`；发货地址弹窗的「解析坐标」还需要该 Key
-开通 WebServiceAPI 且当日额度未用完，否则可保存地址但物流走虚拟转运中心兜底。
-完整启动清单（含中间件、管理员开通、常见问题）见 [start.txt](start.txt)。
-**商家**：注册普通账号后访问 `/merchant/apply` 提交入驻，平台管理员在 `/admin/merchants` 审核。
-管理端在登录后顶栏用户面板的「管理后台」或直接访问 `/admin`。
-**管理员开通**：
-- 首次部署在 `.env` 配 `BOOTSTRAP_ADMIN_USERNAME` / `BOOTSTRAP_ADMIN_PASSWORD`，
-  启动时**只有库中没有活跃管理员才会创建**，已有管理员绝不覆盖；
-  创建成功后建议从 `.env` 移除 bootstrap 密码并立即修改初始密码；
-- 后续在 `/admin/invitations` 发起邀请 → 另一位管理员批准 → 被邀请人登录后打开邀请链接接受，
-  接受后重新登录生效；
-- 本地也保留了 SQL 兜底：`UPDATE users SET role='ADMIN' WHERE username='testuser';`，
-  提权后重新登录。
-种子数据见 [sql/seed-data.sql](sql/seed-data.sql)（44 个商品，型号来自 `rag_helper/doc` 的产品手册），详见 [HANDOFF §3.4](HANDOFF.md)。
-
-**CI**：每次 push 自动在干净环境跑测试（[`.github/workflows/test.yml`](.github/workflows/test.yml)）。
-本地 251 条全绿，CI 跳过 4 条依赖 MinIO 的、跑 247 条（MinIO 已停止公开分发镜像，详见 [HANDOFF §5.12](HANDOFF.md)）。
-**测试跑在独立的库** `its_mygo_test`（Redis 用 db 1），和开发数据互不影响 —— 见 [HANDOFF §5.20](HANDOFF.md)。
-
-各里程碑的可验收产物见 [docs/decisions-ecommerce.md](docs/decisions-ecommerce.md) §4。
-
-## 本地运行
-
-> 不想手工起中间件：直接用「部署方式 → 方式 A」的 Docker Compose 全栈，
-> 一条命令起前端 + 后端 + MySQL + Redis + MinIO + RabbitMQ。
-
-**MySQL / Redis / MinIO 复用本机已有容器**，开工前先确认它们都在跑
-（Docker Desktop 重启后不保证自动拉起）：
-
-```bash
-docker ps --filter "name=^(mysql|redis|minio)$" --format "table {{.Names}}\t{{.Status}}"
-docker start mysql redis minio     # 缺哪个就拉哪个
-```
-
-**RabbitMQ 是本项目自有容器**（超时关单用，不属于共用中间件）。
-先从 `.env.example` 复制出 `.env`，填好 `RABBITMQ_USERNAME` / `RABBITMQ_PASSWORD`，
-再启动：
-
-```bash
-docker compose -f docker-compose.rabbitmq.yml up -d
-```
-
-AMQP 端口 `5672`，管理台 `http://localhost:15672`。不启动 RabbitMQ 时可在 `.env`
-设 `ORDER_TIMEOUT_MQ_ENABLED=false`，数据库扫描兜底仍会关单。
-
-然后启动应用：
+复用本机已有的 `mysql` / `redis` / `minio`：
 
 ```bash
 ./mvnw spring-boot:run
+cd frontend && npm run dev     # 另开终端
 ```
 
-前端另开一个终端：
-
-```bash
-cd frontend && npm run dev
-```
-
-凭据放项目根目录的 `.env`（从 `.env.example` 复制填写），该文件已被 `.gitignore` 排除。
+打开 `http://localhost:5173`，演示账号 `testuser` / `123456`。
+中间件、RabbitMQ、客服智能体、管理员开通等完整清单见 [start.txt](start.txt)。
 
 ## 文档
 
 | 文件 | 作用 |
 |---|---|
 | [HANDOFF.md](HANDOFF.md) | **本项目一切细节的权威源** —— 具体进度、下一步、踩过的坑 |
+| [docs/deployment.md](docs/deployment.md) | **部署细节** —— 端口、环境变量、联合部署、手工 Compose、镜像源 |
 | [docs/api.md](docs/api.md) | **后端接口文档** —— 全部接口、请求/响应、权限、限流与 SSE 事件 |
 | [docs/implementation.md](docs/implementation.md) | **代码怎么实现的** —— 请求流转、认证链路、各模块实现要点与取舍 |
 | [docs/decisions-ecommerce.md](docs/decisions-ecommerce.md) | 需求分析与选型决策的完整理由、分阶段路线 |
