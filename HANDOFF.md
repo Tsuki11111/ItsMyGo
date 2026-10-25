@@ -91,7 +91,10 @@ JSON 文件（14 天滚动）；`RequestIdFilter` 注入 MDC + `X-Trace-Id` 响�
 内部事件 `order-confirmed`，agent 写入一条 assistant 历史（订单号 / 应付金额；
 **不写待支付等易变状态**，状态以订单详情页为准）；
 前端刷新历史显示回复。通知失败只记日志，不影响订单创建。
-后端 **自动化测试 238 条**。
+**知识库文档导入已完成（M22，2026-10-25）**：管理后台 `/admin/knowledge` 支持
+PDF / Markdown 上传、重复查重、任务进度轮询、文档列表与撤回；Java 用访问密钥
+代理到 rag_helper 8001，**不新增 gRPC 契约**，浏览器仍只跟 Java 说话。
+后端 **自动化测试 241 条**。
 
 **下一步：用户与操作审计**（用户已选）—— 用户列表 / 状态、操作审计等。
 M8 催退款已完成（2026-10-23）；通用动作层（`agent_actions` + 确认门）可继续承载
@@ -1240,6 +1243,22 @@ AND ps.status = 1 AND ps.stock <= 10)`。V26 加了 `product_skus(status, stock)
 ---
 
 ## 6. 历史记录
+
+### 2026-10-25 · 管理端知识库导入（M22）
+
+**边界**：evolution-plan §5/§6 规定导入/管理端继续 HTTP + JSON，因此**不新增 gRPC RPC**；
+浏览器只访问 Java，Java 带访问密钥代理到 rag_helper 8001。
+
+**后端**：`AdminKnowledgeController` 四个接口（上传 / 文档列表 / 任务状态 / 撤回）；
+`KnowledgeImportClient` 用 RestClient + JDK HttpClient 流式转发，支持 200MB PDF；
+上传 / 撤回写审计，上传限流 5 次/60s。multipart 上限提到 200MB，
+商品图在 `StorageServiceImpl` 单独保留 5MB。
+
+**前端**：`/admin/knowledge` 页面 + 菜单；逐文件上传，按 taskId 轮询进度，
+展示 PDF / MD 阶段、已导入文档表格与撤回二次确认。
+
+**验证**：`AdminKnowledgeControllerTest` 3 条；实测文档列表 9 份、重复 PDF 正确查重、
+中文文件名透传正常；前端构建通过。
 
 ### 2026-10-25 · AI 下单成功回复
 

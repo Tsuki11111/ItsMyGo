@@ -96,8 +96,12 @@ async function request<T>(config: Parameters<typeof instance.request>[0]): Promi
   return result.data
 }
 
-export function get<T>(url: string, params?: Record<string, unknown>): Promise<T> {
-  return request<T>({ url, method: 'GET', params })
+export function get<T>(
+  url: string,
+  params?: Record<string, unknown>,
+  timeout = 15000,
+): Promise<T> {
+  return request<T>({ url, method: 'GET', params, timeout })
 }
 
 export function post<T>(url: string, data?: unknown): Promise<T> {
@@ -109,16 +113,16 @@ export function post<T>(url: string, data?: unknown): Promise<T> {
  * **不要手写 Content-Type** —— 浏览器要为 FormData 生成带 boundary 的那个，
  * 手动设成 `multipart/form-data` 反而会把 boundary 丢掉，后端就解析不出文件。
  */
-export function postForm<T>(url: string, data: FormData): Promise<T> {
-  return request<T>({ url, method: 'POST', data })
+export function postForm<T>(url: string, data: FormData, timeout = 15000): Promise<T> {
+  return request<T>({ url, method: 'POST', data, timeout })
 }
 
 export function put<T>(url: string, data?: unknown): Promise<T> {
   return request<T>({ url, method: 'PUT', data })
 }
 
-export function del<T>(url: string): Promise<T> {
-  return request<T>({ url, method: 'DELETE' })
+export function del<T>(url: string, timeout = 15000): Promise<T> {
+  return request<T>({ url, method: 'DELETE', timeout })
 }
 
 /** 下载文件（导出 CSV 等）：保留鉴权头，用 blob 触发浏览器保存。 */

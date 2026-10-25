@@ -946,6 +946,29 @@ Authorization: Bearer <token>
   result/errorMessage/ip/userAgent/traceId/detail/createdAt`。
 - 管理端写操作由 AOP 记录；`@Valid` 参数校验失败、401/403 不进入审计。
 
+### 17.12 知识库导入
+
+| 方法 | 路径 | 请求/参数 | 返回 |
+|---|---|---|---|
+| POST | `/api/admin/knowledge/upload` | multipart `files`（PDF/Markdown，可多个）+ `force=false` | `KnowledgeUploadResult` |
+| GET | `/api/admin/knowledge/documents` | — | `KnowledgeDocumentList` |
+| GET | `/api/admin/knowledge/tasks/{taskId}` | — | `KnowledgeTaskStatus` |
+| DELETE | `/api/admin/knowledge/documents/{fileTitle}` | — | `null` |
+
+- 仅 ADMIN；Java 带 `AGENT_IMPORT_KEY`（默认复用 `AGENT_GRPC_KEY`）代理到
+  rag_helper 的 8001，浏览器不直连 agent。
+- `KnowledgeUploadResult`：`message, taskIds[], duplicates[], failed[]`；
+  `duplicates[]` 含 `filename/fileTitle/itemName/chunkCount/status/importedAt`，
+  `failed[]` 含 `filename/reason`。
+- `KnowledgeTaskStatus`：`taskId/status/doneList/runningList`，阶段名已是中文；
+  前端轮询直到 `completed` / `failed`。
+- `KnowledgeDocumentList`：`total, documents[]`；
+  文档字段 `fileTitle/itemName/chunkCount/importedAt/status/kgEntities`。
+- 扩展名在 Java 侧先校验；单文件上限 200MB（multipart 全局上限），
+  商品图上传仍在 `StorageService` 单独限制 5MB。
+- 上传 / 撤回写 `admin_audit_logs`（`KNOWLEDGE_UPLOAD` / `KNOWLEDGE_REVOKE`）；
+  上传限流 5 次/60s/用户。撤回不可恢复。
+
 ---
 
 ## 18. 顾客聊天

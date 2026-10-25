@@ -97,6 +97,17 @@ cd /d/PycharmProjects/rag_helper
 # 用户在确认卡片确认后，由买小购调用发送工具给商家发站内消息，并回复用户完成 + 代商家致歉；
 # 10 分钟内不重复催同一单。
 #
+# ─────────────────────────────────────────────
+# 2.6 知识库导入服务（终端 4，占用 8001）
+# ─────────────────────────────────────────────
+# 管理后台「知识库」页面的上传由 Java 代理到该服务；浏览器不直连 8001。
+cd /d/PycharmProjects/rag_helper
+.venv/Scripts/python.exe -m app.import_process.api.file_import_service
+#
+# 后台入口：/admin/knowledge（仅管理员）
+# 默认地址 http://127.0.0.1:8001，密钥默认复用 AGENT_GRPC_KEY；
+# 要改就在 .env 设 AGENT_IMPORT_URL / AGENT_IMPORT_KEY。
+#
 # 前后端共用仓库根目录的 .env：后端由 spring.config.import 读取，
 # 前端由 vite.config.ts 的 envDir 读取；只有 VITE_ 前缀会进浏览器。
 #

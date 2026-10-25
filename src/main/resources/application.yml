@@ -29,8 +29,9 @@ spring:
         auto-startup: ${ORDER_TIMEOUT_MQ_ENABLED:true}
   servlet:
     multipart:
-      max-file-size: 5MB
-      max-request-size: 10MB
+      # 知识库 PDF 可能上百 MB；商品图等其它入口仍由 StorageService 单独限额
+      max-file-size: 200MB
+      max-request-size: 210MB
 
 mybatis-plus:
   configuration:
@@ -59,6 +60,11 @@ itsmygo:
     actions:
       enabled: ${AGENT_ACTIONS_ENABLED:true}
       expiry-seconds: ${AGENT_ACTION_EXPIRY_SECONDS:600}
+  # 知识库导入：管理员在 Java 管理端上传，Java 代理到 rag_helper 的 8001
+  # 密钥默认复用 agent 访问密钥；地址不用改时保持默认
+  knowledge:
+    import-url: ${AGENT_IMPORT_URL:http://127.0.0.1:8001}
+    key: ${AGENT_IMPORT_KEY:${AGENT_GRPC_KEY:}}
   # 虚拟物流：ETA = 最终送达时间；默认 120 分钟后送达（本地演示用，可调成 2 分钟看完整轨迹）
   logistics:
     delivery-minutes: ${LOGISTICS_DELIVERY_MINUTES:120}

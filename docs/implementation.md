@@ -1577,6 +1577,38 @@ error_message/ip/user_agent/trace_id/detail/created_at`；`users` 增加
 `ProductControllerTest` 新增低库存筛选 + 批量下架用例；全量测试通过；
 浏览器实测商户经营抽屉、低库存筛选、批量栏和行内库存弹窗。
 
+### 3.31 知识库文档导入（2026-10-25）
+
+**边界不变**：evolution-plan §5/§6 规定「导入/管理端继续 HTTP + JSON」，
+所以不新增 gRPC RPC。浏览器只访问 Java 管理端，Java 带访问密钥把请求代理到
+rag_helper 的 8001 导入服务；`AGENT_GRPC_KEY` / `AGENT_IMPORT_KEY` 只留在后端。
+
+**后端**：
+- `AdminKnowledgeController`（`/api/admin/knowledge`，ADMIN）：
+  `POST /upload`（PDF/Markdown，多文件 + force）、`GET /documents`、
+  `GET /tasks/{taskId}`、`DELETE /documents/{fileTitle}`（撤回）。
+  上传 / 撤回带 `@AdminAudit`，上传限流 5 次/60s/用户。
+- `KnowledgeImportClient` 用 Spring `RestClient` + JDK `HttpClient` **流式转发**，
+  避免 200MB PDF 被整个读进内存；连接超时 5s、读超时 5min。
+- 配置：`itsmygo.knowledge.import-url`（默认 `http://127.0.0.1:8001`）、
+  `itsmygo.knowledge.key`（默认复用 `AGENT_GRPC_KEY`，可用 `AGENT_IMPORT_KEY` 覆盖）。
+- multipart 上限从 5MB 提到 200MB（`max-request-size` 210MB）；商品图在
+  `StorageServiceImpl` 里**单独保留 5MB** 上限，头像/Logo 2MB、聊天图 5MB 不变。
+- 导入服务不可达 / 返回非 2xx 时转成可读的 `BizException`，管理员能在页面上看到原因。
+
+**前端**：
+- `/admin/knowledge` 页面：拖拽多选 PDF/Markdown、重复也重新导入、逐文件上传；
+  每个文件单独请求（便于映射 taskId 与文件名，也避免一次撑爆请求体）。
+- 上传成功后轮询 `/tasks/{taskId}`，按 PDF / MD 两条阶段表展示「已完成 / 进行中」；
+  任务完成或失败后自动刷新文档列表。
+- 已导入文档表格展示产品名、切片数、图谱实体数、导入时间与状态；
+  撤回前二次确认，文案明确会删除 Milvus 切片、知识图谱和 MinIO 文件。
+- 菜单新增「知识库」，路由 `/admin/knowledge`。
+
+**验证**：`AdminKnowledgeControllerTest` 3 条（管理员列表/上传代理、顾客 403、
+扩展名在 Java 侧被挡）；启动 8001 后实测文档列表 9 份、重复 PDF 正确查重、
+中文文件名透传正常；前端构建通过。
+
 ---
 
 ## 4. 前端（`frontend/`）
@@ -1987,7 +2019,7 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 **测试跑在独立的库和 Redis database 上**（`its_mygo_test` / db 1），跟开发环境彻底分开 ——
 为什么非分不可、怎么配的，见 HANDOFF §5.20。
 
-覆盖重点（当前 **238** 条；CI 上跳过 4 条依赖 MinIO 的，跑 234）：
+覆盖重点（当前 **241** 条；CI 上跳过 4 条依赖 MinIO 的，跑 237）：
 
 | 测试类 | 覆盖 |
 |---|---|
@@ -2021,6 +2053,7 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 | **`SkuOrderTest`** | 订单项带 `specText` 快照且单价取那一款；**规格改名后历史订单不变**；**取消只回补买过的那一款**、另一款纹丝不动；立即购买只扣选中的 SKU；买停售款被拒 |
 | **`SkuStockConcurrencyTest`** | 10 人抢 5 件的单一 SKU（恰好 5 成功、Redis 与库都对得上）；**同商品两款互不串扰**（黑 3 件售罄不影响白 10 件） |
 | `StorageServiceTest` | 上传成功 + **URL 可匿名读取**；**上传后生成 400×400 缩略图**；拒绝非图片；顾客不能上传 |
+| `AdminKnowledgeControllerTest` | 管理员列表 / 上传代理；顾客 403；扩展名在 Java 侧先挡，不调用导入服务 |
 | `SharedRedisTest` | 共用 Redis 连通；key 前缀；**TTL 存在**（见 HANDOFF §5.5） |
 | `MyBatisPlusCompatibilityTest` | 一次完整 CRUD，验证 MP 在 Boot 4.1.1 上可用 |
 

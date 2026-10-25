@@ -110,6 +110,7 @@ Spring Boot 单体 + Vue 3 前后端分离，经 **gRPC 接入 RAG 客服智能�
 | **M19 商户与商品运营** | ✅ **完成（2026-10-24）** —— 商户经营 KPI / 详情抽屉；商品低库存筛选、批量上下架、行内调库存 |
 | **M20 品牌专区** | ✅ **完成（2026-10-24）** —— 商品品牌字段与品牌筛选接口；首页品牌墙接口驱动，八个品牌图标 |
 | **M21 商品图缩略图** | ✅ **完成（2026-10-24）** —— 上传/修改商品图自动生成 400×400 缩略图；列表用缩略图、详情用原图 |
+| **M22 知识库导入** | ✅ **完成（2026-10-25）** —— 管理后台 PDF / Markdown 上传、查重、进度、文档列表与撤回；Java 代理 rag_helper 8001 |
 
 **交易闭环已通**：浏览商品 → 加购 → 下单（扣库存）→ 支付 → 发货 → 收货，
 以及取消、超时自动取消、退款（申请 → 审核 → 回滚库存）。
@@ -156,6 +157,9 @@ Aolynk、RS PRO 八个品牌；首页品牌墙由 `GET /api/products/brands` 驱
 **商品图缩略图（M21，2026-10-24）**：上传商品图即生成 400×400 缩略图，
 商品与 SKU 保存时图片变化会同步刷新；列表卡片加载缩略图，详情页仍用原图，
 存量图可通过管理端回填接口补齐。
+**知识库导入（M22，2026-10-25）**：管理员在 `/admin/knowledge` 上传 PDF / Markdown，
+按文件内容查重、轮询导入进度、查看已导入文档并撤回；Java 带访问密钥代理到
+rag_helper 的 8001 导入服务，浏览器仍只跟 Java 说话，不新增 gRPC 契约。
 **AI 导购（M11–M13，2026-10-21）**：新增 product-guide 子 agent；支持按关键词、
 分类、价格搜索，关键词不足时语义检索；回复里渲染商品卡（图片 / 价格 / 库存 /
 销量 / 店铺），可直接让买小购准备订单，商品卡会随历史恢复。
@@ -177,6 +181,9 @@ agent 查订单时能看到「运输中 / 派送中 / 预计 X 送达」。
 客服对话还需要启动外部 agent 服务（第三个终端）：
 `cd D:/PycharmProjects/rag_helper && .venv/Scripts/python.exe -m app.agent.api.grpc_service`；
 并把 `rag_helper/admin-key.txt` **第一行**的密钥填进本项目 `.env` 的 `AGENT_GRPC_KEY`。
+**管理端知识库导入**还需要启动 rag_helper 的 8001 导入服务（第四个终端）：
+`cd D:/PycharmProjects/rag_helper && .venv/Scripts/python.exe -m app.import_process.api.file_import_service`；
+后台入口 `/admin/knowledge`，默认 `http://127.0.0.1:8001`，密钥默认复用 `AGENT_GRPC_KEY`。
 **订单查询需要 Java 后端同时在 8080 跑着**（agent 会回调 `/internal/agent/**`）；
 agent 侧地址默认 `http://127.0.0.1:8080`，需要改就在 `rag_helper/.env` 设 `ITS_MYGO_BASE_URL`。
 **虚拟物流**默认 120 分钟送达；想快速看完整轨迹，启动后端时设
@@ -190,7 +197,7 @@ agent 侧地址默认 `http://127.0.0.1:8080`，需要改就在 `rag_helper/.env
 **提权后重新登录**。种子数据见 [sql/seed-data.sql](sql/seed-data.sql)（44 个商品，型号来自 `rag_helper/doc` 的产品手册），详见 [HANDOFF §3.4](HANDOFF.md)。
 
 **CI**：每次 push 自动在干净环境跑测试（[`.github/workflows/test.yml`](.github/workflows/test.yml)）。
-本地 238 条全绿，CI 跳过 4 条依赖 MinIO 的、跑 234 条（MinIO 已停止公开分发镜像，详见 [HANDOFF §5.12](HANDOFF.md)）。
+本地 241 条全绿，CI 跳过 4 条依赖 MinIO 的、跑 237 条（MinIO 已停止公开分发镜像，详见 [HANDOFF §5.12](HANDOFF.md)）。
 **测试跑在独立的库** `its_mygo_test`（Redis 用 db 1），和开发数据互不影响 —— 见 [HANDOFF §5.20](HANDOFF.md)。
 
 各里程碑的可验收产物见 [docs/decisions-ecommerce.md](docs/decisions-ecommerce.md) §4。

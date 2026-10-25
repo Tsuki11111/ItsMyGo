@@ -66,14 +66,15 @@ public class StorageServiceImpl implements StorageService {
         this.publicPrefix = endpoint.endsWith("/") ? endpoint + bucket : endpoint + "/" + bucket;
     }
 
-    /** 头像和店铺 Logo 单独限 2MB —— 商品图有 5MB 的 multipart 上限兜着 */
+    /** 头像和店铺 Logo 单独限 2MB —— 商品图有 5MB 上限兜着 */
+    private static final long PRODUCT_IMAGE_MAX_BYTES = 5L * 1024 * 1024;
     private static final long AVATAR_MAX_BYTES = 2L * 1024 * 1024;
     private static final long MERCHANT_LOGO_MAX_BYTES = 2L * 1024 * 1024;
     private static final long CHAT_IMAGE_MAX_BYTES = 5L * 1024 * 1024;
 
     @Override
     public String uploadProductImage(MultipartFile file) {
-        String url = upload(file, PRODUCT_PREFIX, 0);
+        String url = upload(file, PRODUCT_PREFIX, PRODUCT_IMAGE_MAX_BYTES);
         // 上传即生成缩略图；生成失败只记日志，不影响上传结果
         ensureProductThumbnail(url);
         return url;
