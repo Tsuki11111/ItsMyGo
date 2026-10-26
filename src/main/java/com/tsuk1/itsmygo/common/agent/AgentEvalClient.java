@@ -3,6 +3,7 @@ package com.tsuk1.itsmygo.common.agent;
 import com.tsuk1.itsmygo.common.ResultCode;
 import com.tsuk1.itsmygo.common.exception.BizException;
 import com.tsuk1.itsmygo.dto.eval.AgentEvalCasesView;
+import com.tsuk1.itsmygo.dto.eval.AgentEvalCaseCreateRequest;
 import com.tsuk1.itsmygo.dto.eval.AgentEvalJobListView;
 import com.tsuk1.itsmygo.dto.eval.AgentEvalJobView;
 import com.tsuk1.itsmygo.dto.eval.AgentEvalResultListView;
@@ -23,7 +24,9 @@ import tools.jackson.databind.ObjectMapper;
 import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 智能体评测服务代理（rag_helper 8002）。
@@ -61,6 +64,28 @@ public class AgentEvalClient {
                 .header(HttpHeaders.AUTHORIZATION, bearer())
                 .retrieve()
                 .body(JsonNode.class)));
+    }
+
+    public AgentEvalCasesView.AgentEvalCaseView createCase(
+            AgentEvalCaseCreateRequest request) {
+        requireConfigured();
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("id", request.id());
+        body.put("question", request.question());
+        body.put("category", request.category());
+        body.put("doc", request.doc());
+        body.put("context", request.context());
+        body.put("source", request.source());
+        body.put("gold_chunks", parseGoldChunks(request.goldChunks()));
+        body.put("expected_outcome", request.expectedOutcome());
+        JsonNode response = call(() -> client.post()
+                .uri("/eval/cases")
+                .header(HttpHeaders.AUTHORIZATION, bearer())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(body)
+                .retrieve()
+                .body(JsonNode.class));
+        return caseView(response.path("item"));
     }
 
     public List<AgentEvalResultListView.AgentEvalResultFileView> results(int limit) {
@@ -151,20 +176,25 @@ public class AgentEvalClient {
     private AgentEvalCasesView casesView(JsonNode body) {
         List<AgentEvalCasesView.AgentEvalCaseView> items = new ArrayList<>();
         for (JsonNode node : body.path("items")) {
-            items.add(new AgentEvalCasesView.AgentEvalCaseView(
-                    text(node, "id"),
-                    text(node, "question"),
-                    text(node, "category"),
-                    text(node, "doc"),
-                    text(node, "source"),
-                    text(node, "expected_outcome"),
-                    node.path("has_gold").asBoolean(false)));
+            items.add(caseView(node));
         }
         return new AgentEvalCasesView(
                 items,
                 text(body, "judge_model"),
                 strings(body.path("config_errors")),
                 strings(body.path("warnings")));
+    }
+
+    private AgentEvalCasesView.AgentEvalCaseView caseView(JsonNode node) {
+        return new AgentEvalCasesView.AgentEvalCaseView(
+                text(node, "id"),
+                text(node, "question"),
+                text(node, "category"),
+                text(node, "doc"),
+                text(node, "source"),
+                text(node, "expected_outcome"),
+                node.path("has_gold").asBoolean(false),
+                node.path("custom").asBoolean(false));
     }
 
     private AgentEvalJobView jobView(JsonNode body) {
@@ -230,6 +260,27 @@ public class AgentEvalClient {
         List<JsonNode> values = new ArrayList<>();
         for (JsonNode node : nodes) {
             values.add(node);
+        }
+        return values;
+    }
+
+    private List<Long> parseGoldChunks(List<String> raw) {
+        List<Long> values = new ArrayList<>();
+        for (String item : raw) {
+            String text = item == null ? "" : item.trim();
+            if (text.isEmpty()) {
+                continue;
+            }
+            try {
+                long value = Long.parseLong(text);
+                if (value <= 0) {
+                    throw new NumberFormatException("must be positive");
+                }
+                values.add(value);
+            } catch (NumberFormatException e) {
+                throw new BizException(ResultCode.BAD_REQUEST,
+                        "gold_chunks 必须是整数切片 id：" + text);
+            }
         }
         return values;
     }

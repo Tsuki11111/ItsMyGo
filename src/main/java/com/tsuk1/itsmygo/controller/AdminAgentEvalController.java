@@ -5,6 +5,7 @@ import com.tsuk1.itsmygo.common.agent.AgentEvalClient;
 import com.tsuk1.itsmygo.common.audit.AdminAudit;
 import com.tsuk1.itsmygo.common.ratelimit.RateLimit;
 import com.tsuk1.itsmygo.dto.eval.AgentEvalCasesView;
+import com.tsuk1.itsmygo.dto.eval.AgentEvalCaseCreateRequest;
 import com.tsuk1.itsmygo.dto.eval.AgentEvalJobListView;
 import com.tsuk1.itsmygo.dto.eval.AgentEvalJobView;
 import com.tsuk1.itsmygo.dto.eval.AgentEvalResultListView;
@@ -36,6 +37,16 @@ public class AdminAgentEvalController {
     @GetMapping("/cases")
     public Result<AgentEvalCasesView> cases() {
         return Result.ok(evalClient.cases());
+    }
+
+    /** 新建自建用例：写到 rag_helper 持久化目录，立即出现在用例列表。 */
+    @RateLimit(scene = "agent-eval-case", limit = 10, windowSeconds = 60, byUser = true)
+    @PostMapping("/cases")
+    @AdminAudit(action = "AGENT_EVAL_CASE_CREATE", label = "新建智能体评测用例",
+            targetType = "AGENT_EVAL")
+    public Result<AgentEvalCasesView.AgentEvalCaseView> createCase(
+            @Valid @RequestBody AgentEvalCaseCreateRequest request) {
+        return Result.ok(evalClient.createCase(request));
     }
 
     @GetMapping("/results")

@@ -1730,12 +1730,19 @@ KPI 卡片、7 天趋势（复用 `TrendLineChart`）、热销商品、低库存
 
 **后端**：
 - `AdminAgentEvalController`（`/api/admin/agent-eval`，ADMIN）：
-  `GET /cases`、`GET /results`、`GET /results/{name}`、`POST /runs`、
+  `GET /cases`、`POST /cases`、`GET /results`、`GET /results/{name}`、`POST /runs`、
   `GET /jobs`、`GET /jobs/{id}`、`POST /jobs/{id}/stop`。
-  `/runs` 限流 3 次/60s/用户；启动与停止写 `AGENT_EVAL_RUN` / `AGENT_EVAL_STOP` 审计。
+  `/runs` 限流 3 次/60s/用户，`/cases` 新建限流 10 次/60s/用户；启动、停止与新建
+  分别写 `AGENT_EVAL_RUN` / `AGENT_EVAL_STOP` / `AGENT_EVAL_CASE_CREATE` 审计。
 - `AgentEvalClient` 用 Spring `RestClient` + JDK `HttpClient` 代理；连接超时 5s、
   读超时 2min。逐条结果的 `rows` / `summary` 保留 agent 的 JSON 结构（claims/evidence
   层级较深，不在 Java 重复建模），`AgentEvalResultView` 只做外层字段映射。
+  新建用例时 `goldChunks` 由前端按字符串收集、Java 转 `Long`：Milvus 主键是 18 位
+  INT64，超出 JavaScript 安全整数范围。
+- agent 侧把内置用例与自建用例合并读取；新建用例写入
+  `output/eval/cases_custom.yaml`（Docker 命名卷），不改内置 `eval/cases.yaml`。
+  id 留空自动生成 `custom_xxxxxxxx`；重复 id、非法类型、指代类缺上下文、gold 切片
+  不存在都会被拒绝。
 - 配置：`itsmygo.agent.eval.url`（默认 `http://127.0.0.1:8002`）、
   `itsmygo.agent.eval.key`（默认复用 `AGENT_GRPC_KEY`，可用 `AGENT_EVAL_KEY` 覆盖）。
   Compose 中 `AGENT_EVAL_URL` 默认指向联合网络别名 `http://rag-chat:8002`。
@@ -1744,15 +1751,19 @@ KPI 卡片、7 天趋势（复用 `TrendLineChart`）、热销商品、低库存
 **前端**：
 - `/admin/agent-eval` 页面：用例多选 / 条数上限 / 重复次数 / 联网 / 保留现场；
   启动前二次确认费用；任务进度每 2s 轮询 Java，刷新页面后可从 `/jobs` 恢复进行中的任务。
+- 「新建用例」弹窗：id（可留空自动生成）、问题、类型、文档、指代上文、来源、
+  期望结局、gold_chunks（逗号分隔，按字符串传输避免大整数精度丢失）；创建成功后
+  自动刷新用例并选中。
 - 汇总卡片展示 Groundedness、相关性、Recall/MRR、拒答准确率、judge 成功率、成本/耗时；
   逐条表格点击打开抽屉，查看最终答案、claim 判定和证据正文；支持展开 Markdown 报告。
 - 左侧历史报告列表直接读取 rag_helper `output/eval/`，可回看之前的 CLI/页面结果。
-- 菜单新增「智能体评测」，路由 `/admin/agent-eval`；操作审计下拉补充两个新动作。
+- 菜单新增「智能体评测」，路由 `/admin/agent-eval`；操作审计下拉补充三个新动作。
 
 **验证**：VM 上通过 Java 管理端真实启动 `hak180_temperature` 并完成（groundedness 0.6，
-1 条结果，claims/evidence 可从 `/results/{name}` 回读）；24 条用例、7 份历史报告接口正常；
-浏览器实测页面、详情抽屉与 Markdown 报告；前端 `npm run build` 通过。
-新增 `AdminAgentEvalControllerTest` 2 条（管理员列表/启动/停止代理、顾客 403）；
+1 条结果，claims/evidence 可从 `/results/{name}` 回读）；新建自建用例、重复 id 拒绝、
+自建用例参与真实评测均验证通过；24 条内置用例、历史报告接口正常；
+浏览器实测页面、新建弹窗、详情抽屉与 Markdown 报告；前端 `npm run build` 通过。
+新增 `AdminAgentEvalControllerTest` 2 条（管理员列表/新建/启动/停止代理、顾客 403）；
 本机 Docker 未启动，单测未执行。
 
 ---
@@ -2200,7 +2211,7 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 | **`SkuStockConcurrencyTest`** | 10 人抢 5 件的单一 SKU（恰好 5 成功、Redis 与库都对得上）；**同商品两款互不串扰**（黑 3 件售罄不影响白 10 件） |
 | `StorageServiceTest` | 上传成功 + **URL 可匿名读取**；**上传后生成 400×400 缩略图**；拒绝非图片；顾客不能上传 |
 | `AdminKnowledgeControllerTest` | 管理员列表 / 上传代理；顾客 403；扩展名在 Java 侧先挡，不调用导入服务 |
-| `AdminAgentEvalControllerTest` | 管理员列表 / 启动 / 停止代理到评测服务；顾客 403 |
+| `AdminAgentEvalControllerTest` | 管理员列表 / 新建用例 / 启动 / 停止代理到评测服务；顾客 403 |
 | `AdminBootstrapRunnerTest` | 无活跃管理员才创建；已有管理员跳过；不提升已存在的 CUSTOMER；弱密码跳过 |
 | `AdminInvitationControllerTest` | 发起 → 另一位管理员批准 → 被邀请人接受；自批被拒；token 一次性；重新登录变 ADMIN；非顾客/不存在用户被拒 |
 | `MerchantStatsControllerTest` | 本店 GMV / 订单 / 待办 / 客单价 / 趋势 / 最近订单口径；顾客访问 403 |

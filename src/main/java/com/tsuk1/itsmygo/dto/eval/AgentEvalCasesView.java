@@ -16,6 +16,7 @@ public record AgentEvalCasesView(
             String doc,
             String source,
             String expectedOutcome,
-            boolean hasGold) {
+            boolean hasGold,
+            boolean custom) {
     }
 }

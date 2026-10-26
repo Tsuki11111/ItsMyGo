@@ -1258,12 +1258,13 @@ Compose 默认 `AGENT_EVAL_URL=http://rag-chat:8002`。
 
 **前端**：`/admin/agent-eval` 页面（菜单「智能体评测」）：用例多选、条数/重复/联网/
 保留现场，启动确认，2s 轮询进度，汇总卡片、逐条结果表、claim/证据抽屉、Markdown 报告、
-历史报告列表；刷新后能从 `/jobs` 恢复进行中的任务。
+历史报告列表；刷新后能从 `/jobs` 恢复进行中的任务。新增「新建用例」弹窗，
+自建用例写入 rag_helper 的 `output/eval/cases_custom.yaml`，立即参与评测。
 
 **验证**：VM 上 Java 管理端真实启动 `hak180_temperature` 并完成（groundedness 0.6），
-结果经 Java `/results/{name}` 回读；24 条用例、7 份历史报告；浏览器实测页面、
-详情抽屉与报告弹窗；前端 `npm run build` 通过。新增 2 条控制器测试；
-本机 Docker 未启动，单测未执行（VM 端到端已覆盖）。
+结果经 Java `/results/{name}` 回读；新建自建用例、重复 id 拒绝、自建用例真实跑完均通过；
+浏览器实测页面、新建弹窗、详情抽屉与报告弹窗；前端 `npm run build` 通过。
+新增 2 条控制器测试；本机 Docker 未启动，单测未执行（VM 端到端已覆盖）。
 
 **部署注意**：联合部署时 agent-http 必须带 `docker-compose.itsmygo.yml` 重启，
 否则它会脱离 `its-my-go-net`，Java 解析不到 `rag-chat`（本次已重新接入）。

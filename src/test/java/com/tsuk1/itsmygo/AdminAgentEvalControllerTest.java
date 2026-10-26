@@ -1,6 +1,7 @@
 package com.tsuk1.itsmygo;
 
 import com.tsuk1.itsmygo.common.agent.AgentEvalClient;
+import com.tsuk1.itsmygo.dto.eval.AgentEvalCaseCreateRequest;
 import com.tsuk1.itsmygo.dto.eval.AgentEvalCasesView;
 import com.tsuk1.itsmygo.dto.eval.AgentEvalJobView;
 import com.tsuk1.itsmygo.dto.eval.AgentEvalResultListView;
@@ -27,17 +28,35 @@ class AdminAgentEvalControllerTest extends ApiTestBase {
     private AgentEvalClient evalClient;
 
     @Test
-    void adminCanListCasesStartAndStopEvaluation() throws Exception {
+    void adminCanListCreateStartAndStopEvaluation() throws Exception {
         String admin = adminToken("adm" + System.nanoTime());
         when(evalClient.cases()).thenReturn(new AgentEvalCasesView(
                 List.of(new AgentEvalCasesView.AgentEvalCaseView(
                         "hak180_temperature", "烫金温度怎么设置？", "fact",
-                        "hak180使用说明", "real", "answered", true)),
+                        "hak180使用说明", "real", "answered", true, false)),
                 "deepseek-v4-pro", List.of(), List.of()));
         when(evalClient.results(50)).thenReturn(List.of(
                 new AgentEvalResultListView.AgentEvalResultFileView(
                         "judge_20261026-054613.jsonl", "judge_20261026-054613.md",
                         1, 11836, 1792993698.0)));
+
+        AgentEvalCasesView.AgentEvalCaseView created =
+                new AgentEvalCasesView.AgentEvalCaseView(
+                        "custom_test", "新问题", "fact", "", "constructed",
+                        "answered", false, true);
+        when(evalClient.createCase(any(AgentEvalCaseCreateRequest.class))).thenReturn(created);
+
+        mockMvc.perform(post("/api/admin/agent-eval/cases")
+                        .header("Authorization", bearer(admin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"id":"custom_test","question":"新问题","category":"fact",
+                                 "source":"constructed","expectedOutcome":"answered",
+                                 "goldChunks":[]}
+                                """))
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.id").value("custom_test"))
+                .andExpect(jsonPath("$.data.custom").value(true));
 
         mockMvc.perform(get("/api/admin/agent-eval/cases")
                         .header("Authorization", bearer(admin)))

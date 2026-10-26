@@ -9,6 +9,7 @@ export interface AgentEvalCase {
   source: string
   expectedOutcome: string
   hasGold: boolean
+  custom: boolean
 }
 
 export interface AgentEvalCases {
@@ -156,8 +157,26 @@ export interface AgentEvalRunPayload {
   keep: boolean
 }
 
+export interface AgentEvalCaseCreatePayload {
+  id: string
+  question: string
+  category: string
+  doc: string
+  context: string
+  source: string
+  /** 文本传递，避免 18 位 Milvus 主键超过 JS 安全整数范围 */
+  goldChunks: string[]
+  expectedOutcome: string
+}
+
 export function fetchAgentEvalCases(): Promise<AgentEvalCases> {
   return get<AgentEvalCases>('/admin/agent-eval/cases', undefined, 30000)
+}
+
+export function createAgentEvalCase(
+  payload: AgentEvalCaseCreatePayload,
+): Promise<AgentEvalCase> {
+  return post<AgentEvalCase>('/admin/agent-eval/cases', payload)
 }
 
 export function fetchAgentEvalResults(limit = 50): Promise<AgentEvalResultList> {

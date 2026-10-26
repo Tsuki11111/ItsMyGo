@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Document, Refresh, VideoPause, VideoPlay } from '@element-plus/icons-vue'
+import { Document, Plus, Refresh, VideoPause, VideoPlay } from '@element-plus/icons-vue'
 import {
+  createAgentEvalCase,
   fetchAgentEvalCases,
   fetchAgentEvalJob,
   fetchAgentEvalJobs,
@@ -20,7 +21,6 @@ import type {
   AgentEvalResultFile,
   AgentEvalRow,
 } from '@/api/agentEval'
-
 const loading = ref(false)
 const resultLoading = ref(false)
 const starting = ref(false)
@@ -36,6 +36,8 @@ const job = ref<AgentEvalJob | null>(null)
 const detailVisible = ref(false)
 const detailRow = ref<AgentEvalRow | null>(null)
 const reportVisible = ref(false)
+const caseDialogVisible = ref(false)
+const caseSaving = ref(false)
 
 const form = reactive({
   cases: [] as string[],
@@ -44,6 +46,43 @@ const form = reactive({
   web: false,
   keep: false,
 })
+
+const caseForm = reactive({
+  id: '',
+  question: '',
+  category: 'fact',
+  doc: '',
+  context: '',
+  source: 'constructed',
+  goldChunks: '',
+  expectedOutcome: 'answered',
+})
+
+const CASE_CATEGORIES = [
+  { value: 'fact', label: 'fact · 精确事实' },
+  { value: 'steps', label: 'steps · 操作步骤' },
+  { value: 'descriptive', label: 'descriptive · 描述' },
+  { value: 'anaphora', label: 'anaphora · 指代' },
+  { value: 'cross_doc', label: 'cross_doc · 跨文档' },
+  { value: 'out_of_kb', label: 'out_of_kb · 库外' },
+  { value: 'sensitive', label: 'sensitive · 敏感提问' },
+  { value: 'boundary', label: 'boundary · 边界形态' },
+]
+
+const CASE_SOURCES = [
+  { value: 'constructed', label: 'constructed · 构造' },
+  { value: 'real', label: 'real · 真实提问' },
+]
+
+const EXPECTED_OUTCOMES = [
+  { value: 'answered', label: 'answered · 正常回答' },
+  { value: 'no_match', label: 'no_match · 应拒识' },
+  { value: 'rejected', label: 'rejected · 内容拒绝' },
+  { value: 'blocked', label: 'blocked · 输入拦截' },
+  { value: 'waiting_user', label: 'waiting_user · 需要用户确认' },
+  { value: 'paused', label: 'paused · 已暂停' },
+  { value: 'error', label: 'error · 生成失败' },
+]
 
 let pollTimer: number | undefined
 
@@ -224,6 +263,62 @@ async function loadResult(name: string) {
   }
 }
 
+function openCaseDialog() {
+  Object.assign(caseForm, {
+    id: '',
+    question: '',
+    category: 'fact',
+    doc: '',
+    context: '',
+    source: 'constructed',
+    goldChunks: '',
+    expectedOutcome: 'answered',
+  })
+  caseDialogVisible.value = true
+}
+
+async function submitCase() {
+  const question = caseForm.question.trim()
+  if (!question) {
+    ElMessage.warning('请输入问题')
+    return
+  }
+  if (caseForm.category === 'anaphora' && !caseForm.context.trim()) {
+    ElMessage.warning('指代类用例必须填写上一轮问题')
+    return
+  }
+  const goldChunks = caseForm.goldChunks
+    .split(/[\s,，]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+  if (goldChunks.some((item) => !/^\d+$/.test(item))) {
+    ElMessage.warning('gold_chunks 只能填整数切片 id，多个用逗号分隔')
+    return
+  }
+
+  caseSaving.value = true
+  try {
+    const created = await createAgentEvalCase({
+      id: caseForm.id.trim(),
+      question,
+      category: caseForm.category,
+      doc: caseForm.doc.trim(),
+      context: caseForm.context.trim(),
+      source: caseForm.source,
+      goldChunks,
+      expectedOutcome: caseForm.expectedOutcome,
+    })
+    caseDialogVisible.value = false
+    ElMessage.success(`已创建用例 ${created.id}`)
+    await loadCases()
+    form.cases = [...new Set([...form.cases, created.id])]
+  } catch {
+    // 拦截器已提示具体错误
+  } finally {
+    caseSaving.value = false
+  }
+}
+
 function ensurePolling() {
   if (pollTimer === undefined) {
     pollTimer = window.setInterval(() => void pollJob(), 2000)
@@ -382,7 +477,12 @@ onBeforeUnmount(stopPolling)
           <template #header>
             <div class="card-head">
               <span>新建评测</span>
-              <span class="muted">{{ cases.length }} 条用例</span>
+              <div class="case-head-actions">
+                <span class="muted">{{ cases.length }} 条用例</span>
+                <el-button link type="primary" :icon="Plus" @click="openCaseDialog">
+                  新建用例
+                </el-button>
+              </div>
             </div>
           </template>
 
@@ -405,7 +505,10 @@ onBeforeUnmount(stopPolling)
                   :value="item.id"
                 >
                   <div class="case-option">
-                    <span>{{ item.id }}</span>
+                    <span>
+                      {{ item.id }}
+                      <el-tag v-if="item.custom" size="small" type="success">自建</el-tag>
+                    </span>
                     <span class="case-question">{{ item.question }}</span>
                   </div>
                 </el-option>
@@ -602,6 +705,114 @@ onBeforeUnmount(stopPolling)
       </el-col>
     </el-row>
 
+    <el-dialog
+      v-model="caseDialogVisible"
+      title="新建评测用例"
+      width="min(680px, 94vw)"
+      :close-on-click-modal="false"
+    >
+      <div class="case-dialog-hint">
+        自建用例会保存到 rag_helper 的持久化结果目录，创建后立即出现在左侧用例列表，
+        并与内置用例一起参与评测。
+      </div>
+      <el-form label-position="top">
+        <el-row :gutter="12">
+          <el-col :span="10">
+            <el-form-item label="用例 ID（可选）">
+              <el-input
+                v-model="caseForm.id"
+                placeholder="留空自动生成 custom_xxx"
+                maxlength="64"
+              />
+              <div class="field-hint">小写字母、数字、下划线或短横线。</div>
+            </el-form-item>
+          </el-col>
+          <el-col :span="14">
+            <el-form-item label="用例类型" required>
+              <el-select v-model="caseForm.category" class="full-width">
+                <el-option
+                  v-for="item in CASE_CATEGORIES"
+                  :key="item.value"
+                  :value="item.value"
+                  :label="item.label"
+                />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+
+        <el-form-item label="问题" required>
+          <el-input
+            v-model="caseForm.question"
+            type="textarea"
+            :rows="3"
+            maxlength="2000"
+            show-word-limit
+            placeholder="用户会怎么问？"
+          />
+        </el-form-item>
+
+        <el-form-item v-if="caseForm.category === 'anaphora'" label="上一轮问题" required>
+          <el-input
+            v-model="caseForm.context"
+            type="textarea"
+            :rows="2"
+            maxlength="2000"
+            show-word-limit
+            placeholder="指代类用例必须给出上文，例如：hak180长什么样"
+          />
+        </el-form-item>
+
+        <el-row :gutter="12">
+          <el-col :span="10">
+            <el-form-item label="主要文档（可选）">
+              <el-input v-model="caseForm.doc" placeholder="file_title，可留空" maxlength="300" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="7">
+            <el-form-item label="来源">
+              <el-select v-model="caseForm.source" class="full-width">
+                <el-option
+                  v-for="item in CASE_SOURCES"
+                  :key="item.value"
+                  :value="item.value"
+                  :label="item.label"
+                />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="7">
+            <el-form-item label="期望结局">
+              <el-select v-model="caseForm.expectedOutcome" class="full-width">
+                <el-option
+                  v-for="item in EXPECTED_OUTCOMES"
+                  :key="item.value"
+                  :value="item.value"
+                  :label="item.label"
+                />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+
+        <el-form-item label="gold_chunks（可选）">
+          <el-input
+            v-model="caseForm.goldChunks"
+            placeholder="多个切片 id 用逗号分隔，例如 469892411896876926, 469892411896876927"
+          />
+          <div class="field-hint">
+            留空表示不参与 Recall@K；如果填写，服务端会校验切片是否仍存在。
+          </div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="caseDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="caseSaving" @click="submitCase">
+          创建用例
+        </el-button>
+      </template>
+    </el-dialog>
+
     <el-drawer v-model="detailVisible" title="评测详情" size="62%">
       <template v-if="detailRow">
         <el-descriptions :column="3" border>
@@ -748,6 +959,23 @@ onBeforeUnmount(stopPolling)
   color: var(--el-text-color-secondary);
   font-size: 12px;
   font-weight: 400;
+}
+
+.case-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.case-dialog-hint {
+  margin-bottom: 14px;
+  padding: 9px 11px;
+  color: var(--el-text-color-secondary);
+  background: #fafafa;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .full-width {

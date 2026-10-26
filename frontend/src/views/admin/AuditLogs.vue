@@ -42,6 +42,7 @@ const ACTION_OPTIONS = [
   { value: 'FILE_UPLOAD', label: '上传文件' },
   { value: 'AGENT_EVAL_RUN', label: '启动智能体评测' },
   { value: 'AGENT_EVAL_STOP', label: '停止智能体评测' },
+  { value: 'AGENT_EVAL_CASE_CREATE', label: '新建智能体评测用例' },
   { value: 'CHAT_REPLY', label: '平台消息回复' },
 ]
 
