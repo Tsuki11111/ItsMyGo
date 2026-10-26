@@ -23,11 +23,17 @@ Spring Boot 单体 + Vue 3 前后端分离，经 **gRPC 接入 RAG 客服智能�
 
 ## 界面预览
 
-| 商城首页（顾客端） | 管理后台 · 数据概览 |
-|---|---|
-| ![商城首页](docs/screenshots/home.webp) | ![管理后台数据概览](docs/screenshots/admin-dashboard.webp) |
+**商城首页（顾客端）**
 
-![订单详情与物流轨迹](docs/screenshots/order-logistics.webp)
+<img src="docs/screenshots/home.webp" alt="商城首页" width="100%">
+
+**管理后台 · 数据概览**
+
+<img src="docs/screenshots/admin-dashboard.webp" alt="管理后台数据概览" width="100%">
+
+**订单详情与物流轨迹**
+
+<img src="docs/screenshots/order-logistics.webp" alt="订单详情与物流轨迹" width="100%">
 
 ---
 
