@@ -158,9 +158,9 @@ frontend 依赖 backend。seed 用 MySQL 客户端镜像导入 `sql/seed-data.sq
 
 **环境变量来源**：Compose 的 `environment` 覆盖 `env_file: .env`。本地调试用的
 `AGENT_GRPC_TARGET=127.0.0.1:8003` 不能直接进容器，因此 Compose 读的是
-`RAG_AGENT_GRPC_TARGET` / `RAG_AGENT_IMPORT_URL`（默认服务别名
-`rag-agent:8003` / `http://rag-import:8001`）。`.env` 里的 `AGENT_GRPC_KEY`
-仍然直接传入，联合部署脚本用 shell 环境变量保证两边一致。
+`RAG_AGENT_GRPC_TARGET` / `RAG_AGENT_IMPORT_URL` / `RAG_AGENT_EVAL_URL`
+（默认服务别名 `rag-agent:8003` / `http://rag-import:8001` / `http://rag-chat:8002`）。
+`.env` 里的 `AGENT_GRPC_KEY` 仍然直接传入，联合部署脚本用 shell 环境变量保证两边一致。
 
 **共享网络与联合部署**：backend 在 `its-my-go-net` 上增加别名 `its-my-go-backend`；
 rag_helper 的覆盖文件 `docker-compose.itsmygo.yml` 把三个 agent 服务接入同一网络，
@@ -1722,6 +1722,39 @@ KPI 卡片、7 天趋势（复用 `TrendLineChart`）、热销商品、低库存
 **验证**：`MerchantStatsControllerTest` 2 条（本店 GMV/订单/待办/客单价/趋势/最近订单
 口径；顾客访问 403）；端到端插入商品与订单实测页面并清理测试数据；前端构建通过。
 
+### 3.34 智能体评测管理端（2026-10-26）
+
+**边界**：沿用 §3.31 的约定 —— 评测属于管理端行为，**不新增 gRPC RPC**。
+浏览器只访问 Java 管理端；Java 带 `AGENT_GRPC_KEY`（或 `AGENT_EVAL_KEY`）把请求
+代理到 rag_helper 的 8002 HTTP 评测接口。agent 仍然只在内网。
+
+**后端**：
+- `AdminAgentEvalController`（`/api/admin/agent-eval`，ADMIN）：
+  `GET /cases`、`GET /results`、`GET /results/{name}`、`POST /runs`、
+  `GET /jobs`、`GET /jobs/{id}`、`POST /jobs/{id}/stop`。
+  `/runs` 限流 3 次/60s/用户；启动与停止写 `AGENT_EVAL_RUN` / `AGENT_EVAL_STOP` 审计。
+- `AgentEvalClient` 用 Spring `RestClient` + JDK `HttpClient` 代理；连接超时 5s、
+  读超时 2min。逐条结果的 `rows` / `summary` 保留 agent 的 JSON 结构（claims/evidence
+  层级较深，不在 Java 重复建模），`AgentEvalResultView` 只做外层字段映射。
+- 配置：`itsmygo.agent.eval.url`（默认 `http://127.0.0.1:8002`）、
+  `itsmygo.agent.eval.key`（默认复用 `AGENT_GRPC_KEY`，可用 `AGENT_EVAL_KEY` 覆盖）。
+  Compose 中 `AGENT_EVAL_URL` 默认指向联合网络别名 `http://rag-chat:8002`。
+- agent 不可达 / 返回非 2xx 时转成可读 `BizException`，页面能直接显示原因。
+
+**前端**：
+- `/admin/agent-eval` 页面：用例多选 / 条数上限 / 重复次数 / 联网 / 保留现场；
+  启动前二次确认费用；任务进度每 2s 轮询 Java，刷新页面后可从 `/jobs` 恢复进行中的任务。
+- 汇总卡片展示 Groundedness、相关性、Recall/MRR、拒答准确率、judge 成功率、成本/耗时；
+  逐条表格点击打开抽屉，查看最终答案、claim 判定和证据正文；支持展开 Markdown 报告。
+- 左侧历史报告列表直接读取 rag_helper `output/eval/`，可回看之前的 CLI/页面结果。
+- 菜单新增「智能体评测」，路由 `/admin/agent-eval`；操作审计下拉补充两个新动作。
+
+**验证**：VM 上通过 Java 管理端真实启动 `hak180_temperature` 并完成（groundedness 0.6，
+1 条结果，claims/evidence 可从 `/results/{name}` 回读）；24 条用例、7 份历史报告接口正常；
+浏览器实测页面、详情抽屉与 Markdown 报告；前端 `npm run build` 通过。
+新增 `AdminAgentEvalControllerTest` 2 条（管理员列表/启动/停止代理、顾客 403）；
+本机 Docker 未启动，单测未执行。
+
 ---
 
 ## 4. 前端（`frontend/`）
@@ -2167,6 +2200,7 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 | **`SkuStockConcurrencyTest`** | 10 人抢 5 件的单一 SKU（恰好 5 成功、Redis 与库都对得上）；**同商品两款互不串扰**（黑 3 件售罄不影响白 10 件） |
 | `StorageServiceTest` | 上传成功 + **URL 可匿名读取**；**上传后生成 400×400 缩略图**；拒绝非图片；顾客不能上传 |
 | `AdminKnowledgeControllerTest` | 管理员列表 / 上传代理；顾客 403；扩展名在 Java 侧先挡，不调用导入服务 |
+| `AdminAgentEvalControllerTest` | 管理员列表 / 启动 / 停止代理到评测服务；顾客 403 |
 | `AdminBootstrapRunnerTest` | 无活跃管理员才创建；已有管理员跳过；不提升已存在的 CUSTOMER；弱密码跳过 |
 | `AdminInvitationControllerTest` | 发起 → 另一位管理员批准 → 被邀请人接受；自批被拒；token 一次性；重新登录变 ADMIN；非顾客/不存在用户被拒 |
 | `MerchantStatsControllerTest` | 本店 GMV / 订单 / 待办 / 客单价 / 趋势 / 最近订单口径；顾客访问 403 |

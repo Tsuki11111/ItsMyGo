@@ -2,6 +2,7 @@ package com.tsuk1.itsmygo;
 
 import com.tsuk1.itsmygo.common.admin.AdminGovernanceProperties;
 import com.tsuk1.itsmygo.common.agent.AgentActionProperties;
+import com.tsuk1.itsmygo.common.agent.AgentEvalProperties;
 import com.tsuk1.itsmygo.common.agent.AgentProperties;
 import com.tsuk1.itsmygo.common.agent.KnowledgeImportProperties;
 import com.tsuk1.itsmygo.common.agent.LogisticsProperties;
@@ -17,7 +18,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @MapperScan("com.tsuk1.itsmygo.mapper")
 @EnableScheduling
 @EnableConfigurationProperties({RateLimitProperties.class, AgentProperties.class,
-        AgentActionProperties.class, LogisticsProperties.class,
+        AgentActionProperties.class, AgentEvalProperties.class, LogisticsProperties.class,
         KnowledgeImportProperties.class, OrderTimeoutProperties.class,
         AdminGovernanceProperties.class})
 public class ItsMyGoApplication {

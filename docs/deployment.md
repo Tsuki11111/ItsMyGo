@@ -58,8 +58,9 @@ PowerShell 用 `./deploy.ps1`，参数相同；跳过演示数据用 `./deploy.p
   这两个地址不能混。
 - `VITE_TMAP_KEY`：订单地图的腾讯位置服务 Key。它是**构建期变量**，改了要重新
   `./deploy.sh`（会重建前端镜像）。
-- `AGENT_GRPC_KEY` / `AGENT_IMPORT_KEY`：联合部署时由 `rag_helper/deploy.sh joint` 自动写入，
-  不需要手填。
+- `AGENT_GRPC_KEY` / `AGENT_IMPORT_KEY` / `AGENT_EVAL_KEY`：联合部署时由
+  `rag_helper/deploy.sh joint` 自动写入，不需要手填；后两者不填时默认复用
+  `AGENT_GRPC_KEY`。
 - 管理员密码在 `.env` 的 `BOOTSTRAP_ADMIN_PASSWORD`；只在库中没有管理员时使用。
 
 ## 联合部署客服智能体
@@ -71,8 +72,8 @@ PowerShell 用 `./deploy.ps1`，参数相同；跳过演示数据用 `./deploy.p
 ```
 
 它会自动生成共享密钥、写入两边的 `.env`、先启动 ItsMyGo，再启动 agent。
-Java 通过 `rag-agent:8003` / `rag-import:8001` 访问 agent，agent 通过
-`its-my-go-backend:8080` 回调 Java。停止两套：`./deploy.sh joint-down`。
+Java 通过 `rag-agent:8003` / `rag-import:8001` / `rag-chat:8002` 访问 agent，
+agent 通过 `its-my-go-backend:8080` 回调 Java。停止两套：`./deploy.sh joint-down`。
 
 ## 手工 Compose
 

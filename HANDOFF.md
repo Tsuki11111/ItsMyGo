@@ -28,13 +28,13 @@
 
 ## 1. 当前状态一句话
 
-**交易闭环、多商户、AI 客服、运营后台、Docker 部署均已完成（2026-10-25）。**
-后端自动化测试 **251 条**，CI 跑 247 条（跳过 4 条依赖 MinIO 的用例）。
+**交易闭环、多商户、AI 客服、运营后台、Docker 部署均已完成（2026-10-26）。**
+后端自动化测试 **253 条**（新增智能体评测 2 条），CI 跑 247 条（跳过 4 条依赖 MinIO 的用例）。
 
 - **交易**：商品 / SKU、购物车、按店拆单、支付、发货、收货、取消、超时关单、退款；
   库存与优惠券回滚。
 - **AI 客服「买小购」**：Java → gRPC → agent，SSE 回传答案 / 执行流 / 商品卡；
-  查订单物流、导购、下单退款草稿、催发货 / 退款、知识库导入。
+  查订单物流、导购、下单退款草稿、催发货 / 退款、知识库导入、**管理端智能体评测**。
 - **后台**：管理端数据概览、订单筛选 / CSV、用户审计、商户商品运营、品牌 / 缩略图、
   管理员邀请审批；商家端经营看板。
 - **部署**：`./deploy.sh` 一键全栈；`rag_helper/deploy.sh joint` 联合部署。
@@ -394,10 +394,12 @@ build args 传入，改运行时环境变量无效。
 **seed profile**：`docker compose --profile seed run --rm seed`，导入 `sql/seed-data.sql`。
 
 **联合部署**：ItsMyGo 的 backend 在 `its-my-go-net` 上有别名 `its-my-go-backend`；
-rag_helper 的 `agent-grpc` / `agent-import` 分别别名 `rag-agent` / `rag-import`。
-Java 侧用 `RAG_AGENT_GRPC_TARGET=rag-agent:8003`、`RAG_AGENT_IMPORT_URL=http://rag-import:8001`
-（注意：Compose 读的是 `RAG_` 前缀变量，避免 `.env` 里本地调试的
-`AGENT_GRPC_TARGET=127.0.0.1:8003` 泄漏进容器）。完整命令见 README「与客服智能体联合部署」。
+rag_helper 的 `agent-grpc` / `agent-import` / `agent-http` 分别别名
+`rag-agent` / `rag-import` / `rag-chat`。
+Java 侧用 `RAG_AGENT_GRPC_TARGET=rag-agent:8003`、`RAG_AGENT_IMPORT_URL=http://rag-import:8001`、
+`RAG_AGENT_EVAL_URL=http://rag-chat:8002`（注意：Compose 读的是 `RAG_` 前缀变量，
+避免 `.env` 里本地调试的 `AGENT_GRPC_TARGET=127.0.0.1:8003` 泄漏进容器）。
+完整命令见 README「与客服智能体联合部署」。
 
 
 ---
@@ -1240,6 +1242,31 @@ Compose 全栈要先把 `MYSQL_PORT` / `REDIS_PORT` / `MINIO_PORT` 等改成空�
 ---
 
 ## 6. 历史记录
+
+### 2026-10-26 · 智能体评测管理端
+
+**目标**：让管理员在 ItsMyGo 后台直接跑 LLM-as-Judge，不用打开 rag_helper 的 8002 页面。
+评测执行与结果文件仍在 rag_helper；Java 只做鉴权代理，**不新增 gRPC RPC**。
+
+**后端**：新增 `AgentEvalClient`（RestClient → `http://rag-chat:8002`）、
+`AgentEvalProperties`、`AdminAgentEvalController`（`/api/admin/agent-eval`）和 6 个 DTO。
+`/runs` 限流 3 次/60s/用户，启动/停止写 `AGENT_EVAL_RUN` / `AGENT_EVAL_STOP` 审计；
+结果 JSONL 的 `rows` / `summary` 保留 agent 结构，Java 不重复建模 claims/evidence。
+
+**配置**：`itsmygo.agent.eval.url` / `key`，密钥默认复用 `AGENT_GRPC_KEY`，
+Compose 默认 `AGENT_EVAL_URL=http://rag-chat:8002`。
+
+**前端**：`/admin/agent-eval` 页面（菜单「智能体评测」）：用例多选、条数/重复/联网/
+保留现场，启动确认，2s 轮询进度，汇总卡片、逐条结果表、claim/证据抽屉、Markdown 报告、
+历史报告列表；刷新后能从 `/jobs` 恢复进行中的任务。
+
+**验证**：VM 上 Java 管理端真实启动 `hak180_temperature` 并完成（groundedness 0.6），
+结果经 Java `/results/{name}` 回读；24 条用例、7 份历史报告；浏览器实测页面、
+详情抽屉与报告弹窗；前端 `npm run build` 通过。新增 2 条控制器测试；
+本机 Docker 未启动，单测未执行（VM 端到端已覆盖）。
+
+**部署注意**：联合部署时 agent-http 必须带 `docker-compose.itsmygo.yml` 重启，
+否则它会脱离 `its-my-go-net`，Java 解析不到 `rag-chat`（本次已重新接入）。
 
 ### 2026-10-25 · Docker 一键部署与联合启动
 

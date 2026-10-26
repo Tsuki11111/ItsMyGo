@@ -80,6 +80,7 @@ const router = createRouter({
         { path: 'reviews', name: 'admin-reviews', component: () => import('@/views/admin/Reviews.vue') },
         { path: 'merchants', name: 'admin-merchants', component: () => import('@/views/admin/Merchants.vue') },
         { path: 'knowledge', name: 'admin-knowledge', component: () => import('@/views/admin/Knowledge.vue') },
+        { path: 'agent-eval', name: 'admin-agent-eval', component: () => import('@/views/admin/AgentEval.vue') },
         { path: 'invitations', name: 'admin-invitations', component: () => import('@/views/admin/Invitations.vue') },
       ],
     },

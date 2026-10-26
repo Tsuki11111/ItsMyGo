@@ -40,6 +40,8 @@ const ACTION_OPTIONS = [
   { value: 'COUPON_UPDATE', label: '修改优惠券' },
   { value: 'REVIEW_VISIBILITY', label: '修改评价展示状态' },
   { value: 'FILE_UPLOAD', label: '上传文件' },
+  { value: 'AGENT_EVAL_RUN', label: '启动智能体评测' },
+  { value: 'AGENT_EVAL_STOP', label: '停止智能体评测' },
   { value: 'CHAT_REPLY', label: '平台消息回复' },
 ]
 

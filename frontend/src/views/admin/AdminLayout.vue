@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ChatDotRound, ChatLineRound, Collection, DataBoard, Discount, Document, Goods, Key, Menu as MenuIcon, Shop, Tickets, User } from '@element-plus/icons-vue'
+import { ChatDotRound, ChatLineRound, Collection, DataAnalysis, DataBoard, Discount, Document, Goods, Key, Menu as MenuIcon, Shop, Tickets, User } from '@element-plus/icons-vue'
 import { useChatStore } from '@/stores/chat'
 import { useUserStore } from '@/stores/user'
 
@@ -22,6 +22,7 @@ const MENU = [
   { path: '/admin/coupons', label: '优惠券管理', icon: Discount },
   { path: '/admin/reviews', label: '评价管理', icon: ChatDotRound },
   { path: '/admin/knowledge', label: '知识库', icon: Collection },
+  { path: '/admin/agent-eval', label: '智能体评测', icon: DataAnalysis },
   { path: '/admin/invitations', label: '管理员邀请', icon: Key },
   { path: '/admin/audit-logs', label: '操作审计', icon: Document },
 ]
