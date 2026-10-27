@@ -328,16 +328,31 @@ onMounted(load)
       <section class="block">
         <h2 class="block-title">商品清单</h2>
         <div v-for="item in view.items" :key="item.id" class="goods-row">
-          <div class="goods-thumb">
+          <RouterLink
+            :to="`/product/${item.productId}`"
+            class="goods-thumb"
+            :title="`查看 ${item.productName}`"
+          >
             <ProductImage :src="item.productImage" :name="item.productName" :id="item.productId" />
-          </div>
+          </RouterLink>
           <div class="goods-info">
-            <p class="goods-name">{{ item.productName }}</p>
+            <RouterLink
+              :to="`/product/${item.productId}`"
+              class="goods-name goods-name-link"
+            >
+              {{ item.productName }}
+            </RouterLink>
             <p class="goods-unit">
               <!-- 规格是下单时的快照：商户后来改了规格名，这里也不会跟着变 -->
               <span v-if="item.specText" class="goods-spec">{{ item.specText }}</span>
               ¥{{ item.unitPrice.toFixed(2) }} × {{ item.quantity }}
             </p>
+            <RouterLink
+              :to="`/product/${item.productId}`"
+              class="goods-detail-link"
+            >
+              查看商品
+            </RouterLink>
           </div>
           <div class="price goods-subtotal">
             <span class="price-symbol">¥</span>
@@ -541,6 +556,7 @@ onMounted(load)
 }
 
 .goods-thumb {
+  display: block;
   width: 56px;
   height: 56px;
   flex: none;
@@ -556,9 +572,30 @@ onMounted(load)
 }
 
 .goods-name {
+  display: inline-block;
   margin: 0;
   font-size: 14px;
   color: var(--c-text);
+}
+
+.goods-name-link {
+  text-decoration: none;
+}
+
+.goods-name-link:hover {
+  color: var(--c-pink);
+}
+
+.goods-detail-link {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--c-pink);
+  text-decoration: none;
+}
+
+.goods-detail-link:hover {
+  text-decoration: underline;
 }
 
 .goods-unit {

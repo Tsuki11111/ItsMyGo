@@ -208,7 +208,14 @@ async function reject() {
                   <ProductImage :src="row.productImage" :name="row.productName" :id="row.productId" />
                 </div>
                 <div>
-                  <p class="item-name">{{ row.productName }}</p>
+                  <RouterLink
+                    :to="`/product/${row.productId}`"
+                    target="_blank"
+                    rel="noopener"
+                    class="item-name item-link"
+                  >
+                    {{ row.productName }}
+                  </RouterLink>
                   <p v-if="row.specText" class="item-spec">{{ row.specText }}</p>
                 </div>
               </div>
@@ -285,8 +292,18 @@ async function reject() {
 }
 
 .item-name {
+  display: inline-block;
   margin: 0;
   font-size: 13px;
+}
+
+.item-link {
+  color: var(--el-color-primary);
+  text-decoration: none;
+}
+
+.item-link:hover {
+  text-decoration: underline;
 }
 
 .item-spec {
