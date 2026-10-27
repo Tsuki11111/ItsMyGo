@@ -140,6 +140,12 @@ public class StorageServiceImpl implements StorageService {
         return url != null && url.startsWith(publicPrefix + "/chat/");
     }
 
+    @Override
+    public String publicUrl(String objectKey) {
+        String key = objectKey == null ? "" : objectKey.replaceAll("^/+", "");
+        return publicPrefix + (key.isEmpty() ? "" : "/" + key);
+    }
+
     /**
      * @param prefix   对象名前缀 —— 商品图和头像分开存，别都堆在 products/ 里
      * @param maxBytes 0 表示不限（仍受 multipart 的 5MB 上限约束）

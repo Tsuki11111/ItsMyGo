@@ -37,10 +37,12 @@ export interface AdminInvitationView {
   token?: string
 }
 
-/** 品牌专区：品牌名 + 在售商品数 */
+/** 品牌专区：品牌名 + 在售商品数 + 后端生成的可访问 Logo URL */
 export interface BrandView {
   name: string
   count: number
+  /** 空串表示没有配置 Logo，前端回落首字色块 */
+  logoUrl: string
 }
 
 /** 登录 / 注册成功后返回：JWT + 身份信息 */

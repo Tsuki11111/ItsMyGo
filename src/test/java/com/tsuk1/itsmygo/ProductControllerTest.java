@@ -151,6 +151,8 @@ class ProductControllerTest extends ApiTestBase {
         assertThat(brands).extracting(node -> node.path("name").asText())
                 .containsExactlyInAnyOrder("奔图", "联想");
         assertThat(brands).allMatch(node -> node.path("count").asLong() == 1L);
+        assertThat(brands).allMatch(node ->
+                node.path("logoUrl").asText().contains("/brands/"));
     }
 
     private void setBrand(long productId, String brand) {

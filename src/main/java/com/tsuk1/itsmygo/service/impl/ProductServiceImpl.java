@@ -37,6 +37,16 @@ public class ProductServiceImpl implements ProductService {
     private static final int MAX_PAGE_SIZE = 100;
     /** 商品详情缓存时长；更新商品时主动删除，这个 TTL 只是删失败时的兜底 */
     private static final Duration PRODUCT_CACHE_TTL = Duration.ofMinutes(10);
+    /** 品牌 Logo 是静态素材，文件名与品牌名的映射留在后端，前端只消费完整 URL */
+    private static final Map<String, String> BRAND_LOGO_FILES = Map.of(
+            "奔图", "pantum.png",
+            "联想", "lenovo.png",
+            "至像", "zhixiang.png",
+            "兄弟", "brother.png",
+            "华为", "huawei.png",
+            "H3C", "h3c.png",
+            "Aolynk", "aolynk.png",
+            "RS PRO", "rspro.png");
 
     private final ProductMapper productMapper;
     private final ProductSkuMapper productSkuMapper;
@@ -85,7 +95,12 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     public List<BrandView> brands() {
-        return productMapper.selectBrandCounts();
+        List<BrandView> rows = productMapper.selectBrandCounts();
+        for (BrandView row : rows) {
+            String file = BRAND_LOGO_FILES.get(row.getName());
+            row.setLogoUrl(file == null ? "" : storageService.publicUrl("brands/" + file));
+        }
+        return rows;
     }
 
     @Override

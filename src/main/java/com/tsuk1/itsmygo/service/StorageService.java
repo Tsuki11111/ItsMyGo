@@ -25,4 +25,7 @@ public interface StorageService {
 
     /** 是否为本系统 chat/ 前缀的图片 URL —— 拒绝聊天消息里夹带外链 */
     boolean isChatImageUrl(String url);
+
+    /** 把 bucket 内的对象 key 拼成浏览器可访问的公网 URL（品牌 Logo 等静态素材用） */
+    String publicUrl(String objectKey);
 }

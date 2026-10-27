@@ -819,8 +819,9 @@ redisTemplate.rename(tempKey, KEY);   // 原子切换
 
 **`products.brand` 是品牌专区的筛选依据**（V27）：品牌不是一个独立表，就是商品上的
 `VARCHAR(64)` 列，`idx_products_brand_status(brand, status)` 支撑「按品牌 + 上架状态」查询。
-之所以不建 `brands` 表：当前品牌没有额外属性（logo 由前端按品牌名映射 MinIO 对象），
-建表只会多一次 join。分类（多级、可管理）和品牌（单值、基本不变）的建模诉求不同。
+之所以不建 `brands` 表：当前品牌没有额外属性（logo 由后端按品牌名映射对象，
+并按 `MINIO_PUBLIC_ENDPOINT` 拼成完整 URL），建表只会多一次 join。分类（多级、可管理）
+和品牌（单值、基本不变）的建模诉求不同。
 `GET /api/products/brands` 只聚合顾客端可见的商品（上架 + 店铺 ACTIVE），
 按数量降序返回；`GET /api/products?brand=xxx` 用**精确匹配**，不再依赖商品名里出现品牌词
 （比如 `GC251DNS` 的手册注明是 Lenovo，归到「联想」；`RS-12` 归到「RS PRO」）。
@@ -1972,8 +1973,10 @@ frontend/
 **品牌专区**（首屏右侧 240px 竖栏）：品牌列表来自 `GET /api/products/brands`，
 不再硬编码；点击走 `/?brand=品牌名`，商品列表按 `products.brand` **精确筛选**，
 和关键词搜索互不干扰。品牌图标是抓取后统一裁成 160×160 的 PNG，存在 MinIO
-`its-my-go-product-images/brands/` 下，前端 `BRAND_LOGOS` 按品牌名映射；
-映射不到或图片加载失败时退回「首字色块」占位，不会把页面搞崩。
+`its-my-go-product-images/brands/` 下；后端 `ProductServiceImpl` 按品牌名映射文件，
+并通过 `StorageService.publicUrl` 用 `MINIO_PUBLIC_ENDPOINT` 拼成完整 URL 返回
+（`BrandView.logoUrl`）。前端不再写死 `localhost:9000`，映射不到或图片加载失败时
+退回「首字色块」占位，不会把页面搞崩。
 
 **商品列表是滚动加载**，没有分页器：滚到底部自动拉下一页并追加。
 用 `IntersectionObserver` 盯一个页面底部的哨兵元素（`rootMargin: 200px` 提前触发），

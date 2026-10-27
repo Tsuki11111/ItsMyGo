@@ -61,24 +61,16 @@ const banners = [
 ]
 
 /**
- * 品牌图标：从搜索引擎抓取后统一裁成 160×160，存在 MinIO 的 brands/ 下。
- * 后端返回的品牌名与这里的键不一致时，退回「首字色块」占位。
+ * 品牌图标由后端按 MINIO_PUBLIC_ENDPOINT 返回完整 URL，
+ * 前端不再拼 localhost —— 否则从别的机器访问 VM 时会去本机找图。
+ * 后端没配置该品牌 Logo 时，退回「首字色块」占位。
  */
-const BRAND_LOGO_BASE = 'http://localhost:9000/its-my-go-product-images/brands'
-const BRAND_LOGOS: Record<string, string> = {
-  奔图: `${BRAND_LOGO_BASE}/pantum.png`,
-  联想: `${BRAND_LOGO_BASE}/lenovo.png`,
-  至像: `${BRAND_LOGO_BASE}/zhixiang.png`,
-  兄弟: `${BRAND_LOGO_BASE}/brother.png`,
-  华为: `${BRAND_LOGO_BASE}/huawei.png`,
-  H3C: `${BRAND_LOGO_BASE}/h3c.png`,
-  Aolynk: `${BRAND_LOGO_BASE}/aolynk.png`,
-  'RS PRO': `${BRAND_LOGO_BASE}/rspro.png`,
-}
 const failedLogos = ref<string[]>([])
 
-function logoOf(name: string): string | undefined {
-  return failedLogos.value.includes(name) ? undefined : BRAND_LOGOS[name]
+function logoOf(item: BrandView): string | undefined {
+  return item.logoUrl && !failedLogos.value.includes(item.name)
+    ? item.logoUrl
+    : undefined
 }
 
 function onLogoError(name: string) {
@@ -255,15 +247,15 @@ onBeforeUnmount(() => observer?.disconnect())
           >
             <span
               class="brand-mark"
-              :class="{ 'brand-mark--fallback': !logoOf(item.name) }"
-              :style="!logoOf(item.name)
+              :class="{ 'brand-mark--fallback': !logoOf(item) }"
+              :style="!logoOf(item)
                 ? { background: BRAND_GRADIENTS[index % BRAND_GRADIENTS.length] }
                 : undefined"
             >
               <img
-                v-if="logoOf(item.name)"
+                v-if="logoOf(item)"
                 class="brand-logo"
-                :src="logoOf(item.name)"
+                :src="logoOf(item)"
                 :alt="item.name"
                 @error="onLogoError(item.name)"
               />

@@ -1243,6 +1243,20 @@ Compose 全栈要先把 `MYSQL_PORT` / `REDIS_PORT` / `MINIO_PORT` 等改成空�
 
 ## 6. 历史记录
 
+### 2026-10-27 · 修复品牌专区图片从 VM 访问不显示
+
+**现象**：从宿主机打开 `http://<VM-IP>:8088`，品牌专区 Logo 全部走首字色块。
+
+**原因**：`ProductList.vue` 把品牌图基址写死成 `http://localhost:9000/...`。
+浏览器在宿主机上，`localhost` 指向宿主机而不是 VM，请求自然失败。
+
+**修复**：品牌文件名映射移到 `ProductServiceImpl`，`BrandView` 新增 `logoUrl`；
+`StorageService.publicUrl` 用后端 `MINIO_PUBLIC_ENDPOINT` 拼完整 URL。
+前端只消费 `item.logoUrl`，加载失败仍回落到首字色块。
+
+**验证**：`GET /api/products/brands` 返回 `http://10.76.196.106:9000/.../brands/*.png`；
+宿主机直接访问图片 200；浏览器 8 个品牌 Logo 的 `naturalWidth=160` 且正常显示。
+
 ### 2026-10-26 · 智能体评测管理端
 
 **目标**：让管理员在 ItsMyGo 后台直接跑 LLM-as-Judge，不用打开 rag_helper 的 8002 页面。
