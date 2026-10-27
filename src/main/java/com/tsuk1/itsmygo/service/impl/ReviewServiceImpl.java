@@ -124,13 +124,15 @@ public class ReviewServiceImpl implements ReviewService {
     }
 
     @Override
-    public PageResponse<ReviewView> productReviews(Long productId, int page, int size) {
+    public PageResponse<ReviewView> productReviews(Long productId, int page, int size,
+                                                   Integer rating) {
         requireProduct(productId);
         Page<Review> result = reviewMapper.selectPage(
                 new Page<>(normalizePage(page), normalizeSize(size)),
                 Wrappers.<Review>lambdaQuery()
                         .eq(Review::getProductId, productId)
                         .eq(Review::getStatus, VISIBLE)
+                        .eq(rating != null, Review::getRating, rating)
                         .orderByDesc(Review::getId));
 
         List<Review> reviews = result.getRecords();
@@ -154,7 +156,13 @@ public class ReviewServiceImpl implements ReviewService {
         long count = reviewMapper.countVisibleByProduct(productId);
         double average = count == 0 ? 0
                 : Math.round(reviewMapper.averageVisibleRating(productId) * 10) / 10.0;
-        return new ReviewSummary(average, count);
+        Map<Integer, Long> distribution = new java.util.LinkedHashMap<>();
+        for (int star = 5; star >= 1; star--) {
+            distribution.put(star, 0L);
+        }
+        reviewMapper.countVisibleByRating(productId)
+                .forEach(row -> distribution.put(row.getRating(), row.getCount()));
+        return new ReviewSummary(average, count, distribution);
     }
 
     @Override

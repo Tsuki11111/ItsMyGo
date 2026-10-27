@@ -437,6 +437,8 @@ export interface ReviewView {
 export interface ReviewSummary {
   averageRating: number
   count: number
+  /** 5→1 星的可见评价数；JSON 对象的 key 是字符串 */
+  distribution: Record<string, number>
 }
 
 /** 我的评价 */
@@ -452,6 +454,26 @@ export interface MyReviewView {
   content: string
   /** 1 展示 / 0 已被管理端隐藏 */
   status: number
+  createdAt: string
+}
+
+/** 商品提问（问大家） */
+export interface ProductQuestionView {
+  id: number
+  content: string
+  userNickname: string
+  userAvatar: string
+  answerCount: number
+  createdAt: string
+  /** 最新两条回答预览 */
+  answers: ProductAnswerView[]
+}
+
+export interface ProductAnswerView {
+  id: number
+  content: string
+  userNickname: string
+  userAvatar: string
   createdAt: string
 }
 

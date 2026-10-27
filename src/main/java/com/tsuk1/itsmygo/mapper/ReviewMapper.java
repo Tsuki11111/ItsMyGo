@@ -2,6 +2,7 @@ package com.tsuk1.itsmygo.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.tsuk1.itsmygo.dto.ProductReviewStat;
+import com.tsuk1.itsmygo.dto.ReviewRatingCount;
 import com.tsuk1.itsmygo.entity.Review;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -23,6 +24,14 @@ public interface ReviewMapper extends BaseMapper<Review> {
             WHERE product_id = #{productId} AND status = 1
             """)
     double averageVisibleRating(@Param("productId") Long productId);
+
+    /** 各星级可见评价数，商品详情页画评分分布 */
+    @Select("""
+            SELECT rating, COUNT(*) AS count FROM reviews
+            WHERE product_id = #{productId} AND status = 1
+            GROUP BY rating
+            """)
+    List<ReviewRatingCount> countVisibleByRating(@Param("productId") Long productId);
 
     /** 商品列表批量回填评分 / 评价数；空列表调用方要自己挡掉，避免非法 IN () */
     @Select("""

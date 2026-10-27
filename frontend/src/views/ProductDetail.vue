@@ -4,16 +4,16 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Star, StarFilled } from '@element-plus/icons-vue'
 import ProductImage from '@/components/ProductImage.vue'
+import ProductCommunity from '@/components/ProductCommunity.vue'
 import { fetchProduct, fetchProducts, fetchStock } from '@/api/product'
 import { fetchShop } from '@/api/shop'
 import { startConversation } from '@/api/chat'
 import { addToCart } from '@/api/cart'
 import { addFavorite, fetchFavoriteStatus, removeFavorite } from '@/api/favorite'
 import { recordFootprint } from '@/api/footprint'
-import { fetchProductReviews, fetchReviewSummary } from '@/api/review'
 import { useBadgeStore } from '@/stores/badge'
 import { useUserStore } from '@/stores/user'
-import type { MerchantView, Product, ProductSku, ReviewSummary, ReviewView } from '@/api/types'
+import type { MerchantView, Product, ProductSku } from '@/api/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -37,14 +37,6 @@ const favoriteBusy = ref(false)
 /** 所属店铺 */
 const shop = ref<MerchantView | null>(null)
 const startingChat = ref(false)
-
-/** 商品评价 */
-const reviewSummary = ref<ReviewSummary | null>(null)
-const reviews = ref<ReviewView[]>([])
-const reviewTotal = ref(0)
-const reviewPage = ref(1)
-const reviewsLoading = ref(false)
-const REVIEW_SIZE = 5
 
 /**
  * 当前选中的 SKU。
@@ -115,10 +107,6 @@ async function load() {
   selectedValues.value = {}
   favorited.value = false
   shop.value = null
-  reviewSummary.value = null
-  reviews.value = []
-  reviewTotal.value = 0
-  reviewPage.value = 1
   try {
     // 详情接口已经带上每个 SKU 的**实时**库存了，不用再单独拉一次
     product.value = await fetchProduct(id)
@@ -132,7 +120,6 @@ async function load() {
   }
 
   loadRelated(id)
-  loadReviews(id)
   loadShop(product.value.merchantId)
   if (userStore.isLoggedIn) {
     loadFavorite(id)
@@ -179,43 +166,6 @@ async function toggleFavorite() {
   } finally {
     favoriteBusy.value = false
   }
-}
-
-async function loadReviews(id: number) {
-  reviewsLoading.value = true
-  try {
-    const [summary, page] = await Promise.all([
-      fetchReviewSummary(id),
-      fetchProductReviews(id, 1, REVIEW_SIZE),
-    ])
-    reviewSummary.value = summary
-    reviews.value = page.records
-    reviewTotal.value = page.total
-    reviewPage.value = 1
-  } catch {
-    reviewSummary.value = null
-    reviews.value = []
-    reviewTotal.value = 0
-  } finally {
-    reviewsLoading.value = false
-  }
-}
-
-async function loadMoreReviews() {
-  if (!product.value) return
-  reviewsLoading.value = true
-  try {
-    const page = await fetchProductReviews(product.value.id, reviewPage.value + 1, REVIEW_SIZE)
-    reviews.value = [...reviews.value, ...page.records]
-    reviewTotal.value = page.total
-    reviewPage.value += 1
-  } finally {
-    reviewsLoading.value = false
-  }
-}
-
-function formatReviewTime(value: string): string {
-  return value.replace('T', ' ').slice(0, 16)
 }
 
 /** 同类商品：同分类里取几个，排除自己。后端只有分页接口，就在内存里筛 */
@@ -430,48 +380,8 @@ onMounted(load)
         <p v-else class="detail-blank">这件商品还没有填写详细介绍。</p>
       </section>
 
-      <!-- ── 商品评价 ── -->
-      <section class="block review-block">
-        <div class="review-head">
-          <h2 class="block-title">商品评价</h2>
-          <div v-if="reviewSummary && reviewSummary.count > 0" class="review-summary">
-            <el-rate :model-value="reviewSummary.averageRating" disabled allow-half size="small" />
-            <span>{{ reviewSummary.averageRating.toFixed(1) }} 分 · {{ reviewSummary.count }} 条</span>
-          </div>
-        </div>
-
-        <el-empty
-          v-if="!reviewsLoading && reviews.length === 0"
-          description="还没有评价"
-          :image-size="60"
-        />
-
-        <div v-else v-loading="reviewsLoading" class="review-list">
-          <article v-for="review in reviews" :key="review.id" class="review-item">
-            <div class="review-user">
-              <div class="review-avatar">
-                <img v-if="review.userAvatar" :src="review.userAvatar" alt="" />
-                <span v-else>{{ review.userNickname.slice(0, 1) }}</span>
-              </div>
-              <span class="review-nickname">{{ review.userNickname }}</span>
-              <el-rate :model-value="review.rating" disabled size="small" />
-            </div>
-            <p v-if="review.content" class="review-content">{{ review.content }}</p>
-            <p v-else class="review-content blank">（用户未填写文字评价）</p>
-            <p class="review-time">{{ formatReviewTime(review.createdAt) }}</p>
-          </article>
-
-          <el-button
-            v-if="reviews.length < reviewTotal"
-            link
-            type="primary"
-            :loading="reviewsLoading"
-            @click="loadMoreReviews"
-          >
-            查看更多评价
-          </el-button>
-        </div>
-      </section>
+      <!-- ── 商品评价 + 问大家 ── -->
+      <ProductCommunity :product-id="product.id" />
 
       <!-- ── 同类商品 ── -->
       <section v-if="related.length" class="block">
@@ -834,80 +744,6 @@ onMounted(load)
 .detail-blank {
   margin: 0;
   font-size: 13px;
-  color: var(--c-text-3);
-}
-
-/* ── 商品评价 ── */
-.review-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
-
-.review-head .block-title {
-  margin-bottom: 0;
-}
-
-.review-summary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--c-text-2);
-}
-
-.review-item {
-  padding: 14px 0;
-  border-top: 1px solid var(--c-border);
-}
-
-.review-user {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.review-avatar {
-  width: 32px;
-  height: 32px;
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  overflow: hidden;
-  background: var(--c-pink-tint);
-  color: var(--c-pink);
-  font-size: 13px;
-}
-
-.review-avatar img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.review-nickname {
-  font-size: 13px;
-  color: var(--c-text);
-}
-
-.review-content {
-  margin: 8px 0 0;
-  font-size: 13px;
-  line-height: 1.7;
-  color: var(--c-text-2);
-  white-space: pre-wrap;
-}
-
-.review-content.blank {
-  color: var(--c-text-3);
-}
-
-.review-time {
-  margin: 6px 0 0;
-  font-size: 11px;
   color: var(--c-text-3);
 }
 

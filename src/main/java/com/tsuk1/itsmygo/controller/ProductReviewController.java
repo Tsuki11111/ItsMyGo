@@ -1,6 +1,8 @@
 package com.tsuk1.itsmygo.controller;
 
 import com.tsuk1.itsmygo.common.Result;
+import com.tsuk1.itsmygo.common.ResultCode;
+import com.tsuk1.itsmygo.common.exception.BizException;
 import com.tsuk1.itsmygo.dto.PageResponse;
 import com.tsuk1.itsmygo.dto.ReviewSummary;
 import com.tsuk1.itsmygo.dto.ReviewView;
@@ -28,8 +30,12 @@ public class ProductReviewController {
     @GetMapping
     public Result<PageResponse<ReviewView>> page(@PathVariable Long productId,
                                                  @RequestParam(defaultValue = "1") int page,
-                                                 @RequestParam(defaultValue = "5") int size) {
-        return Result.ok(reviewService.productReviews(productId, page, size));
+                                                 @RequestParam(defaultValue = "5") int size,
+                                                 @RequestParam(required = false) Integer rating) {
+        if (rating != null && (rating < 1 || rating > 5)) {
+            throw new BizException(ResultCode.BAD_REQUEST, "星级只能是 1–5");
+        }
+        return Result.ok(reviewService.productReviews(productId, page, size, rating));
     }
 
     @GetMapping("/summary")

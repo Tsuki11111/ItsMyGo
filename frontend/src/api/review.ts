@@ -20,8 +20,9 @@ export function fetchProductReviews(
   productId: number,
   page = 1,
   size = 5,
+  rating?: number,
 ): Promise<PageResponse<ReviewView>> {
-  return get<PageResponse<ReviewView>>(`/products/${productId}/reviews`, { page, size })
+  return get<PageResponse<ReviewView>>(`/products/${productId}/reviews`, { page, size, rating })
 }
 
 export function fetchReviewSummary(productId: number): Promise<ReviewSummary> {

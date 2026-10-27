@@ -14,8 +14,8 @@ public interface ReviewService {
 
     PageResponse<MyReviewView> mine(Long userId, int page, int size);
 
-    /** 商品详情页公开评价，只返回未隐藏的 */
-    PageResponse<ReviewView> productReviews(Long productId, int page, int size);
+    /** 商品详情页公开评价，只返回未隐藏的；rating 为空表示全部 */
+    PageResponse<ReviewView> productReviews(Long productId, int page, int size, Integer rating);
 
     ReviewSummary summary(Long productId);
 

@@ -900,8 +900,9 @@ WHERE user_id = ? AND id NOT IN (
 `DuplicateKeyException` 转 400「该商品已评价」，不能让它冒成 500。
 
 **展示**：商品公开评价只查 `status=1`；`GET /api/products/{id}/reviews/summary`
-返回 `AVG` 与 `COUNT`（SQL 聚合，没有评价时 count=0、平均分 0）。
-昵称/头像按 userId 批量查用户，避免 N+1；**不返回 userId**。
+返回 `AVG`、`COUNT` 和 5→1 星分布（SQL 聚合，没有评价时 count=0、平均分 0）。
+星级评价可按 `rating=1..5` 筛选；昵称/头像按 userId 批量查用户，避免 N+1；
+**不返回 userId**。
 
 **管理端只做显示/隐藏**（`PUT /api/admin/reviews/{id}/visible`），不删除评价。
 隐藏后商品详情不显示，但「我的评价」里仍能看到并标记「已隐藏」。
@@ -910,6 +911,41 @@ WHERE user_id = ? AND id NOT IN (
 `OrderServiceImpl` **只注入 `ReviewMapper`**（不注入 `ReviewService`，避免 Service 循环依赖），
 在 `pageForCustomer` 里对已完成订单收集本页全部 itemIds、**一次** `IN` 查询后回填；
 `view(order)` 同理。非已完成订单不返回该字段（`@JsonInclude(NON_NULL)`）。
+
+### 3.14.1 商品问答：问大家（V30）
+
+**为什么单独建表**：`reviews` 是买家评分评价，受 `order_item_id` 唯一约束且 `rating NOT NULL`；
+未购买用户的提问没有订单项，也不应该影响商品平均分。因此新增：
+
+| 表 | 用途 |
+|---|---|
+| `product_questions` | 商品提问：product_id / user_id / content / answer_count / status |
+| `product_answers` | 商品回答：question_id / user_id / content / status |
+
+**权限**：
+- 提问：任何登录用户；`POST /api/products/{id}/questions`，5 次/60s/用户
+- 回答：必须买过该商品（订单状态 `PAID` / `SHIPPED` / `COMPLETED`）；
+  未购买返回 403；10 次/60s/用户
+- 阅读：公开，无需登录
+- 问答**不进入** `reviews`、评分汇总和评分分布
+
+**接口**：
+- `GET /api/products/{id}/questions?page&size&filter=all|unanswered|answered`
+- `POST /api/products/{id}/questions`
+- `GET /api/products/{id}/questions/{questionId}/answers?page&size`
+- `POST /api/products/{id}/questions/{questionId}/answers`
+
+列表按 `answer_count` 支持「待回答 / 已回答」筛选；每条提问带最多 2 条回答预览，
+预览回答按 id 倒序，用户信息批量查询；回答数冗余在 `product_questions.answer_count`，
+回答成功后在事务内原子递增。
+
+**前端**：`ProductCommunity.vue` 把商品详情原来的评价区改成两个 Tab：
+`商品评价`（评分概览、5→1 星分布、星级筛选、评价列表、加载更多）和
+`问大家`（提问输入、待回答/已回答筛选、回答预览、回答弹窗）。
+未登录用户只能阅读；未购买用户可提问，回答输入会被后端拒绝。
+
+**本版未做**：评价/提问晒图、商家回复、点赞、举报、管理端问答审核入口；
+`status` 字段已为后续隐藏/审核预留。
 
 ### 3.15 优惠券与订单抵扣
 
@@ -1789,6 +1825,7 @@ frontend/
 │   │   ├── favorite.ts     # 收藏
 │   │   ├── footprint.ts    # 浏览足迹
 │   │   ├── review.ts       # 评价（提交 / 我的 / 商品公开评价）
+│   │   ├── qa.ts           # 问大家（提问 / 回答）
 │   │   ├── coupon.ts       # 领券中心 / 我的券 / 可用券
 │   │   ├── shop.ts         # 公开店铺信息
 │   │   ├── merchant.ts     # 商家后台：资料 / 商品 / 订单 / 店铺券 / 评价
@@ -1800,6 +1837,7 @@ frontend/
 │   ├── utils/orderStatus.ts # 订单状态中文名与标签色（管理端列表只有原始 status）
 │   ├── components/
 │   │   ├── ProductImage.vue      # 商品图 + 无图占位（列表 / 详情 / 订单共用）
+│   │   ├── ProductCommunity.vue  # 商品评价 + 问大家（两个 Tab）
 │   │   ├── ImageUpload.vue       # 图片上传（admin / merchant / 入驻申请三种接口）
 │   │   ├── AddressFormDialog.vue # 收货地址表单弹窗（结算页与用户中心共用）
 │   │   └── chat/                 # 会话列表 / 聊天窗口 / 消息气泡 / 输入框
@@ -1807,7 +1845,7 @@ frontend/
 │   ├── router/index.ts
 │   ├── views/
 │   │   ├── ProductList.vue     # 首页：品类栏 + 轮播 + 品牌专区 + 商品网格（滚动加载）
-│   │   ├── ProductDetail.vue   # 商品详情（含规格选择栏）
+│   │   ├── ProductDetail.vue   # 商品详情（含规格选择栏 + ProductCommunity）
 │   │   ├── Login.vue           # 登录 / 注册（同一个页签切换）
 │   │   ├── Cart.vue            # 购物车：按店分组、勾选 / 改数量 / 移除 / 去结算
 │   │   ├── Checkout.vue        # 确认订单：按店分组、每店选券、两种商品来源
