@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Location, Lock, Setting, Shop, ShoppingCart, Star, SwitchButton, Ticket, Tickets, User, ChatDotRound } from '@element-plus/icons-vue'
+import { ChatDotRound, Location, Lock, Search, Setting, Shop, ShoppingCart, Star, SwitchButton, Ticket, Tickets, User } from '@element-plus/icons-vue'
 import ProductImage from '@/components/ProductImage.vue'
 import { useBadgeStore } from '@/stores/badge'
 import { useChatStore } from '@/stores/chat'
@@ -72,13 +72,20 @@ onBeforeUnmount(() => badgeStore.stopPolling())
     <div class="topbar-inner">
       <RouterLink to="/" class="logo">一次买够</RouterLink>
       <div class="search">
-        <el-input
-          v-model="searchKeyword"
-          placeholder="搜索打印机、路由器、笔记本…"
-          clearable
-          @keyup.enter="submitSearch"
-          @clear="submitSearch"
-        />
+        <div class="search-shell">
+          <el-input
+            v-model="searchKeyword"
+            class="search-input"
+            placeholder="搜索打印机、路由器、笔记本…"
+            clearable
+            @keyup.enter="submitSearch"
+            @clear="submitSearch"
+          />
+          <button type="button" class="search-btn" @click="submitSearch">
+            <el-icon><Search /></el-icon>
+            <span>搜索</span>
+          </button>
+        </div>
       </div>
       <nav class="actions">
         <RouterLink
@@ -300,7 +307,59 @@ onBeforeUnmount(() => badgeStore.stopPolling())
 
 .search {
   flex: 1;
-  max-width: 460px;
+  max-width: 520px;
+}
+
+.search-shell {
+  display: flex;
+  align-items: stretch;
+  height: 36px;
+  overflow: hidden;
+  background: var(--c-card);
+  border: 1px solid var(--c-border);
+  border-radius: 999px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.search-shell:focus-within {
+  border-color: var(--c-pink);
+  box-shadow: 0 0 0 2px rgba(232, 99, 143, 0.12);
+}
+
+.search-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.search-input :deep(.el-input__wrapper) {
+  height: 100%;
+  padding-left: 14px;
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none !important;
+}
+
+.search-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  padding: 0 17px;
+  color: #fff;
+  background: var(--c-pink);
+  border: 0;
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.search-btn:hover {
+  background: var(--c-pink-hover);
+}
+
+.search-btn .el-icon {
+  font-size: 15px;
 }
 
 .actions {
@@ -434,8 +493,31 @@ onBeforeUnmount(() => badgeStore.stopPolling())
 }
 
 /* 窄屏只留头像，昵称收起 */
+@media (max-width: 820px) {
+  /* 窄屏把搜索框放到底下一整行，避免被右侧快捷入口挤成 0 宽 */
+  .topbar-inner {
+    flex-wrap: wrap;
+    gap: 10px 14px;
+  }
+
+  .search {
+    order: 3;
+    flex-basis: 100%;
+    max-width: none;
+    min-width: 0;
+  }
+}
+
 @media (max-width: 720px) {
   .who {
+    display: none;
+  }
+
+  .search-btn {
+    padding: 0 13px;
+  }
+
+  .search-btn span {
     display: none;
   }
 }
