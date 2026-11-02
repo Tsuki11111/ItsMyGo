@@ -72,9 +72,9 @@ Java 是**调用方**；agent 只在内网、只允许本单体访问。
 
 `mysql` 容器里还有 `dw` / `meta` / `pharma_db` 三个**别的项目**的库，**不要动**。
 
-**RabbitMQ 是唯一的例外**：它是本项目自有的超时关单中间件，由根目录
-`docker-compose.rabbitmq.yml` 管理，**不属于共用容器**。容器 `its-my-go-rabbitmq`、
-命名卷 / 网络都显式以 `its-my-go-rabbitmq` 开头；端口 **5672**（AMQP）、
+**RabbitMQ 是唯一的例外**：它是本项目自有的超时关单中间件，已并入根目录
+`docker-compose.yml`，**不属于共用容器**。容器 `its-my-go-rabbitmq`、
+命名卷 `its-my-go-rabbitmq-data` 显式以 `its-my-go` 开头；端口 **5672**（AMQP）、
 **15672**（管理台）。账号从 `.env` 的 `RABBITMQ_USERNAME` / `RABBITMQ_PASSWORD` 读取，
 不写进仓库。
 

@@ -1247,6 +1247,26 @@ Compose 全栈要先把 `MYSQL_PORT` / `REDIS_PORT` / `MINIO_PORT` 等改成空�
 
 ## 6. 历史记录
 
+### 2026-11-02 · 合并 RabbitMQ compose 文件
+
+**背景**：`docker-compose.rabbitmq.yml` 是 M17 引入 RabbitMQ 时的独立编排文件；
+后续主 `docker-compose.yml` 已经把 rabbitmq 服务完整并进去（容器、数据卷、网络、
+健康检查都在），独立文件成了重复定义，且没有任何脚本引用它。
+
+**改动**：
+- 删除 `docker-compose.rabbitmq.yml`
+- 主 compose 的 rabbitmq 服务补回原文件的 `restart: unless-stopped`
+  （原独立文件有、主文件漏了；重启 Docker 后 MQ 应自动恢复）
+- `CLAUDE.md`、`start.txt` 里的启停命令改为 `docker compose up -d rabbitmq` /
+  `docker compose stop rabbitmq`
+
+**验证**：`docker compose config --quiet` 通过。VM 当时不可达（SSH 超时），
+VM 上的 `docker-compose.offline.yml` 是部署专用的镜像覆盖文件，与此改动无关，
+下次连上 VM 时删除其中残留的旧文件即可。
+
+**保留**：`docker-compose.offline.yml` 只在离线部署包里（不在仓库），用于固定
+`its-my-go-*:local` 镜像，不能并进通用 compose。
+
 ### 2026-10-27 · 商品评价 + 问大家（V30）
 
 **定位**：按淘宝/天猫结构把商品详情原来的基础评价区升级成两个 Tab，而不是把

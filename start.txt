@@ -49,7 +49,7 @@ echo "MySQL 已就绪"
 # 先在根目录 .env 填 RABBITMQ_USERNAME / RABBITMQ_PASSWORD（compose 会校验）。
 # 不启动 MQ 时设 ORDER_TIMEOUT_MQ_ENABLED=false，数据库扫描兜底仍会关单。
 cd /c/Users/28470/IdeaProjects/ItsMyGo
-docker compose -f docker-compose.rabbitmq.yml up -d
+docker compose up -d rabbitmq
 docker ps --filter "name=^its-my-go-rabbitmq" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 
 # 管理台：http://localhost:15672（账号密码就是 .env 里的 RABBITMQ_*）
@@ -58,9 +58,9 @@ docker ps --filter "name=^its-my-go-rabbitmq" --format "table {{.Names}}\t{{.Sta
 # docker exec its-my-go-rabbitmq rabbitmqctl delete_queue its-my-go-order-timeout-delay-queue
 
 # 停止（保留数据卷）：
-# docker compose -f docker-compose.rabbitmq.yml down
+# docker compose stop rabbitmq
 # 重置账号 / 清空消息（会删卷）：
-# docker compose -f docker-compose.rabbitmq.yml down -v
+# docker compose rm -sf rabbitmq && docker volume rm its-my-go-rabbitmq-data
 
 
 # ─────────────────────────────────────────────
@@ -171,7 +171,7 @@ cd /d/PycharmProjects/rag_helper
 # docker stop mysql redis minio
 
 # RabbitMQ 是本项目自有的，可以随时停（保留数据卷）：
-# docker compose -f docker-compose.rabbitmq.yml down
+# docker compose stop rabbitmq
 
 
 # ─────────────────────────────────────────────

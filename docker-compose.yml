@@ -89,6 +89,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 20
+    restart: unless-stopped
     networks:
       - its-my-go-net
 
