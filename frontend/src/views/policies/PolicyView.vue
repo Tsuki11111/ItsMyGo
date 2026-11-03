@@ -42,14 +42,6 @@ const html = computed(() =>
     <article class="policy-card">
       <div class="policy-body" v-html="html"></div>
     </article>
-
-    <footer class="policy-foot">
-      <span>一次买够 · 学习 / 演示项目，条款不构成法律意见</span>
-      <router-link to="/terms">用户协议</router-link>
-      <router-link to="/privacy">隐私政策</router-link>
-      <router-link to="/refund-policy">退换货政策</router-link>
-      <router-link to="/merchant-rules">商家规范</router-link>
-    </footer>
   </div>
 </template>
 
@@ -153,26 +145,6 @@ const html = computed(() =>
   margin: 24px 0;
   border: 0;
   border-top: 1px solid var(--c-border);
-}
-
-.policy-foot {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px 16px;
-  margin-top: 16px;
-  padding: 0 4px;
-  color: var(--c-text-3);
-  font-size: 12px;
-}
-
-.policy-foot a {
-  color: var(--c-text-2);
-  text-decoration: none;
-}
-
-.policy-foot a:hover {
-  color: var(--c-pink);
 }
 
 @media (max-width: 640px) {

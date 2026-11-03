@@ -536,6 +536,7 @@ onBeforeUnmount(() => badgeStore.stopPolling())
 }
 
 .page {
+  flex: 1;
   max-width: 1680px;
   margin: 0 auto;
   padding: 16px;

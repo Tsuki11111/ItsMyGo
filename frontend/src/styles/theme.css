@@ -60,6 +60,13 @@ body {
   color: var(--c-text);
 }
 
+/* 页脚贴底：内容不足一屏时，footer 仍停在视口最下方而不是浮在内容后面 */
+#app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
 /* 价格用等宽字体：一列 ¥1999 / ¥299 / ¥5499 的小数点会垂直对齐。
    成本几乎为零，质感差别很大。 */
 .price-num {
