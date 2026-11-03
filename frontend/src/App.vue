@@ -275,6 +275,19 @@ onBeforeUnmount(() => badgeStore.stopPolling())
   <main :class="isBareRoute ? 'admin-main' : 'page'">
     <RouterView />
   </main>
+
+  <footer v-if="!isBareRoute" class="site-foot">
+    <div class="foot-inner">
+      <span class="foot-brand">一次买够</span>
+      <nav class="foot-links">
+        <RouterLink to="/terms">用户协议</RouterLink>
+        <RouterLink to="/privacy">隐私政策</RouterLink>
+        <RouterLink to="/refund-policy">退换货政策</RouterLink>
+        <RouterLink to="/merchant-rules">商家规范</RouterLink>
+      </nav>
+      <span class="foot-note">学习 / 演示项目 · 支付与物流均为模拟，不构成真实交易</span>
+    </div>
+  </footer>
 </template>
 
 <style scoped>
@@ -531,5 +544,49 @@ onBeforeUnmount(() => badgeStore.stopPolling())
 /* 管理端自带侧边栏和页头，不再套顾客端的宽度与留白 */
 .admin-main {
   min-height: 100vh;
+}
+
+/* 政策入口与演示声明：只出现在顾客端 */
+.site-foot {
+  margin-top: 28px;
+  padding: 18px 16px 26px;
+  border-top: 1px solid var(--c-border);
+  background: #fff;
+}
+
+.foot-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+  max-width: 1680px;
+  margin: 0 auto;
+  padding: 0 16px;
+  color: var(--c-text-3);
+  font-size: 12px;
+}
+
+.foot-brand {
+  color: var(--c-pink);
+  font-weight: 600;
+}
+
+.foot-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.foot-links a {
+  color: var(--c-text-2);
+  text-decoration: none;
+}
+
+.foot-links a:hover {
+  color: var(--c-pink);
+}
+
+.foot-note {
+  margin-left: auto;
 }
 </style>

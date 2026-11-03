@@ -2164,6 +2164,39 @@ frontend/
 - 轮询 30 秒（后台标签页跳过）+ 加购、购物车增删改、领券后立即同步；
   三项都用 `el-badge`，值为 0 时 `hidden`，不显示红点。
 
+### 4.13 平台政策页（2026-11-03）
+
+四份政策：**用户协议、隐私政策、退换货与售后政策、商家入驻与经营规范**。
+
+**单一事实源**：正式文本在仓库 [docs/policies/](docs/policies/)；前端
+`views/policies/PolicyView.vue` 用 Vite 的 `?raw` **直接导入同一批 Markdown**，
+`marked` 渲染 + `DOMPurify` 消毒后展示。改政策只改 md，页面与仓库文本不会漂移。
+
+**路由**：`/terms`、`/privacy`、`/refund-policy`、`/merchant-rules` 共用
+`PolicyView.vue`，按 `route.meta.policy` 选文本。
+
+**入口**：
+- 顾客端页脚（`App.vue`，管理端 / 商家端不显示）四个链接 + 演示项目声明；
+- 注册页提示「注册即表示同意《用户协议》《隐私政策》」，链接新标签页打开。
+
+**内容与实现的硬约束**（写政策时必须核对代码，不能写做不到的承诺）：
+
+| 条款 | 对应实现 |
+|---|---|
+| 支付为模拟、无真实资金 | `pay()` 写入 `method=MOCK` 的支付记录 |
+| 物流为虚拟数据 | `LogisticsPanel` + 虚拟物流服务 |
+| 待支付 30 分钟自动取消 | `ORDER_TIMEOUT_MINUTES` 默认 30 |
+| 待发货可取消 / 退款，待收货、已完成可退款 | `OrderStatus.cancellable()` / `refundable()` |
+| **不支持换货** | 代码只有取消、退款，没有换货流程 |
+| 退款需商家审核，驳回回到申请前状态 | `REFUNDING` 状态机 + `status_before_refund` |
+| 无账号自助注销 | 只有删除地址/收藏/足迹接口，账号删除需管理员 |
+| 日志保留 14 天 | logback `maxHistory=14`、`totalSizeCap=2GB` |
+| 收集的手机号 / 地址 / 聊天 / 评价 | `users.phone`、`addresses`、`orders` 快照、`messages`、`reviews`、`product_questions` |
+| 商家不抽佣、不分账、不结算 | 项目定位（README 明确） |
+
+**测试**：四个页面渲染正常（标题、表格、页脚链接），注册页同意文案与新标签页链接正常；
+`npm run build` 通过。
+
 **买小购客服**（M6）：顾客、商家、管理后台三个消息中心的会话列表顶部固定一张
 「买小购」卡片，所有登录用户都能看到；点击进入
 `/user/messages/agent`、`/merchant/messages/agent` 或 `/admin/messages/agent`。

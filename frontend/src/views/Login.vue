@@ -142,6 +142,14 @@ async function submit() {
         </button>
       </el-form>
 
+      <!-- 注册即视为同意平台政策 -->
+      <p v-if="mode === 'register'" class="agree">
+        注册即表示你已阅读并同意
+        <RouterLink to="/terms" target="_blank" rel="noopener">《用户协议》</RouterLink>
+        与
+        <RouterLink to="/privacy" target="_blank" rel="noopener">《隐私政策》</RouterLink>
+      </p>
+
       <!-- 练手项目的演示账号，方便直接上手；真上线要拿掉 -->
       <p class="hint">演示账号：testuser / 123456</p>
     </div>
@@ -226,6 +234,23 @@ async function submit() {
 .submit-btn:disabled {
   background: var(--c-text-3);
   cursor: not-allowed;
+}
+
+.agree {
+  margin: 12px 0 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--c-text-3);
+  text-align: center;
+}
+
+.agree a {
+  color: var(--c-pink);
+  text-decoration: none;
+}
+
+.agree a:hover {
+  text-decoration: underline;
 }
 
 .hint {

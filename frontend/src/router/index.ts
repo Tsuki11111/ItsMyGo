@@ -20,6 +20,30 @@ const router = createRouter({
     { path: '/order/:id', name: 'order-detail', component: () => import('@/views/OrderDetail.vue') },
     { path: '/coupons', name: 'coupon-center', component: () => import('@/views/CouponCenter.vue') },
     {
+      path: '/terms',
+      name: 'policy-terms',
+      component: () => import('@/views/policies/PolicyView.vue'),
+      meta: { policy: 'terms' },
+    },
+    {
+      path: '/privacy',
+      name: 'policy-privacy',
+      component: () => import('@/views/policies/PolicyView.vue'),
+      meta: { policy: 'privacy' },
+    },
+    {
+      path: '/refund-policy',
+      name: 'policy-refund',
+      component: () => import('@/views/policies/PolicyView.vue'),
+      meta: { policy: 'refund' },
+    },
+    {
+      path: '/merchant-rules',
+      name: 'policy-merchant',
+      component: () => import('@/views/policies/PolicyView.vue'),
+      meta: { policy: 'merchant' },
+    },
+    {
       path: '/admin-invite',
       name: 'admin-invite',
       component: () => import('@/views/AdminInvite.vue'),
