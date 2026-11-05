@@ -108,6 +108,9 @@ services:
       rabbitmq:
         condition: service_healthy
     environment:
+      # 生产（内网 VM）用 .env 里的 SPRING_PROFILES_ACTIVE=prod 打开生产日志级别、关 SQL 明细；
+      # 不设就是默认 profile（本地开发 / 测试行为不变）
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
       DB_USERNAME: ${DB_USERNAME:-itsmygo}
       DB_PASSWORD: ${DB_PASSWORD:-itsmygo_local_password}
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${DB_NAME:-its_mygo}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true

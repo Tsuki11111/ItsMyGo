@@ -133,21 +133,35 @@ agent 通过 `its-my-go-backend:8080` 回调 Java。停止两套：`./deploy.sh 
 - 联合部署的 agent 地址用 `RAG_*` 前缀变量（`RAG_AGENT_GRPC_TARGET=rag-agent:8003`、
   `RAG_AGENT_IMPORT_URL=http://rag-import:8001`、`RAG_AGENT_EVAL_URL=http://rag-chat:8002`），
   本地调试用的 `AGENT_GRPC_TARGET=127.0.0.1:8003` 不会进容器。
-- 数据库 schema 由 Flyway 在启动时迁到最新（当前 v30）；数据在命名卷
+- 数据库 schema 由 Flyway 在启动时迁到最新（当前 v31）；数据在命名卷
   `its-my-go-mysql-data` 里，**`./deploy.sh reset` 会删卷**，在 VM 上别随手跑。
+- **发版流程**（VM 拉不到 Hub，镜像必须在开发机打好再传）：
+  1. 开发机：`docker compose build backend frontend`（或本地离线打包 jar 后构建运行时镜像），
+     产物 tag 固定为 `its-my-go-backend:local` / `its-my-go-frontend:local`；
+  2. `docker save -o zz-itsmygo.tar its-my-go-backend:local its-my-go-frontend:local`；
+  3. `scp` 覆盖 VM 的 `~/itsmygo-offline/images/zz-itsmygo.tar`，同时同步
+     `docker-compose.yml`（离线覆盖文件不动）；
+  4. VM：`./stop.sh` → `docker rmi` 旧 `its-my-go-*` → `docker load -i images/zz-itsmygo.tar`
+     → 在 `ItsMyGo/` 里 `docker compose -f docker-compose.yml -f docker-compose.offline.yml up -d --no-build --pull never`；
+  5. 验收：`/api/health`、`flyway_schema_history` 最新版本、容器 healthy。
+  - ⚠️ **不要直接跑 `install.sh` 做发版**：它会无条件恢复 `data/product-images.sql`，
+    那脚本写的是 `http://__VM_IP__:9000/...` 绝对地址，会把同源化改回去
+    （2026-11-05 已把该脚本的 sed 改成去掉主机名、只留相对路径；以后更新离线包别忘了带上）。
+- **prod profile**：`docker-compose.yml` 的 backend 已透传 `SPRING_PROFILES_ACTIVE`
+  （默认空 = 开发行为），VM 的 `ItsMyGo/.env` 里设 `SPRING_PROFILES_ACTIVE=prod`。
 
 **现状与缺口**（都是「知道但未做」，不是遗漏）：
 
 | 项 | 现状 |
 |---|---|
 | HTTPS / 域名 | ❌ 没有，纯 HTTP + IP 访问 |
-| prod profile | ⚠️ `application-prod.yml` 已存在（JSON 日志落盘保留 14 天、关闭 SQL 明细），但 **`docker-compose.yml` 的 backend 没有设置 `SPRING_PROFILES_ACTIVE`** —— 所以 VM 上的容器跑的是默认 profile，JSON 日志文件不会生成。要用得显式加在 compose 的 `environment` 里 |
+| prod profile | ✅ 2026-11-05 起 `docker-compose.yml` 透传 `SPRING_PROFILES_ACTIVE`，VM 的 `ItsMyGo/.env` 已设 `prod`（日志级别按 `application-prod.yml`，关 SQL 明细） |
 | 备份 / 恢复 | ❌ 仓库内没有任何备份配置或脚本 |
 | 监控告警 | ❌ 没有；只有 `/api/health` 可探活 |
 | 单实例假设 | ⚠️ SSE 在线状态是进程内注册表、`@Scheduled` 的布隆过滤器预热与订单扫描都按单实例写；多实例部署需要另外改造 |
 | 凭据 | ⚠️ VM 的 SSH 账号 / 密钥**不在仓库**（凭据不进 Git），接手时向用户要；MinIO 是 rag_helper 共用的实例、默认凭据且 9000/9001 绑 `0.0.0.0`，**不要暴露到公网** |
-| 可达性 | 2026-11-05 从开发机探测 `10.184.171.106:8088` 超时（VM 关机 / 不同网段 / 防火墙都可能），操作前先确认能连上 |
-| 待清理 | VM 上的 `docker-compose.offline.yml` 可能还残留旧的 `docker-compose.rabbitmq.yml` 引用，下次连上时删掉（HANDOFF §6 2026-11-02 条目） |
+| 可达性 | ✅ 2026-11-05 晚已核实：从开发机 `ssh itsmygo-vm` 正常，`10.184.171.106` 的 8088 / 8080 / 8002 均 200（此前探测超时是 VM 当时没开机） |
+| 离线包数据脚本 | ⚠️ `data/product-images.sql` 写的是绝对地址，`install.sh` 会无条件执行；已在 VM 侧改成相对路径，见上面「发版流程」 |
 
 ## 手工 Compose
 

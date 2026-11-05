@@ -55,7 +55,8 @@ CI 跑 261 条（跳过 4 条依赖 MinIO 的用例）。数据库 schema 到 **
   管理员邀请审批；商家端经营看板。
 - **部署**：`./deploy.sh` 一键全栈；`rag_helper/deploy.sh joint` 联合部署；
   生产是**内网 VM**（静态 IP、离线镜像包、图片同源），缺口见
-  [docs/deployment.md](docs/deployment.md)。
+  [docs/deployment.md](docs/deployment.md)。**2026-11-05 晚已重建镜像并上线 M30**
+  （VM 上 Flyway 已迁到 v31，prod profile 生效）。
 - **体验与合规**：品牌专区 / 缩略图、四份平台政策（协议 / 隐私 / 售后 / 商家规范）、
   2026-11-02 首次压测（读接口 2600–3500 QPS、并发不超卖、支付幂等）、
   2026-11-05 图片地址同源化（换 IP 不再裂图）。
@@ -1402,6 +1403,36 @@ Compose 全栈要先把 `MYSQL_PORT` / `REDIS_PORT` / `MINIO_PORT` 等改成空�
 否则接口会继续返回旧 URL 直到 TTL 到期。
 
 ## 6. 历史记录
+
+### 2026-11-05 晚 · 生产 VM 重建镜像并上线（售后 M30）
+
+**背景**：生产（内网 VM `10.184.171.106`）容器全停；用户要求关闭开发环境容器、
+重建生产镜像并启动生产服务。
+
+**做了什么**：
+
+1. **停开发容器**：本机共用中间件 `mysql` / `redis` / `minio` 与 `its-my-go-rabbitmq` 停止
+   （Docker 守护进程保留，构建镜像还要用）。
+2. **构建镜像**：Docker Hub 拉基础镜像层、构建容器内 Maven Central 拉包都反复 `EOF`
+   （本机网络对国外源不稳）→ 改用**本地离线 `mvn package` 出的 jar + 运行时镜像**、
+   前端用本地 `npm run build` 的 `dist` 打 nginx 镜像；产物与多阶段构建等价
+   （backend 604MB / frontend 77MB）。
+3. **传镜像**：`docker save` 206MB → scp 到 VM → 删旧 `its-my-go-*`（含 `:next`）→ `docker load`。
+4. **同步配置**：`docker-compose.yml` 新增 `SPRING_PROFILES_ACTIVE` 透传（默认空，本地行为不变）；
+   VM 的 `ItsMyGo/.env` 设 `SPRING_PROFILES_ACTIVE=prod`。
+5. **启动**：ItsMyGo 全栈 + rag_helper 全栈，走 `docker compose ... --no-build --pull never`；
+   **没有跑 `install.sh`** —— 它会无条件恢复 `data/product-images.sql`，那脚本写的是
+   `http://__VM_IP__:9000/...` **绝对地址**，会把 11-05 的同源化改回去。已在 VM 侧把该 sed
+   改成去掉主机名（只留 `/its-my-go-product-images/...`），并写进 deployment.md。
+
+**验证（VM 上实测）**：`SPRING_PROFILES_ACTIVE=prod`；Flyway 最新 `v31 after sale`；
+`after_sales` / `after_sale_items` / `after_sale_reasons` 存在且原因字典 6 条、
+`orders.refunded_amount` 存在；商品图仍为相对路径；`8088` / `8080 /api/health` / `8002 /health`
+均 200；管理员登录 `code=200 role=ADMIN`；未登录访问 `/api/after-sales` 返回 401；
+全部容器 healthy，数据卷沿用（业务数据未丢）。
+
+**遗留**：VM 磁盘 80%（约 3.6G 可用，离线包里的 1.9G `runtime-images.tar` 是旧包可清）；
+HTTPS / 备份 / 监控仍缺（见 deployment.md 缺口表）。
 
 ### 2026-11-05 · 售后 M30：售后单 / 退货退款 / 部分退款
 
