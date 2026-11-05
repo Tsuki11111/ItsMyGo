@@ -52,16 +52,14 @@ Java 的 `/internal/agent/**`（凭证是 Java 每轮签发的短期票据，模
 ## 协作偏好
 
 - **全程中文回复**
-- **改了代码，主动同步文档，不要等被提醒**。四份文档分工不同，**按分类落到对的文档**：
-  1. **[docs/requirements.md](docs/requirements.md)** —— 需求、范围、验收标准变了就改它
-  2. **[docs/architecture.md](docs/architecture.md)** —— 选型、架构、契约概览、决策记录变了就改它
-  3. **[docs/implementation.md](docs/implementation.md)** —— **只要实现变了就必须更新**
-     （新增机制、换了做法、改了关键取舍都算）。它是**代码的镜像**，不更新就等于失真
-  4. **[HANDOFF.md](HANDOFF.md)** —— 记进度、下一步、踩的坑，是**状态层的权威源**
-  5. **[README.md](README.md)** —— 精简报告，内容一律以 HANDOFF 为准
-  **状态与坑只写 HANDOFF，实现细节只写 implementation**；四者允许内容重复，只是详略不同
-  —— requirements 讲「要什么」、architecture 讲「为什么这么选」、implementation 讲
-  「怎么做到的」、HANDOFF 讲「到哪了」。**旧的跳转页（decisions-ecommerce）不要再补内容。**
+- **改了代码，主动同步文档，不要等被提醒；改完自动提交并推送**（Conventional Commits，描述中文）。
+  完整流程见 [HANDOFF.md](HANDOFF.md) **§4.9「新功能开发流程」** —— 那是唯一权威：
+  **先读需求 → 等用户敲定 → 补 requirements → 自评审需求 → 改 architecture → 写代码 →
+  改 implementation → 最后 HANDOFF / README → 自动 commit + push**。
+  各文档分工：requirements 讲「要什么」、architecture 讲「为什么这么选」、
+  implementation 讲「怎么做到的」（**代码的镜像，实现变了必须更新**）、
+  HANDOFF 讲「到哪了」（**状态与坑只写这里**）、README 是精简报告（以 HANDOFF 为准）。
+  **旧的跳转页（decisions-ecommerce）不要再补内容。**
 - **收到用户补充的新约束，立刻写进文档**，不要只留在对话里（本项目的 Docker 命名约定
   就是这么来的）
 - **本项目按高并发标准做**（用户 2026-10-15 明确要求）—— 即使是练手项目，
