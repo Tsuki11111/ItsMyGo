@@ -2285,7 +2285,7 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 **测试跑在独立的库和 Redis database 上**（`its_mygo_test` / db 1），跟开发环境彻底分开 ——
 为什么非分不可、怎么配的，见 HANDOFF §5.20。
 
-覆盖重点（当前 **251** 条；CI 上跳过 4 条依赖 MinIO 的，跑 247）：
+覆盖重点（当前 **254** 条；CI 上跳过 4 条依赖 MinIO 的，跑 250）：
 
 | 测试类 | 覆盖 |
 |---|---|
@@ -2306,6 +2306,9 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 | **`FavoriteControllerTest`** | 收藏/取消幂等；列表带当前商品信息；状态接口；别人的收藏不可见；商品不存在 404；未登录 401 |
 | **`FootprintControllerTest`** | 同一商品只留一行；按浏览时间倒序；**超过 110 条只保留最新 100 条**；清空；商品不存在 404；未登录 401 |
 | **`ReviewControllerTest`** | 仅已完成订单项可评；同一订单项不可重复评；评分越界 400；商品公开评价只展示未隐藏；汇总平均分/数量；管理端隐藏后商品详情消失、我的评价标记隐藏；顾客不能隐藏；别人的订单项 404 |
+| **`ProductQaControllerTest`** | 登录用户可提问；**没买过的人回答 403**；买过（PAID/SHIPPED/COMPLETED）可回答且 `answerCount` 递增；公开列表带回答预览；`filter=unanswered/answered` 生效；长度校验 400 |
+| **`OrderTimeoutConsumerTest` / `OrderTimeoutPublisherTest` / `OrderTimeoutScanJobTest` / `RabbitMqOrderTimeoutSenderTest`** | 超时关单四段：`afterCommit` 才发消息且发送失败不影响下单；消费端按状态 + 数据库 `NOW()` 幂等、重复消息只 ack；扫描兜底 + Redis 锁；`cancelIfExpired` 的 `<=` 边界 |
+| `HealthControllerTest` | `/api/health` 返回统一响应体 |
 | **`CouponControllerTest`** | 领取后领券中心 claimed/剩余数正确；重复领取 400 而非 500；最后一张领完拒绝；过期券不可领且不展示；可用券按金额过滤；**EXPIRED 由 SQL 按数据库时间计算**；管理端模板增改与停用；总量不能小于已领；非管理员 403 |
 | **`OrderCouponTest`** | 用券后实付 = 原价 - 减免；门槛不足拒绝；已用券不能再用于另一单；别人的券 404；取消订单退券；退款同意退券；**退回过期券置 EXPIRED** |
 | **`MerchantApplyControllerTest`** | 申请 / 重复申请 / 驳回后重提 / 平台通过后 role 与 merchant_id 生效；禁用后旧 token 立即 403、店铺页 404；默认商户不能审核/禁用；店铺名唯一 |
@@ -2369,6 +2372,8 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 （本轮已实测：收藏/取消、足迹记录与清空、领券中心领取、结算选券抵扣、
 下单后券变已使用、取消后退券、完成订单评价、商品详情评价展示、管理端隐藏评价）。
 
-M6 / M7 是客服链路：gRPC 接入（`rag_helper` 那边已就绪）、查订单环回。
+**客服链路（M6–M13 + M26）已完成**：gRPC 接入、SSE 事件流、查订单物流、导购与商品卡、
+智能下单 / 退款草稿、催发货 / 催退款、知识库导入、管理端智能体评测，
+见 §3.18–§3.21、§3.23、§3.27、§3.31、§3.34。
 
 详见 [decisions-ecommerce.md](decisions-ecommerce.md) §4 的分阶段路线。

@@ -1,6 +1,7 @@
 # 决策记录 · 一次买够（ItsMyGo）网购平台
 
-> 状态：需求定稿 + 技术选型拍板（2026-10-12）
+> 状态：需求与选型已定稿（2026-10-12）；路线**已全部落地**（M0–M29，2026-11-03），
+> 当前进度、下一步与踩坑见 [HANDOFF.md](../HANDOFF.md)
 > 关联仓库：`rag_helper`（客服智能体侧）。对接契约以该仓库 `evolution-plan.md` §5/§6 为准
 > 本文是 ItsMyGo 侧的权威决策记录；需求变更、选型推翻都改这里
 
@@ -8,7 +9,8 @@
 
 ## 0. 一句话
 
-单商户自营的电子设备网购平台「一次买够」。Java 单体 + Vue 3 前后端分离，
+单商户自营起步，**2026-10-19 已扩成多商户平台**（商家自助入驻 + 平台审核；商品归属店铺，
+跨店购物车按店拆单、分别支付；不做佣金 / 分账 / 结算）。Java 单体 + Vue 3 前后端分离，
 经 gRPC 接入已有的 RAG 客服智能体。
 
 ---
@@ -21,11 +23,12 @@
 |---|---|
 | 品类 | **电子设备** —— 与 `rag_helper/doc/` 的产品手册语料对应（打印机、路由器、笔记本、烫金机等） |
 | 业务模式 | **多商户平台**：商家自助入驻 + 平台审核；商品归属店铺，跨店购物车按店拆单、分别支付；**不做佣金 / 分账 / 结算** |
-| 项目定位 | **学习练手 / 简历项目**，不是真实运营；无真实支付、无高并发要求 |
+| 项目定位 | **学习练手 / 简历项目**，不是真实运营；无真实支付。**但按高并发标准做**（2026-10-15 用户要求，见 HANDOFF 的高并发清单） |
 | 差异化 | **接入已有的客服智能体**。这是本项目区别于普通电商 demo 的核心 |
 
-智能客服当前范围**暂时定稿、将来再开发**：本期只做「产品问答 + 查订单 + 执行流可见」，
-后续能力扩展走 `rag_helper` 的 subagent 机制，**不新增 Java 侧服务或端口**。
+智能客服的范围**已全部落地**（2026-10-20 ~ 10-26，M6–M13 + M26）：产品问答、查订单物流、
+导购与商品卡、智能下单 / 退款草稿、催发货 / 催退款、知识库导入、管理端 LLM-as-Judge 评测。
+后续能力扩展仍走 `rag_helper` 的 subagent 机制，**不新增 Java 侧服务或端口**。
 
 ### 1.2 角色
 
@@ -199,7 +202,7 @@ user ──< order ──< order_item
 | 表结构迁移 | **Flyway** | 不用 `ddl-auto` |
 | 安全 | Spring Security + JWT | 密码 BCrypt |
 | gRPC 客户端 | **原生 `grpc-java` + `protobuf-maven-plugin`** | 不用 `grpc-spring-boot-starter`（Boot 4 未适配） |
-| API 文档 | springdoc-openapi | Swagger UI，方便自测 |
+| API 文档 | ~~springdoc-openapi~~ | **实际未落地**：没有加依赖，接口文档是手写的 [api.md](api.md) |
 | 项目结构 | **单模块 Maven** | 不拆多模块 |
 | 前端 | Vue 3 + Vite + **TypeScript** | |
 | UI 库 | Element Plus | |
@@ -218,9 +221,9 @@ M0 第一阶段必须先实测；不通过则切 Spring Data JPA，**其余选�
 
 | 中间件 | 复用容器 | 连接 | 本项目隔离方式 |
 |---|---|---|---|
-| MySQL | `mysql`（mysql:8.0，**当前 stopped**，需 `docker start mysql`） | `localhost:3306` | **独立 database：`its_mygo`** |
-| Redis | `redis`（redis:7-alpine，运行中） | `localhost:6379` | **key 前缀 `its-mygo:`** |
-| MinIO | `minio`（运行中，rag_helper 在用） | `localhost:9000`（Console `:9001`） | **独立 bucket：`its-mygo-product-images`** |
+| MySQL | `mysql`（mysql:8.0，共用容器；`unless-stopped`，被显式 stop 过要手动 `docker start mysql`） | `localhost:3306` | **独立 database：`its_mygo`** |
+| Redis | `redis`（redis:7-alpine，共用容器，restart policy 为 `no`） | `localhost:6379` | **key 前缀 `its-my-go:`** |
+| MinIO | `minio`（共用容器，rag_helper 在用） | `localhost:9000`（Console `:9001`） | **独立 bucket：`its-my-go-product-images`** |
 
 **命名约定**：现有共用容器**不改名、不新建**。但本项目**若**将来创建任何 Docker 资源
 （卷、网络、容器），名字一律以 `its-my-go` 开头，**不依赖 Compose 从目录名推导的
@@ -263,6 +266,10 @@ Java 需**预留一个内网订单查询 API**，入参含 `user_id` + 订单号
 
 ## 4. 分阶段路线
 
+> 下表是 **2026-10-12 最初定的 7 个里程碑规划**，保留为历史决策记录。
+> 实际一路做到 M29（多商户、AI 客服、运营后台、商品社区、平台政策、压测…），
+> **完成情况与验收记录以 [HANDOFF.md](../HANDOFF.md) §6 为准**。
+
 | 里程碑 | 参考工期 | 内容 | 可验收产物 |
 |---|---|---|---|
 | **M0 · 骨架** | 2–3 天 | 包结构、Docker Compose（MySQL+Redis）、统一响应/异常、Flyway 建表、**验证 Boot 4.1.1 生态兼容性** | `docker compose up -d` + 应用启动，能连库；兼容性结论落地 |
@@ -281,9 +288,12 @@ Java 需**预留一个内网订单查询 API**，入参含 `user_id` + 订单号
 ## 5. 待定问题
 
 1. 顾客 ID 形态 —— **已定**：`BIGINT` 自增，注入 metadata 时转字符串
-2. gRPC deadline / keepalive 具体值 —— 需实测一轮 agent 真实耗时后定，先按 180s + 余量配置
-3. 是否要限流/配额 —— 单调用方 + 内网，**暂不做**
-4. 支付模块是否要留真实支付接口的形状（便于将来替换）—— 待定
+2. gRPC deadline / keepalive 具体值 —— **已定**：`AGENT_GRPC_DEADLINE_SECONDS=240`；
+   工具票据 TTL（10 分钟）必须 ≥ Converse deadline，否则长回合末尾的工具调用会 401
+3. 是否要限流/配额 —— **已定：做**。注解式（AOP + Redis 固定窗口），见 implementation §3.11；
+   生产出事故可用 `itsmygo.ratelimit.enabled=false` 一键关闭止血
+4. 支付模块是否要留真实支付接口的形状 —— **已定：不预留**。只做 `MOCK` 模拟支付，
+   政策页与接口文档都明确标注「无真实支付」
 5. 商品是否需要 SKU 多规格 —— **已定：做**（2026-10-16）。
    实际建表时并没有真的「预留」字段，所以是**新建**三张表而非扩展 `products`；
    价格与库存的真相下沉到 SKU，商品上的那两个字段退化成汇总值。

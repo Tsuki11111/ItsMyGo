@@ -28,9 +28,9 @@
 
 ## 1. 当前状态一句话
 
-**交易闭环、多商户、AI 客服、运营后台、Docker 部署均已完成（2026-10-27）。**
+**交易闭环、多商户、AI 客服、运营后台、平台政策、压测、Docker 部署均已完成（2026-11-05）。**
 后端自动化测试 **254 条**（新增智能体评测 2 条、商品问答 1 条），CI 跑 250 条
-（跳过 4 条依赖 MinIO 的用例）。
+（跳过 4 条依赖 MinIO 的用例）。数据库 schema 到 **v30**。
 
 - **交易**：商品 / SKU、购物车、按店拆单、支付、发货、收货、取消、超时关单、退款；
   库存与优惠券回滚。
@@ -40,7 +40,12 @@
   查订单物流、导购、下单退款草稿、催发货 / 退款、知识库导入、**管理端智能体评测**。
 - **后台**：管理端数据概览、订单筛选 / CSV、用户审计、商户商品运营、品牌 / 缩略图、
   管理员邀请审批；商家端经营看板。
-- **部署**：`./deploy.sh` 一键全栈；`rag_helper/deploy.sh joint` 联合部署。
+- **部署**：`./deploy.sh` 一键全栈；`rag_helper/deploy.sh joint` 联合部署；
+  生产是**内网 VM**（静态 IP、离线镜像包、图片同源），缺口见
+  [docs/deployment.md](docs/deployment.md)。
+- **体验与合规**：品牌专区 / 缩略图、四份平台政策（协议 / 隐私 / 售后 / 商家规范）、
+  2026-11-02 首次压测（读接口 2600–3500 QPS、并发不超卖、支付幂等）、
+  2026-11-05 图片地址同源化（换 IP 不再裂图）。
 
 **下一步**：商户与商品运营二期（商品审核 / 券运营等），可选 M14 导购增强。
 **详细历史见 §6；已知坑见 §5；环境与约定见 §4；部署细节见
@@ -81,32 +86,49 @@
 ```
 src/main/java/com/tsuk1/itsmygo/
 ├── ItsMyGoApplication.java      # @SpringBootApplication + @MapperScan("com.tsuk1.itsmygo.mapper")
-├── common/                      # Result / ResultCode / Roles + exception/（BizException / GlobalExceptionHandler）
-├── config/
-│   ├── SecurityConfig.java      # 过滤器链 + BCrypt + 401/403 统一响应 + 路径权限
-│   ├── MyBatisPlusConfig.java   # ★ 分页拦截器（不注册分页就不生效，见 §5.3）
-│   └── MinioConfig.java         # MinioClient bean
-├── security/                    # CurrentUser（id+username+role）/ JwtService / JwtAuthenticationFilter
-├── controller/
-│   ├── HealthController / AuthController / AddressController
-│   ├── CategoryController / ProductController / CartController / OrderController        # 顾客端
-│   └── AdminCategoryController / AdminProductController / AdminFileController /
-│       AdminOrderController                                                             # 管理端，需 ADMIN
-├── service/                     # 接口：Auth / Address / Category / Product / Storage / Cart / Order / Stock
+├── common/                      # Result / ResultCode / Roles + 子包：
+│   ├── exception/               # BizException / GlobalExceptionHandler
+│   ├── ratelimit/               # @RateLimit + AOP + Redis 固定窗口
+│   ├── audit/                   # @AdminAudit + 切面（管理端审计）
+│   ├── agent/                   # gRPC 客户端、票据、评测 / 知识库导入代理
+│   ├── chat/ · order/ · admin/  # 各模块复用的辅助类型
+│   └── logging/                 # RequestIdFilter（traceId）
+├── config/                      # SecurityConfig / MyBatisPlusConfig / MinioConfig /
+│                                # AgentExecutorConfig / OrderTimeoutRabbitConfig
+├── security/                    # CurrentUser(id+username+role+merchantId) / JwtService /
+│                                # JwtAuthenticationFilter / AuthIdentityService
+├── controller/  42 个           # 按端分组，见下表
+├── service/     26 个接口
 │   └── impl/                    # 实现：…ServiceImpl（@Service 标在这层，Controller 注入接口）
-├── mapper/                      # MyBatis-Plus BaseMapper（User / Address / Category / Product / CartItem / Order / OrderItem）
-├── entity/                      # User / Address / Category / Product / CartItem / Order / OrderItem / OrderStatus
-└── dto/                         # 请求响应体
+├── mapper/      29 个           # MyBatis-Plus BaseMapper + 少数自定义聚合 Mapper
+├── entity/      32 个           # 实体 + 枚举（OrderStatus / ShipmentStatus / AgentActionType…）
+└── dto/                         # 请求响应体；子包 agent/ eval/ knowledge/
 ```
 
-**接口分层**：
+**controller 分组**（42 个）：
+
+| 端 | 控制器 |
+|---|---|
+| 顾客端 | `Auth` `User` `Address` `Category` `Product` `ProductReview` `ProductQa` `Review` `Cart` `Order` `Favorite` `Footprint` `Coupon` `Shop` `Chat` `Agent` `AgentAction` |
+| 商家端 | `MerchantApply` `Merchant` `MerchantProduct` `MerchantOrder` `MerchantCoupon` `MerchantReview` `MerchantChat` `MerchantStats` `MerchantFile` |
+| 管理端 | `AdminCategory` `AdminProduct` `AdminOrder` `AdminMerchant` `AdminUser` `AdminAudit` `AdminCoupon` `AdminReview` `AdminDashboard` `AdminFile` `AdminKnowledge` `AdminInvitation` `AdminAgentEval` `AdminChat` |
+| 内部 / 健康 | `Health`；`AgentTool`（`/internal/agent/**`，agent 回调专用） |
+
+**接口分层**（以 `SecurityConfig` 为准）：
 
 | 路径前缀 | 权限 |
 |---|---|
-| `/api/auth/register`、`/api/auth/login`、`/api/health` | 匿名 |
-| `/api/products/**`、`/api/categories/**` 的 **GET** | 匿名（顾客浏览不用登录） |
+| `/api/health`、`/api/auth/register`、`/api/auth/login` | 匿名 |
+| **GET** `/api/products/**`、`/api/categories/**`、`/api/shops/**`、`/api/coupons` | 匿名（浏览、领券中心） |
+| **GET** `/api/chat/stream` | 匿名，凭 60 秒一次性票据（EventSource 带不了 JWT） |
+| `/internal/agent/**` | `permitAll`，凭 `X-Agent-Ticket`（**只在内网用**，别暴露公网） |
+| `/api/merchant/**` | `hasRole("MERCHANT")` |
 | `/api/admin/**` | `hasRole("ADMIN")` |
-| 其余 | 登录即可 |
+| 其余（含 `/api/agent/**`、聊天写接口） | 登录即可 |
+
+⚠️ **JWT 里的 role 不能当权限**：`JwtAuthenticationFilter` 只取 userId，
+role / merchantId 由 `AuthIdentityService` 按数据库实时推导（60 秒缓存 + 变更 evict），
+所以商家被禁用后旧 token 立即失效 —— 见 §5.24 ①。
 
 **代码约定**：
 
@@ -341,7 +363,7 @@ docker start mysql redis minio
 
 - `mysql` 容器里还有 `dw` / `meta` / `pharma_db` 三个**别的项目**的库，**不要动**
 - **MinIO 是 rag_helper 在用的实例**：它的 bucket 是 `rag-helper-knowledge-files`
-  （已配公网只读策略），本项目**不许读写它**；本项目一律用 `its-mygo-product-images`
+  （已配公网只读策略），本项目**不许读写它**；本项目一律用 `its-my-go-product-images`
 - MinIO 凭据与 rag_helper 共用（在容器环境变量里），M2 落地对象存储时写进 `.env`
 - ⚠️ 该实例用的是 MinIO **默认凭据**，且端口绑定在 `0.0.0.0`。
   本机开发可接受，但**别把 9000 / 9001 暴露到公网**
@@ -560,7 +582,7 @@ public MybatisPlusInterceptor mybatisPlusInterceptor() {
 该策略下**只有带 TTL 的 key 会被淘汰** —— 本项目若写入**不带 TTL 的 key**，
 内存打满时写入会**直接报错失败**，而不是被淘汰。
 
-**因此：本项目所有 Redis key 必须带 TTL，且一律以 `its-mygo:` 开头。**
+**因此：本项目所有 Redis key 必须带 TTL，且一律以 `its-my-go:` 开头。**
 （已有回归用例 `SharedRedisTest` 守着这两条。）
 
 ### 5.6 库存扣减（M3 已实现，细节见 implementation §3.8）
@@ -646,7 +668,8 @@ git ls-files -s mvnw        # 应该显示 100755
 你本地能跑是因为镜像早就拉下来了，CI 上从零开始就拉不到。
 
 **当前的应对**：`StorageServiceTest` 用 `@DisabledIfEnvironmentVariable(SKIP_MINIO_TESTS)`
-跳过，CI 里设 `SKIP_MINIO_TESTS=true` —— **CI 跑 57 条，本地跑全部 60 条**。
+跳过（该类共 4 条用例），CI 里设 `SKIP_MINIO_TESTS=true` ——
+**CI 跑 250 条，本地跑全部 254 条**。
 这是**已知并记录的缺口，不是遗漏**。
 
 **将来要补的话**，可选方向：找 MinIO 的历史镜像 tag、换成别的 S3 兼容实现

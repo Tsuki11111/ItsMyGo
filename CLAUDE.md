@@ -67,8 +67,8 @@ Java 是**调用方**；agent 只在内网、只允许本单体访问。
 | 中间件 | 容器 | 本项目用 |
 |---|---|---|
 | MySQL 8 | `mysql` | 库 `its_mygo` |
-| Redis 7 | `redis` | key 前缀 `its-mygo:` |
-| MinIO | `minio` | bucket `its-mygo-product-images`（**别碰 rag_helper 的 `rag-helper-knowledge-files`**） |
+| Redis 7 | `redis` | key 前缀 `its-my-go:` |
+| MinIO | `minio` | bucket `its-my-go-product-images`（**别碰 rag_helper 的 `rag-helper-knowledge-files`**） |
 
 `mysql` 容器里还有 `dw` / `meta` / `pharma_db` 三个**别的项目**的库，**不要动**。
 

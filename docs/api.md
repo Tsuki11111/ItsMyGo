@@ -1,6 +1,6 @@
 # 一次买够 · 后端 API 接口文档
 
-> 适用版本：schema v22（2026-10-21）
+> 适用版本：schema v30（2026-11-05，含 V30「问大家」与 M26 智能体评测）
 > 服务地址：`http://localhost:8080`（开发环境，前端经 Vite 代理 `/api` 访问）
 > 本文覆盖 `src/main/java/com/tsuk1/itsmygo/controller/` 下全部接口。
 
@@ -541,11 +541,30 @@ Authorization: Bearer <token>
 | GET | `/api/products/{id}/stock` | 公开 | — | `StockView` |
 | GET | `/api/products/{productId}/reviews` | 公开 | `page=1, size=5` | `PageResponse<ReviewView>` |
 | GET | `/api/products/{productId}/reviews/summary` | 公开 | — | `ReviewSummary` |
+| GET | `/api/products/{productId}/questions` | 公开 | `page=1, size=5, filter=all\|unanswered\|answered` | `PageResponse<ProductQuestionView>` |
+| POST | `/api/products/{productId}/questions` | 登录 | `ProductQuestionRequest` | `null` |
+| GET | `/api/products/{productId}/questions/{questionId}/answers` | 公开 | `page=1, size=5` | `PageResponse<ProductAnswerView>` |
+| POST | `/api/products/{productId}/questions/{questionId}/answers` | 登录（须买过） | `ProductAnswerRequest` | `null` |
 
 - 只返回上架商品、且店铺为 `ACTIVE`。
 - 详情命中缓存后仍会校验店铺状态；店铺停用后商品立即不可见。
 - `keyword` 同时匹配商品名与副标题；`merchantId` 用于店铺主页。
 - 库存接口读 Redis 实时计数，不查库。
+
+### 8.1 商品问答（问大家，V30）
+
+**ProductQuestionRequest**：`{ "content": "支持双面打印吗？" }`（≤500 字）
+**ProductAnswerRequest**：`{ "content": "支持，我用了半年。" }`（≤500 字）
+
+**ProductQuestionView**：`id, content, userNickname, userAvatar, answerCount, createdAt, answers[]`
+**ProductAnswerView**：`id, content, userNickname, userAvatar, createdAt`
+
+- **提问**：任何登录用户，5 次/60s/用户；**回答**：必须买过该商品
+  （订单状态 `PAID` / `SHIPPED` / `COMPLETED`），未购买返回 403，10 次/60s/用户。
+- **阅读公开**，不要求登录；列表每条提问带最多 2 条回答预览（按 id 倒序）。
+- `filter=unanswered|answered` 按 `answerCount` 筛；回答数在事务内原子递增。
+- 问答与 `reviews` 完全分开：**不进入**商品评分、评分分布与好评率。
+- 本版未做：晒图、点赞、举报、商家回复、管理端问答审核。
 
 ---
 
@@ -1007,6 +1026,47 @@ Authorization: Bearer <token>
 invitedBy/inviterUsername/approvedBy/approverUsername/status/expiresAt/approvedAt/
 acceptedAt/createdAt`，创建响应额外带 `token`。
 
+### 17.14 智能体评测（M26）
+
+Java 只做**鉴权代理**，评测执行与结果文件都在 rag_helper；不新增 gRPC RPC。
+
+| 方法 | 路径 | 参数/请求 | 返回 |
+|---|---|---|---|
+| GET | `/api/admin/agent-eval/cases` | — | `AgentEvalCasesView` |
+| POST | `/api/admin/agent-eval/cases` | `AgentEvalCaseCreateRequest` | `AgentEvalCaseView` |
+| POST | `/api/admin/agent-eval/runs` | `AgentEvalRunRequest` | `AgentEvalJobView` |
+| GET | `/api/admin/agent-eval/jobs` | `limit=10`（1–20） | `AgentEvalJobListView` |
+| GET | `/api/admin/agent-eval/jobs/{id}` | — | `AgentEvalJobView` |
+| POST | `/api/admin/agent-eval/jobs/{id}/stop` | — | `AgentEvalJobView` |
+| GET | `/api/admin/agent-eval/results` | `limit=50`（1–100） | `AgentEvalResultListView` |
+| GET | `/api/admin/agent-eval/results/{name}` | — | `AgentEvalResultView` |
+
+**AgentEvalRunRequest**：`cases?`（≤100 个用例 id）、`limit?`（0–100）、`runs?`（1–10）、
+`web?`、`keep?`；`cases` 为空时按 `limit` 取前 N 条。`/runs` 限流 3 次/60s/用户。
+
+**AgentEvalCaseCreateRequest**：`id?`（≤64，留空自动生成 `custom_xxxxxxxx`）、
+`question`（必填，≤2000）、`category`（必填）、`doc?`、`context?`、
+`source?`（`real|constructed`，默认 `constructed`）、`goldChunks?`（≤100 个，
+**按字符串传**：Milvus 主键是 18 位 INT64，超出 JS 安全整数范围）、`expectedOutcome?`
+（默认 `answered`）。`/cases` 限流 10 次/60s/用户。
+
+**AgentEvalJobView**：`id, status, createdAt, startedAt, finishedAt, elapsedMs,
+params{caseIds, limit, runs, web, keep, caseCount, judgeModel}, total, done,
+currentCase, percent, result{jsonl, report, summary}, error, warnings[]`
+
+**AgentEvalCasesView**：`items[]{id, question, category, doc, source, expectedOutcome,
+hasGold, custom}, judgeModel, configErrors[], warnings[]`
+
+**AgentEvalResultListView**：`items[]{name, report, rows, size, mtime}`；
+**AgentEvalResultView**：`name, kind, rows[], summary, report, reportContent`
+（`rows` / `summary` 保留 agent 的 claims/evidence 结构，Java 不重复建模）。
+
+- 仅 ADMIN；`AGENT_EVAL_KEY` 不填时复用 `AGENT_GRPC_KEY`；agent 不可达 / 非 2xx
+  转成可读业务错误。
+- 启动、停止、新建用例分别写 `AGENT_EVAL_RUN` / `AGENT_EVAL_STOP` /
+  `AGENT_EVAL_CASE_CREATE` 审计。
+- 停止是**协作式**：当前用例跑完后退出，已产出的结果保留。
+
 ---
 
 ## 18. 顾客聊天
@@ -1359,6 +1419,12 @@ refundReason, refundAppliedAt, note}`。
 | 聊天图片 | `POST /api/chat/files/upload` | 20 次/60s | 用户 |
 | 客服对话 | `POST /api/agent/converse` | 10 次/60s | 用户 |
 | 智能动作确认 / 取消 | `POST /api/agent/actions/{actionNo}/confirm\|cancel` | 10 次/60s | 用户 |
+| 商品提问 | `POST /api/products/{productId}/questions` | 5 次/60s | 用户 |
+| 商品回答 | `POST /api/products/{productId}/questions/{questionId}/answers` | 10 次/60s | 用户 |
+| 接受管理员邀请 | `POST /api/user/admin-invitation/accept` | 10 次/60s | 用户 |
+| 启动智能体评测 | `POST /api/admin/agent-eval/runs` | 3 次/60s | 用户 |
+| 新建评测用例 | `POST /api/admin/agent-eval/cases` | 10 次/60s | 用户 |
+| 知识库上传 | `POST /api/admin/knowledge/upload` | 5 次/60s | 用户 |
 
 触发限流返回 `{"code":429,"message":"请求过于频繁，请稍后再试","data":null}`（HTTP 200）。
 
@@ -1373,7 +1439,9 @@ refundReason, refundAppliedAt, note}`。
 | 店铺 Logo | `/api/merchant-apply/logo`、商家资料上传 | ≤2MB | `merchants/` | 同上 |
 | 聊天图片 | `/api/chat/files/upload` | ≤5MB | `chat/` | 同上 |
 
-- 上传成功返回可直接访问的 MinIO 公网 URL。
+- 上传成功返回**同源相对路径**（默认 `/its-my-go-product-images/{prefix}...`）：
+  开发由 Vite、生产由前端 Nginx 反代到 MinIO。**不要把绝对地址写进数据库** ——
+  换 IP / 换域名后历史图片会全部失效（2026-11-05 的故障即此原因，见 HANDOFF §5.39）。
 - 聊天消息只接受 `chat/` 前缀的图片 URL，拒绝外部链接。
 
 ---

@@ -17,7 +17,8 @@
 平台管理员负责商户审核与全平台监管（**不做佣金 / 分账 / 结算**）。
 Spring Boot 单体 + Vue 3 前后端分离，经 **gRPC 接入 RAG 客服智能体**（外部项目 `rag_helper`）。
 
-**定位**：学习练手 / 简历项目，不是真实运营 —— 无真实支付、无高并发要求。
+**定位**：学习练手 / 简历项目，不是真实运营 —— 无真实支付；但**按高并发标准做**
+（用户 2026-10-15 要求，缓存 / 并发 / 一致性不因「没流量」降要求，清单见 [HANDOFF §5 末尾](HANDOFF.md)）。
 
 ---
 
@@ -48,13 +49,13 @@ Spring Boot 单体 + Vue 3 前后端分离，经 **gRPC 接入 RAG 客服智能�
 | 后端 | Spring Boot 4.1.1 · JDK 17 · **Spring MVC** |
 | 数据访问 | **MyBatis-Plus** 3.5.17 —— ✅ 已在 Boot 4.1.1 上验证通过 |
 | 数据库 | MySQL 8 —— 复用本机共用容器，库名 `its_mygo` |
-| 缓存 | Redis 7 —— 复用本机共用容器，key 前缀 `its-mygo:`（**必须带 TTL**） |
+| 缓存 | Redis 7 —— 复用本机共用容器，key 前缀 `its-my-go:`（**必须带 TTL**） |
 | 表结构迁移 | Flyway 12.4.0 —— **须用 `spring-boot-starter-flyway`**，详见 [HANDOFF §5.1](HANDOFF.md) |
-| 安全 | Spring Security 7 + JWT（jjwt 0.13.0，HS256，密码 BCrypt）—— ✅ 已接入 |
-| 对象存储 | MinIO 8.5.17 —— 复用本机共用容器，bucket `its-mygo-product-images`，✅ 已接商品图上传 |
+| 安全 | Spring Security 7.1 + JWT（jjwt 0.13.0，HS256，密码 BCrypt）—— ✅ 已接入 |
+| 对象存储 | MinIO 8.5.17 —— 复用本机共用容器，bucket `its-my-go-product-images`，✅ 已接商品图上传 |
 | 消息队列 | RabbitMQ 4（AMQP + 管理台）—— 超时未支付订单自动取消，✅ 已接 |
 | 客服链路 | 原生 `grpc-java` + `protobuf-maven-plugin`（不用 starter，Boot 4 未适配） |
-| API 文档 | springdoc-openapi |
+| API 文档 | **未集成 springdoc**；接口清单见手写的 [docs/api.md](docs/api.md) |
 | 日志 | SLF4J + Logback；控制台带 traceId/userId，prod 输出 JSON 文件并保留 14 天 |
 | 前端 | Vue 3 + Vite + TypeScript + Element Plus + Pinia + Vue Router |
 | 构建 | Maven（**单模块**） |
