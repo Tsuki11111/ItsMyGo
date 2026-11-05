@@ -1308,6 +1308,14 @@ Compose 全栈要先把 `MYSQL_PORT` / `REDIS_PORT` / `MINIO_PORT` 等改成空�
 
 ## 6. 历史记录
 
+### 2026-11-05 · 前端静态资源缓存策略
+
+**现象**：修好页面宽度后，浏览器仍显示旧布局 —— 普通刷新没用，因为 `index.html`
+被浏览器启发式缓存，入口一直指向旧 bundle。
+
+**改动**：Nginx 对 `index.html` 返回 `Cache-Control: no-cache`，`/assets/`（文件名带
+内容 hash）返回一年 `immutable`。以后发版用户普通刷新即可拿到新前端。
+
 ### 2026-11-05 · 补齐 44 个商品的详情文案
 
 **背景**：商品详情页只有「这件商品还没有填写详细介绍」，44 个商品的 `products.detail`

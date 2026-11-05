@@ -139,10 +139,11 @@ Flyway 自己建的 `flyway_schema_history` 表是迁移记录，**不要动**�
 产物交给 `nginx:1.27-alpine`。**构建上下文是仓库根，不是 `frontend/`** —— PolicyView
 用 `?raw` 直接导入 `docs/policies/*.md`，两个目录必须保持仓库里的相对位置；
 Dockerfile 把前端工程放到 `/app/frontend`、政策文本放到 `/app/docs/policies`。
-`frontend/nginx.conf` 负责四件事：`/api/` 反代 `http://backend:8080`；
+`frontend/nginx.conf` 负责五件事：`/api/` 反代 `http://backend:8080`；
 `/its-my-go-product-images/` 反代 `http://minio:9000`（图片同源）；`proxy_buffering off`
-保证 SSE 实时；`client_max_body_size 210m` 放行知识库 PDF。SPA 路由用
-`try_files ... /index.html`。
+保证 SSE 实时；`client_max_body_size 210m` 放行知识库 PDF；**`index.html` 不缓存、
+`/assets/` 长缓存** —— 否则发版后浏览器继续用旧 bundle，改了样式用户也看不到。
+SPA 路由用 `try_files ... /index.html`。
 
 **Compose 拓扑**（根 `docker-compose.yml`）：MySQL / Redis / MinIO / RabbitMQ /
 backend / frontend 六服务 + `seed` profile。容器、卷、网络统一 `its-my-go-*`；
