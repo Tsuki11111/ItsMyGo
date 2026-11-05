@@ -49,13 +49,40 @@ PowerShell 用 `./deploy.ps1`，参数相同；跳过演示数据用 `./deploy.p
 | MinIO API / 控制台 | 9000 / 9001 | `MINIO_PORT` / `MINIO_CONSOLE_PORT` |
 | RabbitMQ / 管理台 | 5672 / 15672 | `RABBITMQ_PORT` / `RABBITMQ_CONSOLE_PORT` |
 
-改端口只改 `.env`。改了 MinIO 端口时，同步改 `MINIO_PUBLIC_ENDPOINT`
-（浏览器实际访问的地址，例如 `http://localhost:19000` 或内网 IP）。
+改端口只改 `.env`。MinIO 端口变化不影响图片地址：浏览器访问的是前端同源路径
+`/its-my-go-product-images/...`，由 Nginx 反代到 `minio:9000`。
 
 ## 常用配置
 
-- `MINIO_PUBLIC_ENDPOINT`：浏览器加载商品图用的地址。容器内后端始终用 `http://minio:9000`，
-  这两个地址不能混。
+- `MINIO_PUBLIC_ENDPOINT`：生成图片 URL 用的前缀，**默认 `/`**（同源相对路径）。
+  容器内后端始终用 `http://minio:9000` 连接 MinIO，两者不能混。
+  保持 `/` 即可；配成绝对地址会把主机名固化进数据库，换 IP 后历史图片全部失效
+  （2026-11-05 的故障即此原因）。
+- `VITE_TMAP_KEY`：订单地图的腾讯位置服务 Key。它是**构建期变量**，改了要重新
+  `./deploy.sh`（会重建前端镜像）。
+- `AGENT_GRPC_KEY` / `AGENT_IMPORT_KEY` / `AGENT_EVAL_KEY`：联合部署时由
+  `rag_helper/deploy.sh joint` 自动写入，不需要手填；后两者不填时默认复用
+  `AGENT_GRPC_KEY`。
+- 管理员密码在 `.env` 的 `BOOTSTRAP_ADMIN_PASSWORD`；只在库中没有管理员时使用。
+
+## 从旧版本升级（图片绝对地址 → 相对路径）
+
+旧版 `.env` 里可能写着 `MINIO_PUBLIC_ENDPOINT=http://<宿主机IP>:9000`，数据库里也存了
+绝对 URL。升级到同源方案：
+
+1. `.env` 改为 `MINIO_PUBLIC_ENDPOINT=/`，重建前端镜像并重启前后端；
+2. 执行一次数据迁移（按需先在旧 host 列表里加上自己的地址）：
+
+```bash
+docker exec -i its-my-go-mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" its_mygo' \
+  < sql/migrate-relative-image-urls.sql
+```
+
+3. 清掉商品详情缓存，让接口立即返回新 URL（否则要等 TTL）：
+
+```bash
+docker exec its-my-go-redis sh -c 'redis-cli --scan --pattern "its-my-go:product:*" | xargs -r redis-cli del'
+```
 - `VITE_TMAP_KEY`：订单地图的腾讯位置服务 Key。它是**构建期变量**，改了要重新
   `./deploy.sh`（会重建前端镜像）。
 - `AGENT_GRPC_KEY` / `AGENT_IMPORT_KEY` / `AGENT_EVAL_KEY`：联合部署时由

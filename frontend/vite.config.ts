@@ -26,6 +26,11 @@ export default defineConfig({
         target: process.env.API_TARGET || 'http://localhost:8080',
         changeOrigin: true,
       },
+      // 图片和 Nginx 生产环境一样走同源路径，开发时由 Vite 反代到 MinIO
+      '/its-my-go-product-images': {
+        target: process.env.MINIO_TARGET || 'http://localhost:9000',
+        changeOrigin: true,
+      },
     },
   },
 })

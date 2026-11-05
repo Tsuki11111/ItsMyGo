@@ -1285,7 +1285,43 @@ Compose 全栈要先把 `MYSQL_PORT` / `REDIS_PORT` / `MINIO_PORT` 等改成空�
 
 ---
 
+### 5.39 ★ 图片 URL 不能把主机名存进数据库（2026-11-05 踩到）
+
+**现象**：VM 的 DHCP 换了 IP（`10.76.196.106` → `10.184.171.106`），订单页商品图、
+用户头像、部分 SKU 图全部裂开；商品列表和新上传的图正常。
+
+**原因**：`StorageServiceImpl.upload()` 返回 `{public-endpoint}/{bucket}/{object}`，
+`order_items.product_image`、`users.avatar`、`product_skus.image` 等字段把**完整 URL**
+存进了库。`MINIO_PUBLIC_ENDPOINT` 配的是宿主 IP，IP 一变，历史数据全指向不存在的主机。
+商品主图因重新 seed 过才幸免。
+
+**规矩**：`MINIO_PUBLIC_ENDPOINT` 保持默认 `/`。生产由前端 Nginx、开发由 Vite 把
+`/its-my-go-product-images/` 反代到 MinIO —— 数据库只存相对路径，换 IP / 换域名都
+不影响历史数据。不要再把它配置成绝对地址。
+
+**另外**：商品详情有 Redis 缓存（`its-my-go:product:*`），迁移数据后必须清缓存，
+否则接口会继续返回旧 URL 直到 TTL 到期。
+
 ## 6. 历史记录
+
+### 2026-11-05 · 图片地址同源化 + VM 固定 IP
+
+**背景**：VM 是 DHCP，IP 从 `10.76.196.106` 漂到 `10.184.171.106`，数据库里固化的
+绝对图片地址全部失效（订单快照 6 条、SKU 图 96 条、头像 1 条）。
+
+**改动**：
+- 后端 `public-endpoint` 默认 `/`，图片 URL 变成 `/its-my-go-product-images/...`；
+- 前端 Nginx 增加 MinIO 反代，Vite 增加开发代理；
+- `deploy.sh` / `deploy.ps1` 不再生成绝对地址；
+- 前端 Docker 构建上下文改为仓库根（PolicyView 需要读取 `docs/policies/*.md`，
+  此前 Docker 内构建会因文件不在上下文而失败）；
+- 一次性迁移脚本 `sql/migrate-relative-image-urls.sql`，已在部署 VM 执行；
+- VM 网络从 DHCP 改为静态 `10.184.171.106/24`（网关 `10.184.171.119`，
+  DNS 同网关 + `223.5.5.5`），并禁用 cloud-init 网络配置防止被覆盖。
+
+**验证**：订单页 5 张商品图、商品详情主图与 SKU 图全部 200；接口均返回相对路径；
+Nginx 同源取图 200。头像对象本身是损坏的 16 字节 PNG（历史数据），已置空改用首字占位。
+构建上下文变更后 `npm run build` 与 Docker 构建均通过。
 
 ### 2026-11-05 · 修复顾客端整页缩窄
 

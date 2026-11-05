@@ -74,10 +74,10 @@ function Ensure-Env {
     if (-not (Get-EnvValue "MINIO_ACCESS_KEY")) { Set-EnvValue "MINIO_ACCESS_KEY" ("itsmygo" + (New-Hex 4)) }
     if (-not (Get-EnvValue "MINIO_SECRET_KEY")) { Set-EnvValue "MINIO_SECRET_KEY" (New-Hex 24) }
 
+    # 图片与前端同源反代，URL 不带主机名；旧部署若残留绝对地址，
+    # 升级时手工改成 "/" 并迁移数据库中的历史 URL（见 docs/deployment.md）
     if (-not (Get-EnvValue "MINIO_PUBLIC_ENDPOINT")) {
-        $minioPort = Get-EnvValue "MINIO_PORT"
-        if (-not $minioPort) { $minioPort = "9000" }
-        Set-EnvValue "MINIO_PUBLIC_ENDPOINT" "http://localhost:$minioPort"
+        Set-EnvValue "MINIO_PUBLIC_ENDPOINT" "/"
     }
 
     if (-not (Get-EnvValue "BOOTSTRAP_ADMIN_USERNAME")) { Set-EnvValue "BOOTSTRAP_ADMIN_USERNAME" "admin" }

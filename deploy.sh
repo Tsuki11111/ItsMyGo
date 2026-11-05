@@ -63,10 +63,10 @@ ensure_env() {
   [ -n "$(env_get MINIO_ACCESS_KEY)" ] || env_set MINIO_ACCESS_KEY "itsmygo$(rand_hex 4)"
   [ -n "$(env_get MINIO_SECRET_KEY)" ] || env_set MINIO_SECRET_KEY "$(rand_hex 24)"
 
+  # 图片与前端同源反代，URL 不带主机名；旧部署若残留绝对地址，
+  # 升级时手工改成 "/" 并迁移数据库中的历史 URL（见 docs/deployment.md）
   if [ -z "$(env_get MINIO_PUBLIC_ENDPOINT)" ]; then
-    local minio_port
-    minio_port="$(env_get MINIO_PORT)"
-    env_set MINIO_PUBLIC_ENDPOINT "http://localhost:${minio_port:-9000}"
+    env_set MINIO_PUBLIC_ENDPOINT "/"
   fi
 
   [ -n "$(env_get BOOTSTRAP_ADMIN_USERNAME)" ] || env_set BOOTSTRAP_ADMIN_USERNAME admin

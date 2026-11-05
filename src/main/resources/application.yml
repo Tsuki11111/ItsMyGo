@@ -49,7 +49,9 @@ itsmygo:
     # 后端连接地址（容器内可用 http://minio:9000）
     endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
     # 浏览器访问地址（容器部署时通常是宿主机端口，如 http://localhost:9000）
-    public-endpoint: ${MINIO_PUBLIC_ENDPOINT:http://localhost:9000}
+    # 默认同源相对路径：由前端 Nginx / Vite 反代到 MinIO，
+    # 这样图片 URL 不含主机名，部署 IP 变化时历史数据不会失效
+    public-endpoint: ${MINIO_PUBLIC_ENDPOINT:/}
     access-key: ${MINIO_ACCESS_KEY}
     secret-key: ${MINIO_SECRET_KEY}
     bucket: its-my-go-product-images

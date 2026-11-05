@@ -136,9 +136,13 @@ Flyway 自己建的 `flyway_schema_history` 表是迁移记录，**不要动**�
 `-XX:MaxRAMPercentage=75`。`.dockerignore` 排除 `target`、`.env`、前端 `node_modules`。
 
 **前端镜像**（`frontend/Dockerfile`）：Node 22 `npm ci && npm run build`，
-产物交给 `nginx:1.27-alpine`。`frontend/nginx.conf` 负责三件事：
-`/api/` 反代 `http://backend:8080`；`proxy_buffering off` 保证 SSE 实时；
-`client_max_body_size 210m` 放行知识库 PDF。SPA 路由用 `try_files ... /index.html`。
+产物交给 `nginx:1.27-alpine`。**构建上下文是仓库根，不是 `frontend/`** —— PolicyView
+用 `?raw` 直接导入 `docs/policies/*.md`，两个目录必须保持仓库里的相对位置；
+Dockerfile 把前端工程放到 `/app/frontend`、政策文本放到 `/app/docs/policies`。
+`frontend/nginx.conf` 负责四件事：`/api/` 反代 `http://backend:8080`；
+`/its-my-go-product-images/` 反代 `http://minio:9000`（图片同源）；`proxy_buffering off`
+保证 SSE 实时；`client_max_body_size 210m` 放行知识库 PDF。SPA 路由用
+`try_files ... /index.html`。
 
 **Compose 拓扑**（根 `docker-compose.yml`）：MySQL / Redis / MinIO / RabbitMQ /
 backend / frontend 六服务 + `seed` profile。容器、卷、网络统一 `its-my-go-*`；
@@ -151,10 +155,17 @@ frontend 依赖 backend。seed 用 MySQL 客户端镜像导入 `sql/seed-data.sq
 | 配置 | 谁用 | Compose 值 |
 |---|---|---|
 | `itsmygo.minio.endpoint` | 后端 SDK 上传/读取 | `http://minio:9000` |
-| `itsmygo.minio.public-endpoint` | 浏览器 `<img src>` | `http://localhost:9000` 或内网 IP |
+| `itsmygo.minio.public-endpoint` | 浏览器 `<img src>` | `/`（同源相对路径，默认） |
 
 `StorageServiceImpl` 构造时注入两者，对象 key 用 endpoint 操作，返回 URL 一律用
 `public-endpoint` 拼。否则容器部署时浏览器会拿到 `http://minio:9000/...` —— 域名不可解析。
+
+**public-endpoint 默认是 `/`**：数据库只存 `/its-my-go-product-images/...` 相对路径，
+浏览器请求同源路径，由前端 Nginx（生产）或 Vite（开发）反代到 MinIO。
+**不要把它配成绝对地址** —— 2026-11-05 前存的是 `http://<宿主机>:9000/...`，
+VM 的 DHCP 换 IP 后订单快照、头像、SKU 图全部指向不存在的主机，历史数据无法加载。
+相对路径同时避免混合内容（HTTPS 页面加载 HTTP 图片）。迁移脚本：
+`sql/migrate-relative-image-urls.sql`。
 
 **环境变量来源**：Compose 的 `environment` 覆盖 `env_file: .env`。本地调试用的
 `AGENT_GRPC_TARGET=127.0.0.1:8003` 不能直接进容器，因此 Compose 读的是
@@ -286,8 +297,9 @@ MultipartFile
 ```
 
 > URL 的 host 来自 `itsmygo.minio.public-endpoint`，不是后端连接用的 endpoint。
-> 本地两者都是 `http://localhost:9000`；容器部署时分别是 `http://minio:9000` 与
-> 浏览器可达地址（见 §2.5）。
+> 默认它是 `/`，所以返回的是同源相对路径 `/its-my-go-product-images/...`：
+> 生产由前端 Nginx 的 `location /its-my-go-product-images/` 反代到 `minio:9000`，
+> 开发由 Vite 的 `proxy` 反代。数据库里也只存这个相对路径 —— 换 IP / 换域名不影响历史图片。
 
 按用途分三个前缀：商品图 `products/`（5MB multipart 上限）、头像 `avatars/`（2MB）、
 店铺 Logo `merchants/`（2MB）。店铺 Logo 有两个入口：商家后台走
