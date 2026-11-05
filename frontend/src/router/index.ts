@@ -18,6 +18,12 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     { path: '/order/:id', name: 'order-detail', component: () => import('@/views/OrderDetail.vue') },
+    {
+      path: '/after-sale/:id',
+      name: 'after-sale-detail',
+      component: () => import('@/views/user/AfterSaleDetail.vue'),
+      meta: { requiresAuth: true },
+    },
     { path: '/coupons', name: 'coupon-center', component: () => import('@/views/CouponCenter.vue') },
     {
       path: '/terms',
@@ -64,6 +70,7 @@ const router = createRouter({
         { path: 'dashboard', name: 'merchant-dashboard', component: () => import('@/views/merchant/Dashboard.vue') },
         { path: 'products', name: 'merchant-products', component: () => import('@/views/merchant/Products.vue') },
         { path: 'orders', name: 'merchant-orders', component: () => import('@/views/merchant/Orders.vue') },
+        { path: 'after-sales', name: 'merchant-after-sales', component: () => import('@/views/merchant/AfterSales.vue') },
         { path: 'coupons', name: 'merchant-coupons', component: () => import('@/views/merchant/Coupons.vue') },
         { path: 'reviews', name: 'merchant-reviews', component: () => import('@/views/merchant/Reviews.vue') },
         { path: 'messages/:conversationId?', name: 'merchant-messages', component: () => import('@/views/merchant/Messages.vue') },
@@ -77,6 +84,7 @@ const router = createRouter({
       meta: { requiresAuth: true },
       children: [
         { path: 'orders', name: 'user-orders', component: () => import('@/views/user/Orders.vue') },
+        { path: 'after-sales', name: 'user-after-sales', component: () => import('@/views/user/AfterSaleList.vue') },
         { path: 'favorites', name: 'user-favorites', component: () => import('@/views/user/Favorites.vue') },
         { path: 'footprints', name: 'user-footprints', component: () => import('@/views/user/Footprints.vue') },
         { path: 'coupons', name: 'user-coupons', component: () => import('@/views/user/Coupons.vue') },
@@ -100,6 +108,7 @@ const router = createRouter({
         { path: 'messages/:conversationId?', name: 'admin-messages', component: () => import('@/views/admin/Messages.vue') },
         { path: 'products', name: 'admin-products', component: () => import('@/views/admin/Products.vue') },
         { path: 'orders', name: 'admin-orders', component: () => import('@/views/admin/Orders.vue') },
+        { path: 'after-sales', name: 'admin-after-sales', component: () => import('@/views/admin/AfterSales.vue') },
         { path: 'coupons', name: 'admin-coupons', component: () => import('@/views/admin/Coupons.vue') },
         { path: 'reviews', name: 'admin-reviews', component: () => import('@/views/admin/Reviews.vue') },
         { path: 'merchants', name: 'admin-merchants', component: () => import('@/views/admin/Merchants.vue') },

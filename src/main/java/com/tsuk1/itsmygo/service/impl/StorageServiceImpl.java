@@ -72,6 +72,7 @@ public class StorageServiceImpl implements StorageService {
     private static final long AVATAR_MAX_BYTES = 2L * 1024 * 1024;
     private static final long MERCHANT_LOGO_MAX_BYTES = 2L * 1024 * 1024;
     private static final long CHAT_IMAGE_MAX_BYTES = 5L * 1024 * 1024;
+    private static final long AFTER_SALE_IMAGE_MAX_BYTES = 5L * 1024 * 1024;
 
     @Override
     public String uploadProductImage(MultipartFile file) {
@@ -133,6 +134,11 @@ public class StorageServiceImpl implements StorageService {
     @Override
     public String uploadChatImage(MultipartFile file) {
         return upload(file, "chat/", CHAT_IMAGE_MAX_BYTES);
+    }
+
+    @Override
+    public String uploadAfterSaleImage(MultipartFile file) {
+        return upload(file, "aftersales/", AFTER_SALE_IMAGE_MAX_BYTES);
     }
 
     @Override

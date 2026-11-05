@@ -139,6 +139,39 @@ MyBatis-Plus 分页插件拆包、`spring-boot-starter-aspectj` 改名。详见 
 每个机制的具体实现见 [docs/implementation.md](implementation.md)。
 本文只保留「分几层、各层边界」，不重复类清单。
 
+### 3.5 售后领域模型与状态机（M30）
+
+**模型**（V31 迁移，详见 requirements §2.5）：
+
+| 表 | 关键字段 | 说明 |
+|---|---|---|
+| `after_sales` | `after_sale_no`(唯一)、`order_id`、`merchant_id`、`user_id`、`type`、`status`、`reason_code`、`reason_text`、`images`(JSON)、`apply_amount`、`refund_amount`、`reject_reason`、`return_tracking_no/carrier`、`review_deadline`、各时间戳 | 一次售后诉求的完整生命周期 |
+| `after_sale_items` | `after_sale_id`、`order_item_id`、`quantity`、`refund_amount` | 支持按项、按数量部分退款 |
+| `after_sale_reasons` | `code`(唯一)、`label`、`sort`、`status` | 平台维护的原因字典 |
+| `orders` | 新增 `refunded_amount` | 已退金额累计；等于 `total_amount` 即整单退完 |
+
+**状态机**（服务层唯一入口 + CAS 条件更新，禁止散落判断）：
+
+```
+PENDING_REVIEW ─同意(REFUND_ONLY)──────────> REFUNDED
+      │   └──同意(RETURN_REFUND)──> WAITING_RETURN ──买家填单号──> RETURN_SHIPPED
+      │                                                              │
+      │                                                     商家确认收货 → REFUNDED
+      ├──驳回(必填理由)──> REJECTED（可再次申请）
+      └──买家撤销──> CANCELLED
+```
+
+**金额口径**：项金额 = 订单项单价 × 退款数量；优惠按订单**等比分摊**
+（`项小计 × totalAmount / originalAmount`），尾差归最后一次退款；
+**券只在订单全部退完时退回**，部分退款不退券；无运费字段。
+
+**超时处理**：`AfterSaleScanJob`（`@Scheduled` + Redis 锁，复用订单超时扫描的模式）——
+商家 48h 未审核自动同意；退货寄出 7 天未确认自动确认收货并退款。两个值都可配
+（`itsmygo.after-sale.*`），不引入 RabbitMQ（售后量小、规则可能频繁调，扫描更灵活）。
+
+**与旧整单退款的关系**：旧接口/旧状态（`REFUNDING`/`REFUNDED`）保留不动，新售后单独立推进；
+两者都调用同一套补偿（库存/券/支付流水），补偿逻辑抽成按订单项的方法，避免两套实现。
+
 ---
 
 ## 4. 接口与契约概览
@@ -205,6 +238,21 @@ agent 工具 prepare（只生成草稿）→ Java 落 agent_actions（PENDING_CO
   （2026-11-05 事故，HANDOFF §5.39）。
 - 客服召回图走 `/rag-images/` → rag_helper 的 MinIO（9002），同样只在展示层转换。
 
+### 4.6 售后接口（M30）
+
+| 端 | 接口 | 权限 | 说明 |
+|---|---|---|---|
+| 顾客 | `GET /api/after-sales/reasons` | 登录 | 原因字典 |
+| 顾客 | `POST /api/after-sales` | 登录 | 申请售后（订单、类型、订单项与数量、原因、凭证图） |
+| 顾客 | `GET /api/after-sales` / `GET /api/after-sales/{id}` | 登录 | 我的售后列表 / 详情（含时间线） |
+| 顾客 | `POST /api/after-sales/{id}/cancel` / `ship-back` | 登录 | 撤销申请 / 填退货单号 |
+| 商家 | `GET /api/merchant/after-sales` / `{id}`、`POST /{id}/approve` `/{id}/reject` `/{id}/confirm-received` | MERCHANT | 审核 / 驳回（必填理由）/ 确认收货 |
+| 管理 | `GET /api/admin/after-sales` / `{id}`、`POST /{id}/approve` `/{id}/reject` `/{id}/confirm-received` | ADMIN | 平台介入（同商家动作 + 审计） |
+| 管理 | `GET/POST /api/admin/after-sale-reasons`、`PUT /api/admin/after-sale-reasons/{id}` | ADMIN | 原因字典维护 |
+
+**幂等与并发**：审核类操作全部 CAS（`WHERE id=? AND status='PENDING_REVIEW'`），
+重复点确认只会成功一次；申请时对订单行 `SELECT ... FOR UPDATE`，防止同一订单项并发超量申请。
+
 ---
 
 ## 5. 关键设计取舍汇总
@@ -220,11 +268,14 @@ agent 工具 prepare（只生成草稿）→ Java 落 agent_actions（PENDING_CO
 | 图片同源相对路径 | 换 IP / 换域名不裂图 | 反代规则成为部署必需项 |
 | AI 客服走 gRPC + 内部回调 | 浏览器不触达 agent，模型不持有身份 | 多一层票据与事件映射；agent 必须在内网 |
 | 动作 prepare / 确认 / Java 执行 | 资损风险不在模型手里 | 多一套 `agent_actions` 状态机与内部事件 |
+| 售后单独立模型 | 一个订单可有多条售后 / 支持按项部分退款 / 保留处理时间线 | 多两张表 + 状态机；与旧整单退款并存一段时间 |
+| 部分退款优惠等比分摊、整单退完才退券 | 金额可解释、避免券重复使用 | 尾差要靠「最后一次退款」兜住；用户看到的退款额可能不是整项原价 |
+| 售后超时用 `@Scheduled` 扫描 + Redis 锁 | 规则可频繁调、无需引入新 MQ 拓扑 | 单实例假设；处理延迟上限 = 扫描间隔 |
 | 文档分四层（requirements / architecture / implementation / HANDOFF） | 每份文档读者明确，减少互相漂移 | 改动要按分类落到对的文档（见 §6 维护规矩） |
 
 ---
 
-## 6. 决策记录（D1–D15）
+## 6. 决策记录（D1–D20）
 
 | # | 决策 | 理由 | 现状 |
 |---|---|---|---|
@@ -243,6 +294,11 @@ agent 工具 prepare（只生成草稿）→ Java 落 agent_actions（PENDING_CO
 | D13 | 图片 URL 同源相对路径（`MINIO_PUBLIC_ENDPOINT=/`） | 绝对地址会把主机名固化进库，IP 一变全裂 | 2026-11-05 已迁移并验证 |
 | D14 | AI 客服：Java 调用方 + 动作 prepare/确认/执行 + 卡片 Java 为准 | 资损与身份都不交给模型 | 已落地，真实链路联调完成 |
 | D15 | 文档分四层并归并旧文件（本次） | 原 decisions-ecommerce 同时承担需求 / 选型 / 路线，边界不清 | 本次改造，见 §6 后维护规矩 |
+| D16 | 售后单独立建表（`after_sales` + `after_sale_items`），不继续在 orders 上加字段 | 一单可多售后、支持部分退款与时间线；订单状态无法表达多路售后 | 已落地（V31） |
+| D17 | 退款金额：项单价 × 数量，优惠按订单等比分摊，尾差归最后一次；**券仅整单退完才退回** | 金额可解释、对账简单；部分退款退券会造成券重复使用 | 已落地，有单测 |
+| D18 | 商家超时用 `@Scheduled` 扫描 + Redis 锁（48h 自动同意 / 7 天自动确认收货） | 售后量小、规则可能频繁调；不引入新 MQ 拓扑 | 已落地，参数可配 |
+| D19 | 退货物流走演示单号手填 + 商家确认收货 | 与现有虚拟物流一致，不接真实快递 | 已落地 |
+| D20 | 旧整单退款接口保留、新售后单并存 | 历史数据、既有测试与 AI「催退款」依赖 `REFUNDING`；一次性切换风险大 | 并存期；后续统一下线（技术债 §7） |
 
 **三条业务红线**（做任何功能都成立）：
 
@@ -274,6 +330,10 @@ agent 工具 prepare（只生成草稿）→ Java 落 agent_actions（PENDING_CO
 | CI 无 MinIO | 4 条依赖 MinIO 的用例被跳过 | 已知缺口，非遗漏（`SKIP_MINIO_TESTS`） |
 | 前端无自动化测试 | 回归依赖手工走查 | 每次发版前 `npm run build` + 浏览器过一遍 |
 | 生产（演示）无 HTTPS / 备份 / 监控 | 内网演示可接受，不可当真实运营环境 | 缺口表见 deployment.md |
+| 售后与旧整单退款并存 | 两套入口、两套状态语义（`REFUNDING` vs 售后单） | 旧接口仅兼容历史；新入口统一走售后单，后续下线（D20） |
+| 售后退款无真实资金流水表 | 部分退款只累计 `orders.refunded_amount` + 售后单记录 | 演示环境可接受；接真实支付时需补退款流水表 |
+| 售后无站内通知 | 用户只能看页面状态 | 列在 P3 / requirements §6 按需区 |
+| 售后超时靠扫描 | 处理延迟上限 = 扫描间隔；单实例假设 | 参数可配；多实例时需分布式锁（现有 Redis 锁可复用） |
 
 ---
 

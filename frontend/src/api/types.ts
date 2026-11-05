@@ -1084,3 +1084,76 @@ export interface AgentActionView {
   expiresAt: string
   createdAt: string
 }
+
+// ── 售后（M30）──
+
+export interface AfterSaleItem {
+  id: number
+  afterSaleId: number
+  orderItemId: number
+  productId: number
+  skuId: number
+  productName: string
+  productImage: string
+  specText: string
+  unitPrice: number
+  quantity: number
+  refundAmount: number
+  createdAt?: string
+}
+
+export interface AfterSaleTimelineItem {
+  time: string
+  title: string
+  detail: string
+}
+
+export interface AfterSaleView {
+  id: number
+  afterSaleNo: string
+  orderId: number
+  orderNo: string
+  userId: number
+  merchantId: number
+  merchantName: string
+  type: string
+  typeLabel: string
+  status: string
+  statusLabel: string
+  reasonCode: string
+  reasonLabel: string
+  reasonText: string
+  evidenceImages: string[]
+  applyAmount: number
+  refundAmount: number
+  rejectReason: string
+  returnTrackingNo: string
+  returnCarrier: string
+  reviewDeadline: string | null
+  reviewedAt: string | null
+  shippedBackAt: string | null
+  receivedAt: string | null
+  refundedAt: string | null
+  cancelledAt: string | null
+  createdAt: string
+  items: AfterSaleItem[]
+  timeline: AfterSaleTimelineItem[]
+  canApprove: boolean
+  canReject: boolean
+  canConfirmReceived: boolean
+  canCancel: boolean
+  canShipBack: boolean
+}
+
+export interface AfterSaleReasonView {
+  id: number
+  code: string
+  label: string
+  sort: number
+  status: number
+}
+
+export interface AfterSaleStatsView {
+  counts: Record<string, number>
+  total: number
+}

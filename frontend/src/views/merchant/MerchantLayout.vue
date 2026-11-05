@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ChatDotRound, ChatLineRound, DataBoard, Discount, Goods, Shop, Tickets } from '@element-plus/icons-vue'
+import { ChatDotRound, ChatLineRound, DataBoard, Discount, Goods, RefreshLeft, Shop, Tickets } from '@element-plus/icons-vue'
 import { useChatStore } from '@/stores/chat'
 import { useUserStore } from '@/stores/user'
 
@@ -16,6 +16,7 @@ const MENU = [
   { path: '/merchant/messages', label: '消息', icon: ChatLineRound },
   { path: '/merchant/products', label: '商品管理', icon: Goods },
   { path: '/merchant/orders', label: '订单管理', icon: Tickets },
+  { path: '/merchant/after-sales', label: '售后管理', icon: RefreshLeft },
   { path: '/merchant/coupons', label: '优惠券', icon: Discount },
   { path: '/merchant/reviews', label: '评价管理', icon: ChatDotRound },
   { path: '/merchant/profile', label: '店铺资料', icon: Shop },

@@ -252,6 +252,7 @@ Authorization: Bearer <token>
 | `totalAmount` | number | 实付 |
 | `originalAmount` | number | 优惠前商品总额 |
 | `discountAmount` | number | 优惠金额 |
+| `refundedAmount` | number | 累计已退金额（售后单累加）；等于 `totalAmount` 表示整单退完 |
 | `userCouponId` / `couponName` | number/string | 使用的券及名称快照 |
 | `status` | string | 见订单状态枚举 |
 | `receiver` / `phone` / `address` | string | 收货信息快照 |
@@ -1425,6 +1426,8 @@ refundReason, refundAppliedAt, note}`。
 | 启动智能体评测 | `POST /api/admin/agent-eval/runs` | 3 次/60s | 用户 |
 | 新建评测用例 | `POST /api/admin/agent-eval/cases` | 10 次/60s | 用户 |
 | 知识库上传 | `POST /api/admin/knowledge/upload` | 5 次/60s | 用户 |
+| 申请售后 | `POST /api/after-sales` | 10 次/60s | 用户 |
+| 售后凭证上传 | `POST /api/after-sales/evidence` | 10 次/60s | 用户 |
 
 触发限流返回 `{"code":429,"message":"请求过于频繁，请稍后再试","data":null}`（HTTP 200）。
 
@@ -1438,6 +1441,7 @@ refundReason, refundAppliedAt, note}`。
 | 头像 | `/api/user/avatar` | ≤2MB | `avatars/` | 同上 |
 | 店铺 Logo | `/api/merchant-apply/logo`、商家资料上传 | ≤2MB | `merchants/` | 同上 |
 | 聊天图片 | `/api/chat/files/upload` | ≤5MB | `chat/` | 同上 |
+| 售后凭证 | `/api/after-sales/evidence` | ≤5MB | `aftersales/` | 同上 |
 
 - 上传成功返回**同源相对路径**（默认 `/its-my-go-product-images/{prefix}...`）：
   开发由 Vite、生产由前端 Nginx 反代到 MinIO。**不要把绝对地址写进数据库** ——
@@ -1489,3 +1493,74 @@ curl -N -X POST http://localhost:8080/api/agent/converse \
   -H "Content-Type: application/json" \
   -d '{"message":"hello, what can you do?"}'
 ```
+
+---
+
+## 23. 售后（M30）
+
+> 状态机、金额口径与业务规则见 [requirements.md](requirements.md) §2.5；
+> 旧的整单退款接口 `/api/orders/{id}/refund` 仍保留（兼容历史数据），新入口一律走售后单。
+
+### 23.1 顾客
+
+| 方法 | 路径 | 权限 | 请求 / 参数 | 返回 |
+|---|---|---|---|---|
+| GET | `/api/after-sales/reasons` | 登录 | — | `AfterSaleReasonView[]`（启用的原因字典） |
+| POST | `/api/after-sales/evidence` | 登录 | multipart `file`（≤5MB 图片） | string（同源相对路径） |
+| POST | `/api/after-sales` | 登录 | `AfterSaleApplyRequest` | `AfterSaleView` |
+| GET | `/api/after-sales` | 登录 | `page=1, size=10, status?, orderId?` | `PageResponse<AfterSaleView>` |
+| GET | `/api/after-sales/{id}` | 登录 | — | `AfterSaleView` |
+| POST | `/api/after-sales/{id}/cancel` | 登录 | — | `AfterSaleView`（仅待审核 / 待退货可撤销） |
+| POST | `/api/after-sales/{id}/ship-back` | 登录 | `{ trackingNo, carrier? }` | `AfterSaleView`（仅待买家退货可用） |
+
+### 23.2 商家
+
+| 方法 | 路径 | 请求 / 参数 | 返回 |
+|---|---|---|---|
+| GET | `/api/merchant/after-sales` | `page, size, status?` | `PageResponse<AfterSaleView>` |
+| GET | `/api/merchant/after-sales/stats` | — | `AfterSaleStatsView`（按状态计数） |
+| GET | `/api/merchant/after-sales/{id}` | — | `AfterSaleView` |
+| POST | `/api/merchant/after-sales/{id}/approve` | — | `AfterSaleView` |
+| POST | `/api/merchant/after-sales/{id}/reject` | `{ reason }` | `AfterSaleView` |
+| POST | `/api/merchant/after-sales/{id}/confirm-received` | — | `AfterSaleView`（退货退款确认收货后立刻退款） |
+
+### 23.3 管理端
+
+| 方法 | 路径 | 请求 / 参数 | 返回 |
+|---|---|---|---|
+| GET | `/api/admin/after-sales` | `page, size, status?, keyword?`（单号 / 订单号） | `PageResponse<AfterSaleView>` |
+| GET | `/api/admin/after-sales/stats` | — | `AfterSaleStatsView` |
+| GET | `/api/admin/after-sales/{id}` | — | `AfterSaleView` |
+| POST | `/api/admin/after-sales/{id}/approve` | — | `AfterSaleView`（平台介入，写审计） |
+| POST | `/api/admin/after-sales/{id}/reject` | `{ reason }` | `AfterSaleView`（写审计） |
+| POST | `/api/admin/after-sales/{id}/confirm-received` | — | `AfterSaleView`（写审计） |
+| GET | `/api/admin/after-sale-reasons` | — | `AfterSaleReasonView[]`（含停用） |
+| POST | `/api/admin/after-sale-reasons` | `AfterSaleReasonRequest` | `AfterSaleReasonView`（写审计） |
+| PUT | `/api/admin/after-sale-reasons/{id}` | `AfterSaleReasonRequest` | `AfterSaleReasonView`（写审计） |
+
+### 23.4 数据结构
+
+**AfterSaleApplyRequest**：`{ orderId, type: REFUND_ONLY|RETURN_REFUND, reasonCode,
+reasonText?(≤200), evidenceImages?(≤3), items: [{ orderItemId, quantity }] }`
+（退货退款只允许已发货 / 已完成订单；同一订单项「申请中 + 已退」数量不能超过购买数量。）
+
+**AfterSaleView**：`id, afterSaleNo, orderId, orderNo, userId, merchantId, merchantName,
+type, typeLabel, status, statusLabel, reasonCode, reasonLabel, reasonText, evidenceImages[],
+applyAmount, refundAmount, rejectReason, returnTrackingNo, returnCarrier, reviewDeadline,
+reviewedAt, shippedBackAt, receivedAt, refundedAt, cancelledAt, createdAt, items[],
+timeline[{time, title, detail}], canApprove, canReject, canConfirmReceived, canCancel, canShipBack`
+
+**AfterSaleItem**：`id, afterSaleId, orderItemId, productId, skuId, productName, productImage,
+specText, unitPrice, quantity, refundAmount, createdAt`
+
+**AfterSaleReasonView**：`id, code, label, sort, status(1 启用 / 0 停用)`
+**AfterSaleStatsView**：`counts: { 状态: 数量 }, total`
+
+### 23.5 状态与金额规则
+
+- 状态：`PENDING_REVIEW → WAITING_RETURN → RETURN_SHIPPED → REFUNDED`，
+  另有 `REJECTED` / `CANCELLED`；仅退款审核通过即 `REFUNDED`。
+- 金额 = 订单项单价 × 退款数量，优惠按订单**等比分摊**，尾差归最后一次退款；
+  **只有整单全部退完才退回优惠券**，部分退款不退券。
+- 商家 48h 未审核自动同意；退货 7 天未确认自动确认收货并退款（`itsmygo.after-sale.*` 可配）。
+- 审核类动作都是 CAS（并发点两次只成功一次）；申请时锁订单行防同一订单项并发超量。

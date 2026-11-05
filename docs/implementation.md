@@ -1828,6 +1828,69 @@ KPI 卡片、7 天趋势（复用 `TrendLineChart`）、热销商品、低库存
 
 ---
 
+### 3.35 售后：售后单 / 退货退款 / 部分退款（M30，2026-11-05）
+
+**为什么独立建表**：旧退款只是订单状态的一个分支（`REFUNDING → REFUNDED`），撑不起
+「部分退款 / 退货 / 多次售后 / 处理记录」；一个订单可能需要多条售后（不同商品、不同时间），
+订单状态无法表达多路并发。所以新增 `after_sales` + `after_sale_items` + `after_sale_reasons`（V31）。
+
+**状态机**（服务层唯一入口 + CAS 条件更新）：
+
+```
+PENDING_REVIEW ─同意(仅退款)──────────> REFUNDED
+      │   └──同意(退货退款)──> WAITING_RETURN ─买家填单号─> RETURN_SHIPPED ─商家确认收货─> REFUNDED
+      ├──驳回(必填理由)──> REJECTED（可再次申请）
+      └──买家撤销──> CANCELLED
+```
+
+- 所有流转走 `AfterSaleMapper.compareAndSetStatus`（`WHERE id=? AND status=?`），
+  并发重复点「同意」只有一次成功；申请时 `OrderMapper.selectByIdForUpdate` 锁订单行，
+  防止同一订单项被并发超量退。
+
+**金额口径**（`AfterSaleServiceImpl.plan`）：
+
+1. 项金额 = 订单项单价 × 退款数量；
+2. 优惠按订单维度**等比分摊**：比例 = `totalAmount / originalAmount`；
+3. 如果这次售后把订单所有商品都退完，总额改为 `totalAmount - refundedAmount`（**尾差归最后一次**）；
+4. **只有整单退完才退回优惠券**（部分退款不退券），且退券失败只记日志不阻断退款；
+5. 订单新增 `refunded_amount` 累计已退；等于 `total_amount` 时订单转 `REFUNDED`、支付流水置
+   `REFUNDED`；部分退款订单状态不变、继续履约。
+
+**库存回补**：按售后项的 `skuId` 逐项 `restoreStock`（DB 条件更新）+ `stockService.release`
+（Redis 计数器）+ `productMapper.applyRestored`（商品汇总），与取消/退款同一套补偿。
+
+**超时处理**：`AfterSaleScanJob`（`@Scheduled` + Redis 锁，5 分钟一轮）：
+商家 48h 未审核 → 自动同意；退货寄出 7 天未确认 → 自动确认收货并退款。
+参数在 `itsmygo.after-sale.*`（`.env` 可覆盖）。不用 RabbitMQ：售后量小、规则可能频繁调，
+扫描更灵活；单实例假设与订单扫描一致。
+
+**与旧整单退款并存**：`/api/orders/{id}/refund` 与 `REFUNDING`/`REFUNDED` 状态保留
+（历史数据、既有测试、AI 客服「催退款」都依赖它）；新入口（订单详情「申请售后」、我的售后）
+一律走售后单。两边共用同一套补偿逻辑；旧接口后续再统一下线（技术债，见 architecture §7）。
+
+**后端**：`AfterSaleController`（顾客：申请 / 列表 / 详情 / 撤销 / 退货单号 / 凭证上传）、
+`MerchantAfterSaleController`（审核 / 驳回 / 确认收货 / 统计）、
+`AdminAfterSaleController`（平台介入 + 审计）、`AdminAfterSaleReasonController`（原因字典）。
+凭证图片走 `StorageService.uploadAfterSaleImage`（`aftersales/` 前缀，≤5MB，同源相对路径）。
+
+**前端**：
+- 顾客：订单详情「申请售后」弹窗（选商品与数量 / 类型 / 原因字典 / 说明 / 上传凭证）、
+  我的售后列表、售后详情时间线（撤销 / 填退货单号）；订单详情显示该订单的售后记录；
+- 商家：`/merchant/after-sales` 列表 + 详情抽屉（同意 / 驳回必填理由 / 确认收货），
+  顶部显示待审核与待收货计数；
+- 管理端：`/admin/after-sales` 列表（单号/订单号搜索、状态筛选、平台介入）+ 原因字典维护 tab。
+
+**测试**：`AfterSaleControllerTest` 11 条 —— 原因字典、部分退款（订单仍 PAID、库存回补、
+累计已退、支付流水未退）、整单退完（订单 REFUNDED + 流水 REFUNDED）、优惠等比分摊、
+退货退款全链路（待退货 → 退货中 → 确认收货）、未发货不能退货退款、驳回必填理由且可重新申请、
+撤销后可重新申请、同订单项超量被拒、他人不可见（404）、原因字典 CRUD 与重复编码拒绝。
+验证：全量 **265 条**通过；`npm run build` 通过。
+
+> 另外顺手修了一条**既有的过时测试**：2026-11-05 图片同源化后 URL 变成相对路径，
+> 但 `StorageServiceTest` 仍断言绝对 URL；已改为「断言相对路径 + 直连 MinIO 时补主机」。
+
+---
+
 ## 4. 前端（`frontend/`）
 
 ### 4.1 工程与启动
@@ -2288,7 +2351,7 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 **测试跑在独立的库和 Redis database 上**（`its_mygo_test` / db 1），跟开发环境彻底分开 ——
 为什么非分不可、怎么配的，见 HANDOFF §5.20。
 
-覆盖重点（当前 **254** 条；CI 上跳过 4 条依赖 MinIO 的，跑 250）：
+覆盖重点（当前 **265** 条；CI 上跳过 4 条依赖 MinIO 的，跑 261）：
 
 | 测试类 | 覆盖 |
 |---|---|
@@ -2327,6 +2390,7 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 | `StorageServiceTest` | 上传成功 + **URL 可匿名读取**；**上传后生成 400×400 缩略图**；拒绝非图片；顾客不能上传 |
 | `AdminKnowledgeControllerTest` | 管理员列表 / 上传代理；顾客 403；扩展名在 Java 侧先挡，不调用导入服务 |
 | `AdminAgentEvalControllerTest` | 管理员列表 / 新建用例 / 启动 / 停止代理到评测服务；顾客 403 |
+| **`AfterSaleControllerTest`** | 售后单：部分退款金额与库存回补、整单退完、优惠等比分摊、退货退款全链路、驳回理由、撤销、超量拦截、越权 404、原因字典 CRUD |
 | `AdminBootstrapRunnerTest` | 无活跃管理员才创建；已有管理员跳过；不提升已存在的 CUSTOMER；弱密码跳过 |
 | `AdminInvitationControllerTest` | 发起 → 另一位管理员批准 → 被邀请人接受；自批被拒；token 一次性；重新登录变 ADMIN；非顾客/不存在用户被拒 |
 | `MerchantStatsControllerTest` | 本店 GMV / 订单 / 待办 / 客单价 / 趋势 / 最近订单口径；顾客访问 403 |

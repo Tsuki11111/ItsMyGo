@@ -3,6 +3,7 @@ package com.tsuk1.itsmygo.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.tsuk1.itsmygo.entity.Order;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 public interface OrderMapper extends BaseMapper<Order> {
@@ -24,4 +25,16 @@ public interface OrderMapper extends BaseMapper<Order> {
     int compareAndSetStatus(@Param("id") Long id,
                             @Param("expected") String expected,
                             @Param("target") String target);
+
+    /** 申请售后时锁订单行：同一订单的并发申请串行化，避免同一订单项被超量退。 */
+    @Select("SELECT * FROM orders WHERE id = #{id} FOR UPDATE")
+    Order selectByIdForUpdate(@Param("id") Long id);
+
+    /** 累加已退金额（售后执行退款时调用）。 */
+    @Update("""
+            UPDATE orders
+            SET refunded_amount = refunded_amount + #{amount}, updated_at = NOW()
+            WHERE id = #{id}
+            """)
+    int addRefundedAmount(@Param("id") Long id, @Param("amount") java.math.BigDecimal amount);
 }

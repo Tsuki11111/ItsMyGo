@@ -38,10 +38,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         disabledReason = "CI 环境没有可用的 MinIO（官方镜像与二进制已停止公开分发）")
 class StorageServiceTest extends ApiTestBase {
 
-    private static final String BUCKET_PREFIX = "http://localhost:9000/its-my-go-product-images/";
+    private static final String BUCKET_PATH = "/its-my-go-product-images/";
+    /** 2026-11-05 起图片 URL 是同源相对路径（库里只存相对路径），测试直连 MinIO 时要补主机。 */
+    private static final String MINIO_HOST = "http://localhost:9000";
 
     @Autowired
     private StorageService storageService;
+
+    private static String absolute(String url) {
+        return url.startsWith("http://") || url.startsWith("https://") ? url : MINIO_HOST + url;
+    }
 
     private String upload(String adminToken, MockMultipartFile file) throws Exception {
         String body = mockMvc.perform(multipart("/api/admin/files/upload")
@@ -61,12 +67,14 @@ class StorageServiceTest extends ApiTestBase {
 
         String url = upload(admin, file);
 
-        assertThat(url).startsWith(BUCKET_PREFIX);
+        assertThat(url).contains(BUCKET_PATH);
         assertThat(url).endsWith(".png");
         assertThat(url).contains("/products/");
+        // 同源相对路径：不带主机名（换 IP / 域名时不裂图）
+        assertThat(url).doesNotContain("http://");
 
         HttpResponse<String> response = HttpClient.newHttpClient().send(
-                HttpRequest.newBuilder(URI.create(url)).build(),
+                HttpRequest.newBuilder(URI.create(absolute(url))).build(),
                 HttpResponse.BodyHandlers.ofString());
         assertThat(response.statusCode()).isEqualTo(200);
     }
@@ -82,7 +90,7 @@ class StorageServiceTest extends ApiTestBase {
 
         assertThat(thumbUrl).contains("/products/thumbs/").endsWith(".jpg");
         HttpResponse<byte[]> response = HttpClient.newHttpClient().send(
-                HttpRequest.newBuilder(URI.create(thumbUrl)).build(),
+                HttpRequest.newBuilder(URI.create(absolute(thumbUrl))).build(),
                 HttpResponse.BodyHandlers.ofByteArray());
         assertThat(response.statusCode()).isEqualTo(200);
         BufferedImage thumb = ImageIO.read(new ByteArrayInputStream(response.body()));

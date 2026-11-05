@@ -23,6 +23,9 @@ public interface StorageService {
     /** @return 聊天图片的公网 URL，固定放 chat/ 前缀 */
     String uploadChatImage(MultipartFile file);
 
+    /** @return 售后凭证图片的公网 URL，固定放 aftersales/ 前缀（≤5MB） */
+    String uploadAfterSaleImage(MultipartFile file);
+
     /** 是否为本系统 chat/ 前缀的图片 URL —— 拒绝聊天消息里夹带外链 */
     boolean isChatImageUrl(String url);
 

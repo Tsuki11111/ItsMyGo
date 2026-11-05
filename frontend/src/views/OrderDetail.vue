@@ -5,17 +5,18 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import ProductImage from '@/components/ProductImage.vue'
 import LogisticsPanel from '@/components/LogisticsPanel.vue'
 import ReviewDialog from '@/views/user/components/ReviewDialog.vue'
+import AfterSaleApplyDialog from '@/components/AfterSaleApplyDialog.vue'
 import {
-  applyRefund,
   cancelOrder,
   confirmOrder,
   fetchOrder,
   fetchOrderLogistics,
   payOrder,
 } from '@/api/order'
+import { fetchAfterSales } from '@/api/afterSale'
 import { startConversation } from '@/api/chat'
 import { useUserStore } from '@/stores/user'
-import type { LogisticsView, OrderItem, OrderView } from '@/api/types'
+import type { AfterSaleView, LogisticsView, OrderItem, OrderView } from '@/api/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -43,6 +44,9 @@ const refundable = computed(() =>
 
 const reviewVisible = ref(false)
 const reviewItem = ref<OrderItem | null>(null)
+
+const afterSales = ref<AfterSaleView[]>([])
+const afterSaleVisible = ref(false)
 
 function openReview(item: OrderItem) {
   reviewItem.value = item
@@ -83,6 +87,9 @@ async function load() {
     const orderView = await fetchOrder(Number(route.params.id))
     view.value = orderView
     logistics.value = await fetchOrderLogistics(orderView.order.id).catch(() => null)
+    afterSales.value = await fetchAfterSales({ orderId: orderView.order.id, size: 20 })
+      .then((result) => result.records)
+      .catch(() => [])
     startLogisticsPolling()
   } catch {
     // 不存在 / 不是自己的订单 —— 后端一律当「不存在」返回 404
@@ -181,40 +188,10 @@ async function onConfirmReceipt() {
   }
 }
 
-async function onRefund() {
-  if (!order.value) return
-  let reason = ''
-  try {
-    const result = await ElMessageBox.prompt(
-      '请填写退款原因，商家会据此处理（最多 200 字）',
-      '申请退款',
-      {
-        inputType: 'textarea',
-        inputPlaceholder: '例如：商品有瑕疵 / 尺寸不合适 / 不想要了',
-        inputValidator: (value: string) => {
-          const text = (value || '').trim()
-          if (!text) return '请填写退款原因'
-          if (text.length > 200) return '退款原因最多 200 字'
-          return true
-        },
-        confirmButtonText: '提交申请',
-        cancelButtonText: '取消',
-      },
-    )
-    reason = result.value.trim()
-  } catch {
-    return
-  }
-
-  acting.value = true
-  try {
-    view.value = await applyRefund(order.value.id, reason)
-    ElMessage.success('已提交退款申请')
-  } catch {
-    await load()
-  } finally {
-    acting.value = false
-  }
+/** 售后单创建成功后刷新订单页并跳到售后详情 */
+async function onAfterSaleCreated(afterSale: AfterSaleView) {
+  await load()
+  await router.push(`/after-sale/${afterSale.id}`)
 }
 
 onMounted(load)
@@ -281,9 +258,9 @@ onMounted(load)
             type="button"
             class="action-btn"
             :disabled="acting"
-            @click="onRefund"
+            @click="afterSaleVisible = true"
           >
-            申请退款
+            申请售后
           </button>
         </div>
       </section>
@@ -315,6 +292,24 @@ onMounted(load)
         <p v-if="order.refundHandledAt" class="line">
           <span class="line-name">处理时间</span>
           <span class="line-sub">{{ formatTime(order.refundHandledAt) }}</span>
+        </p>
+      </section>
+
+      <!-- ── 售后记录 ── -->
+      <section v-if="afterSales.length" class="block">
+        <h2 class="block-title">售后记录</h2>
+        <p
+          v-for="afterSale in afterSales"
+          :key="afterSale.id"
+          class="line after-sale-line"
+          @click="router.push(`/after-sale/${afterSale.id}`)"
+        >
+          <span class="line-name">{{ afterSale.statusLabel }}</span>
+          <span class="line-sub">
+            {{ afterSale.typeLabel }} · {{ afterSale.items.map((item) => item.productName).join('、') }}
+            · 申请 ¥{{ Number(afterSale.applyAmount).toFixed(2) }}
+          </span>
+          <span class="line-link">查看详情 ›</span>
         </p>
       </section>
 
@@ -415,6 +410,15 @@ onMounted(load)
     </template>
 
     <ReviewDialog v-model="reviewVisible" :order-item="reviewItem" @submitted="load" />
+
+    <AfterSaleApplyDialog
+      v-if="view && order"
+      v-model="afterSaleVisible"
+      :order-id="order.id"
+      :order-status="order.status"
+      :items="view.items"
+      @created="onAfterSaleCreated"
+    />
   </div>
 </template>
 
@@ -553,6 +557,25 @@ onMounted(load)
 
 .goods-row:last-of-type {
   border-bottom: none;
+}
+
+.after-sale-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--c-border);
+}
+
+.after-sale-line:last-of-type {
+  border-bottom: none;
+}
+
+.line-link {
+  margin-left: auto;
+  color: var(--c-primary);
+  font-size: 13px;
 }
 
 .goods-thumb {

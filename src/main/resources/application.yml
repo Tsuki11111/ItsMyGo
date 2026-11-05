@@ -91,6 +91,13 @@ itsmygo:
     scan-enabled: ${ORDER_TIMEOUT_SCAN_ENABLED:true}
     scan-interval-ms: ${ORDER_TIMEOUT_SCAN_INTERVAL_MS:300000}
     scan-lock-ttl-seconds: ${ORDER_TIMEOUT_SCAN_LOCK_TTL_SECONDS:240}
+  # 售后（M30）：商家审核超时自动同意、退货超时自动确认收货；扫描式，无需 MQ
+  after-sale:
+    enabled: ${AFTER_SALE_SCAN_ENABLED:true}
+    review-hours: ${AFTER_SALE_REVIEW_HOURS:48}
+    return-confirm-days: ${AFTER_SALE_RETURN_CONFIRM_DAYS:7}
+    scan-interval-ms: ${AFTER_SALE_SCAN_INTERVAL_MS:300000}
+    scan-lock-ttl-seconds: ${AFTER_SALE_SCAN_LOCK_TTL_SECONDS:240}
 
 # MyBatis-Plus 的 SQL 是运行时生成的，不开日志根本看不见
 logging:

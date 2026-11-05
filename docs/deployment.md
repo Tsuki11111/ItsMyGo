@@ -64,6 +64,10 @@ PowerShell 用 `./deploy.ps1`，参数相同；跳过演示数据用 `./deploy.p
   `rag_helper/deploy.sh joint` 自动写入，不需要手填；后两者不填时默认复用
   `AGENT_GRPC_KEY`。
 - 管理员密码在 `.env` 的 `BOOTSTRAP_ADMIN_PASSWORD`；只在库中没有管理员时使用。
+- `AFTER_SALE_*`：售后超时策略 —— `AFTER_SALE_REVIEW_HOURS`（商家审核时限，默认 48）、
+  `AFTER_SALE_RETURN_CONFIRM_DAYS`（退货确认期，默认 7 天）、`AFTER_SALE_SCAN_INTERVAL_MS`
+  （扫描间隔，默认 5 分钟）；`AFTER_SALE_SCAN_ENABLED=false` 可停掉自动处理。
+  这是**扫描式**的，不需要 RabbitMQ。
 
 ## 从旧版本升级（图片绝对地址 → 相对路径）
 

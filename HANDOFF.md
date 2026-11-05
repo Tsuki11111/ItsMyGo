@@ -38,12 +38,15 @@
 
 ## 1. 当前状态一句话
 
-**交易闭环、多商户、AI 客服、运营后台、平台政策、压测、Docker 部署均已完成（2026-11-05）。**
-后端自动化测试 **254 条**（新增智能体评测 2 条、商品问答 1 条），CI 跑 250 条
-（跳过 4 条依赖 MinIO 的用例）。数据库 schema 到 **v30**。
+**交易闭环、多商户、AI 客服、运营后台、平台政策、压测、售后、Docker 部署均已完成（2026-11-05）。**
+后端自动化测试 **265 条**（新增售后 11 条；此前新增智能体评测 2 条、商品问答 1 条），
+CI 跑 261 条（跳过 4 条依赖 MinIO 的用例）。数据库 schema 到 **v31**。
 
 - **交易**：商品 / SKU、购物车、按店拆单、支付、发货、收货、取消、超时关单、退款；
   库存与优惠券回滚。
+- **售后（M30）**：独立售后单 —— 仅退款 / 退货退款、按订单项部分退款（优惠等比分摊）、
+  原因字典、凭证图、商家 48h 超时自动同意 / 退货 7 天自动确认、平台介入、三端页面与时间线；
+  旧整单退款接口保留并存。
 - **商品社区**：买家确认收货后可评分评价（5→1 星分布、星级筛选）；「问大家」
   所有登录用户可提问，买过的人可回答，问答不计入评分。
 - **AI 客服「买小购」**：Java → gRPC → agent，SSE 回传答案 / 执行流 / 商品卡；
@@ -57,7 +60,8 @@
   2026-11-02 首次压测（读接口 2600–3500 QPS、并发不超卖、支付幂等）、
   2026-11-05 图片地址同源化（换 IP 不再裂图）。
 
-**下一步**：商户与商品运营二期（商品审核 / 券运营等），可选 M14 导购增强。
+**下一步**：商户与商品运营二期（商品审核 / 券运营等），可选 M14 导购增强
+或售后 P3（AI 客服查售后 / 代申请、售后站内通知）。
 **详细历史见 §6；已知坑见 §5；环境与约定见 §4；部署细节见
 [docs/deployment.md](docs/deployment.md)。**
 
@@ -70,6 +74,8 @@
 1. **商品审核**：待审核状态 + 商家提交流程 —— 会新增状态字段与流程，建议单独一轮。
 2. **券运营分析**：领取 / 使用 / 过期口径与报表。
 3. **商户维度对账 / 导出**：按商户汇总订单、退款、结算数据。
+4. **售后 P3**：AI 客服查售后进度 / 代申请售后（跨仓库契约）、售后站内通知；
+   以及把旧整单退款接口统一下线（两者并存的技术债，见 architecture §7）。
 
 ⚠️ **四个对接约定**（细节见 implementation §4.3）：
 响应拦截器按 **body 的 `code`** 判断而不是 HTTP 状态码；库存走独立接口；
@@ -107,21 +113,21 @@ src/main/java/com/tsuk1/itsmygo/
 │                                # AgentExecutorConfig / OrderTimeoutRabbitConfig
 ├── security/                    # CurrentUser(id+username+role+merchantId) / JwtService /
 │                                # JwtAuthenticationFilter / AuthIdentityService
-├── controller/  42 个           # 按端分组，见下表
-├── service/     26 个接口
+├── controller/  46 个           # 按端分组，见下表
+├── service/     27 个接口
 │   └── impl/                    # 实现：…ServiceImpl（@Service 标在这层，Controller 注入接口）
-├── mapper/      29 个           # MyBatis-Plus BaseMapper + 少数自定义聚合 Mapper
-├── entity/      32 个           # 实体 + 枚举（OrderStatus / ShipmentStatus / AgentActionType…）
+├── mapper/      32 个           # MyBatis-Plus BaseMapper + 少数自定义聚合 Mapper
+├── entity/      35 个           # 实体 + 枚举（OrderStatus / ShipmentStatus / AgentActionType…）
 └── dto/                         # 请求响应体；子包 agent/ eval/ knowledge/
 ```
 
-**controller 分组**（42 个）：
+**controller 分组**（46 个）：
 
 | 端 | 控制器 |
 |---|---|
-| 顾客端 | `Auth` `User` `Address` `Category` `Product` `ProductReview` `ProductQa` `Review` `Cart` `Order` `Favorite` `Footprint` `Coupon` `Shop` `Chat` `Agent` `AgentAction` |
-| 商家端 | `MerchantApply` `Merchant` `MerchantProduct` `MerchantOrder` `MerchantCoupon` `MerchantReview` `MerchantChat` `MerchantStats` `MerchantFile` |
-| 管理端 | `AdminCategory` `AdminProduct` `AdminOrder` `AdminMerchant` `AdminUser` `AdminAudit` `AdminCoupon` `AdminReview` `AdminDashboard` `AdminFile` `AdminKnowledge` `AdminInvitation` `AdminAgentEval` `AdminChat` |
+| 顾客端 | `Auth` `User` `Address` `Category` `Product` `ProductReview` `ProductQa` `Review` `Cart` `Order` `AfterSale` `Favorite` `Footprint` `Coupon` `Shop` `Chat` `Agent` `AgentAction` |
+| 商家端 | `MerchantApply` `Merchant` `MerchantProduct` `MerchantOrder` `MerchantAfterSale` `MerchantCoupon` `MerchantReview` `MerchantChat` `MerchantStats` `MerchantFile` |
+| 管理端 | `AdminCategory` `AdminProduct` `AdminOrder` `AdminAfterSale` `AdminAfterSaleReason` `AdminMerchant` `AdminUser` `AdminAudit` `AdminCoupon` `AdminReview` `AdminDashboard` `AdminFile` `AdminKnowledge` `AdminInvitation` `AdminAgentEval` `AdminChat` |
 | 内部 / 健康 | `Health`；`AgentTool`（`/internal/agent/**`，agent 回调专用） |
 
 **接口分层**（以 `SecurityConfig` 为准）：
@@ -716,7 +722,7 @@ git ls-files -s mvnw        # 应该显示 100755
 
 **当前的应对**：`StorageServiceTest` 用 `@DisabledIfEnvironmentVariable(SKIP_MINIO_TESTS)`
 跳过（该类共 4 条用例），CI 里设 `SKIP_MINIO_TESTS=true` ——
-**CI 跑 250 条，本地跑全部 254 条**。
+**CI 跑 261 条，本地跑全部 265 条**。
 这是**已知并记录的缺口，不是遗漏**。
 
 **将来要补的话**，可选方向：找 MinIO 的历史镜像 tag、换成别的 S3 兼容实现
@@ -1396,6 +1402,39 @@ Compose 全栈要先把 `MYSQL_PORT` / `REDIS_PORT` / `MINIO_PORT` 等改成空�
 否则接口会继续返回旧 URL 直到 TTL 到期。
 
 ## 6. 历史记录
+
+### 2026-11-05 · 售后 M30：售后单 / 退货退款 / 部分退款
+
+**背景**：此前「售后」只有一条腿 —— 订单状态上的**整单退款**（`REFUNDING → REFUNDED`，
+`orders.refund_*` 字段），没有售后单、不支持退货 / 部分退款 / 凭证 / 原因字典 / 商家时限 /
+平台介入，也没有独立页面。用户确认范围：**P1 底座 + P2 退货退款与部分退款**。
+
+**改动**：
+
+- **数据库（V31）**：`after_sales`（售后单：类型 / 状态 / 原因 / 凭证 / 金额 / 退货物流 /
+  各时间戳 / 审核截止）、`after_sale_items`（按订单项与数量退款）、
+  `after_sale_reasons`（原因字典，内置 6 条）；`orders` 加 `refunded_amount` 累计已退。
+- **后端**：`AfterSaleService`（金额等比分摊 + 尾差、整单退完才退券、库存按项回补、
+  CAS 状态流转、订单行锁防超量）、`AfterSaleScanJob`（48h 自动同意 / 7 天自动确认收货，
+  Redis 锁 + 参数可配）、顾客 / 商家 / 管理端 / 原因字典 4 个控制器、凭证上传
+  `StorageService.uploadAfterSaleImage`（`aftersales/`）。
+- **前端**：订单详情「申请售后」弹窗 + 售后记录、我的售后列表 / 详情时间线（撤销 / 填退货单号）、
+  商家售后管理（审核 / 驳回 / 确认收货 / 计数）、管理端售后管理（介入 + 原因字典 tab）。
+- **文档**：requirements §2.5 / §5 / §7、architecture §3.5 / §4.6 / D16–D20、
+  implementation §3.35、api §23、部署 env（`AFTER_SALE_*`）。
+
+**关键取舍（详见 architecture §6 D16–D20）**：售后单独立建表而不复用订单字段；
+部分退款优惠等比分摊、券只在整单退完时退回；超时用 `@Scheduled` 扫描而不是 RabbitMQ；
+退货物流走演示单号；**旧整单退款接口保留并存**（历史数据、既有测试与 AI「催退款」依赖它）。
+
+**验证**：全量后端 **265 条**测试通过（新增 `AfterSaleControllerTest` 11 条：部分退款金额与
+库存回补、整单退完、优惠分摊、退货退款全链路、驳回理由、撤销、超量拦截、越权 404、
+原因字典 CRUD）；前端 `npm run build` 通过。**本机未做浏览器端到端走查**（Docker 中间件已起、
+测试库跑通，但未启动 8080/5173 看页面），页面交互按构建与组件逻辑验收，下一轮可补一次真实点击。
+
+**顺带修的坑**：2026-11-05 图片同源化后 URL 变相对路径，`StorageServiceTest` 仍断言绝对 URL
+导致全量测试必红；已改成「断言相对路径 + 直连 MinIO 时补主机」。**这类「改了行为但测试没跟上」
+的坑，以后改公共 URL / 响应字段时先搜一遍测试断言。**
 
 ### 2026-11-05 · 文档结构归并（需求 / 架构选型 / 实现 / 状态四层）
 

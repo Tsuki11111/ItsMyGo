@@ -37,6 +37,9 @@ public class Order {
     /** 优惠金额；没使用优惠券为 0 */
     private BigDecimal discountAmount;
 
+    /** 累计已退金额：等于 totalAmount 表示整单退完；部分退款时订单继续履约 */
+    private BigDecimal refundedAmount;
+
     /** 使用的用户券 ID；仅作追溯，展示优惠读 couponName / discountAmount 快照 */
     private Long userCouponId;
 
