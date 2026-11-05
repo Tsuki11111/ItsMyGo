@@ -1888,6 +1888,12 @@ frontend/
 └── .gitignore
 ```
 
+**页面骨架**：`#app` 是 `min-height: 100vh` 的纵向 flex，让页脚在内容不足一屏时也贴底；
+`.page` 用 `flex: 1` 吃掉剩余高度。`.page` **必须同时写 `width: 100%`**，再配
+`max-width: 1680px; margin: 0 auto` —— 纵向 flex 的交叉轴上，auto margin 会吸收剩余空间、
+让子项收缩成内容宽度（fit-content），只写 max-width 会让整个顾客端缩成居中的窄条。
+顶栏 `.topbar-inner` 和页脚 `.foot-inner` 在普通块流里，不受这条影响。
+
 顾客顶栏的快捷导航（消息 / 领券中心 / 购物车 / 用户面板）统一用
 `target="_blank" rel="noopener"` 打开新标签页，避免把当前浏览页顶掉；
 搜索框和 Logo 仍保持当前页行为，退出登录仍是当前页操作。搜索框右侧有独立

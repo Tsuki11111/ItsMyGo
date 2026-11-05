@@ -537,6 +537,9 @@ onBeforeUnmount(() => badgeStore.stopPolling())
 
 .page {
   flex: 1;
+  /* #app 是纵向 flex，交叉轴上的 auto margin 会让本项收缩成内容宽度，
+     必须显式撑满再用 max-width 限宽，否则整页会缩成中间一条 */
+  width: 100%;
   max-width: 1680px;
   margin: 0 auto;
   padding: 16px;
