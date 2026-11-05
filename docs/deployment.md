@@ -83,12 +83,6 @@ docker exec -i its-my-go-mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" its_
 ```bash
 docker exec its-my-go-redis sh -c 'redis-cli --scan --pattern "its-my-go:product:*" | xargs -r redis-cli del'
 ```
-- `VITE_TMAP_KEY`：订单地图的腾讯位置服务 Key。它是**构建期变量**，改了要重新
-  `./deploy.sh`（会重建前端镜像）。
-- `AGENT_GRPC_KEY` / `AGENT_IMPORT_KEY` / `AGENT_EVAL_KEY`：联合部署时由
-  `rag_helper/deploy.sh joint` 自动写入，不需要手填；后两者不填时默认复用
-  `AGENT_GRPC_KEY`。
-- 管理员密码在 `.env` 的 `BOOTSTRAP_ADMIN_PASSWORD`；只在库中没有管理员时使用。
 
 ## 联合部署客服智能体
 
@@ -101,6 +95,55 @@ docker exec its-my-go-redis sh -c 'redis-cli --scan --pattern "its-my-go:product
 它会自动生成共享密钥、写入两边的 `.env`、先启动 ItsMyGo，再启动 agent。
 Java 通过 `rag-agent:8003` / `rag-import:8001` / `rag-chat:8002` 访问 agent，
 agent 通过 `its-my-go-backend:8080` 回调 Java。停止两套：`./deploy.sh joint-down`。
+
+## 生产（演示）部署：内网 VM
+
+> ⚠️ 本项目**没有真实的线上生产**（定位是练手 / 简历项目）。文档里说「生产」，
+> 指的是一台内网 VM 上的演示环境。这一节只记录**已核实的事实**和**已知缺口**，
+> 动手前先看完，别按本地开发的习惯想当然。
+
+**机器与网络**（2026-11-05 变更）：
+
+| 项 | 值 |
+|---|---|
+| 访问入口 | `http://10.184.171.106:8088`（前端 Nginx） |
+| VM IP | 静态 `10.184.171.106/24` |
+| 网关 / DNS | 网关 `10.184.171.119`；DNS 同网关 + `223.5.5.5` |
+| 网络由谁配 | 原为 DHCP（IP 曾从 `10.76.196.106` 漂到现址），已改静态，**并禁用了 cloud-init 网络配置** |
+
+⚠️ **不要再把 VM 改回 DHCP，也不要恢复 cloud-init 的网络配置** —— 2026-11-05 图片全部失效
+的事故就是 IP 漂移引起的（数据库里固化了绝对 URL）。同源化改造之后这个坑才拔掉。
+
+**部署形态**：
+
+- 全栈靠 `docker compose`；容器 / 卷一律 `its-my-go-*`，网络 `its-my-go-net`
+  （与 rag_helper 联合部署共用）。
+- VM **拉不到 Docker Hub**，用的是**仓库外的离线部署包**：镜像在本地打成
+  `its-my-go-*:local`，由 VM 上的 `docker-compose.offline.yml` 覆盖固定 tag。
+  这个覆盖文件**不在仓库里**，所以「换机器 / 重新发版」不能指望
+  `docker compose up --build` 能跑通，得重新打离线包。
+- 图片必须**同源**：`.env` 保持 `MINIO_PUBLIC_ENDPOINT=/`（默认即 `/`），数据库只存
+  `/its-my-go-product-images/...` 相对路径，浏览器请求由前端 Nginx 反代到 `minio:9000`；
+  客服召回图走 `/rag-images/` → `host.docker.internal:9002`。
+  **一旦配成绝对地址，主机名就会固化进库，换 IP 后历史图片全部失效。**
+- 联合部署的 agent 地址用 `RAG_*` 前缀变量（`RAG_AGENT_GRPC_TARGET=rag-agent:8003`、
+  `RAG_AGENT_IMPORT_URL=http://rag-import:8001`、`RAG_AGENT_EVAL_URL=http://rag-chat:8002`），
+  本地调试用的 `AGENT_GRPC_TARGET=127.0.0.1:8003` 不会进容器。
+- 数据库 schema 由 Flyway 在启动时迁到最新（当前 v30）；数据在命名卷
+  `its-my-go-mysql-data` 里，**`./deploy.sh reset` 会删卷**，在 VM 上别随手跑。
+
+**现状与缺口**（都是「知道但未做」，不是遗漏）：
+
+| 项 | 现状 |
+|---|---|
+| HTTPS / 域名 | ❌ 没有，纯 HTTP + IP 访问 |
+| prod profile | ⚠️ `application-prod.yml` 已存在（JSON 日志落盘保留 14 天、关闭 SQL 明细），但 **`docker-compose.yml` 的 backend 没有设置 `SPRING_PROFILES_ACTIVE`** —— 所以 VM 上的容器跑的是默认 profile，JSON 日志文件不会生成。要用得显式加在 compose 的 `environment` 里 |
+| 备份 / 恢复 | ❌ 仓库内没有任何备份配置或脚本 |
+| 监控告警 | ❌ 没有；只有 `/api/health` 可探活 |
+| 单实例假设 | ⚠️ SSE 在线状态是进程内注册表、`@Scheduled` 的布隆过滤器预热与订单扫描都按单实例写；多实例部署需要另外改造 |
+| 凭据 | ⚠️ VM 的 SSH 账号 / 密钥**不在仓库**（凭据不进 Git），接手时向用户要；MinIO 是 rag_helper 共用的实例、默认凭据且 9000/9001 绑 `0.0.0.0`，**不要暴露到公网** |
+| 可达性 | 2026-11-05 从开发机探测 `10.184.171.106:8088` 超时（VM 关机 / 不同网段 / 防火墙都可能），操作前先确认能连上 |
+| 待清理 | VM 上的 `docker-compose.offline.yml` 可能还残留旧的 `docker-compose.rabbitmq.yml` 引用，下次连上时删掉（HANDOFF §6 2026-11-02 条目） |
 
 ## 手工 Compose
 

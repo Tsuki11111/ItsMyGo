@@ -130,19 +130,32 @@ src/main/java/com/tsuk1/itsmygo/
 ### 3.3 数据库
 
 - 开发库 `its_mygo`、测试库 `its_mygo_test`（都在共用的 `mysql` 容器里，为什么要分开见 §5.20）
-- 迁移脚本在 `src/main/resources/db/migration/`，**当前 schema 版本 v23**
-- 已建表：`merchants`（V16，默认商户 id=1 平台自营）、`users`（V1，V3 加 `role`，
-  V12 加 `avatar`，**V16 加 `merchant_id`**）、`addresses`（V2）、`categories`（V4）、
-  `products`（V5，V9 加 `has_specs`，**V17 加 `merchant_id`**）、
+- 迁移脚本在 `src/main/resources/db/migration/`，**当前 schema 版本 v30**
+  （2026-11-05 核对迁移目录：`V1`–`V30` 连续、无缺号）
+- 已建表：`merchants`（V16，默认商户 id=1 平台自营；**V23 加发货地址
+  `ship_province/city/district/address/lng/lat`**）、`users`（V1，V3 加 `role`，
+  V12 加 `avatar`，**V16 加 `merchant_id`**，V25 加 `idx_user_role_status`）、
+  `addresses`（V2）、`categories`（V4）、
+  `products`（V5，V9 加 `has_specs`，**V17 加 `merchant_id`**，**V27 加 `brand`**，
+  **V28 加 `thumb_image`**）、
   `cart_items`（V6，V10 改成按 SKU 唯一）、`orders` / `order_items`（V7，V8 加
   `status_before_refund`，V11 加 `sku_id` / `spec_text`，V15 加优惠快照字段，
-  **V17 给 orders 加 `merchant_id`**）、`payments`（V8）、
-  `product_specs` / `product_spec_values` / `product_skus`（V9）、
+  **V17 给 orders 加 `merchant_id`**，**V24 加 `refund_reason` / `refund_applied_at` /
+  `refund_handled_at`**）、`payments`（V8）、
+  `product_specs` / `product_spec_values` / `product_skus`（V9，**V28 给 skus 加
+  `thumb_image`**）、
   `user_favorites` / `user_footprints`（V13）、`reviews`（V14，**V17 加 `merchant_id`**）、
   `coupons` / `user_coupons`（V15，**V18 加可空 `merchant_id`**）、
   `conversations` / `messages`（**V19，在线聊天**）、
-  `agent_sessions`（**V20，买小购会话归属**）、`agent_actions`（**V21，待确认动作**）
+  `agent_sessions`（**V20，买小购会话归属**）、`agent_actions`（**V21，待确认动作**）、
+  `shipments`（**V22，虚拟物流运单**：一单一运单 `uk_order_id`，`eta` 到点即
+  `DELIVERED`）、`admin_audit_logs`（**V25，管理端操作审计，只追加**）、
+  `admin_invitations`（**V29，管理员邀请；只存 token 的 SHA-256**）、
+  `product_questions` / `product_answers`（**V30，问大家；与 `reviews` 分开，不计评分**）
   （另有 Flyway 自建的 `flyway_schema_history`，是迁移记录表，**不要动**）
+- **V26 加的是索引、不在业务字段上**：`orders(merchant_id, paid_at)`、
+  `orders(merchant_id, created_at)`、`product_skus(status, stock)`，服务商户经营统计
+  与低库存筛选；V27 另加 `products(brand, status)`
 - **V9 给存量商品回填了默认 SKU**（无规格的那条），老数据不用手工处理；
   但**新直插 `products` 的地方（手工 SQL、导入脚本）必须自己补 SKU** —— 见 §5.21
 - **迁移脚本只增不改**：已执行过的脚本再改内容会让 Flyway 校验失败
@@ -374,6 +387,12 @@ Conventional Commits，**描述用中文**（与 `rag_helper` 保持一致）：
 补齐 JWT / DB / RabbitMQ / MinIO 随机密码 → 生成 `admin` 初始密码并打印一次 →
 `docker compose up -d --build` → 等 `/api/health` → 商品表为空时导入 44 个演示商品。
 `up --no-seed` 跳过演示数据；密码都写在 `.env`，重复执行不会重新生成。
+
+**生产（演示）环境是一台内网 VM**（静态 IP、离线镜像包、图片同源）—— 机器与网络、
+部署形态、已知缺口都记在 [docs/deployment.md](docs/deployment.md) 的
+「生产（演示）部署：内网 VM」一节，本文不重复。
+⚠️ **VM 上的后端跑的是默认 profile**：`application-prod.yml` 虽已存在，但 compose 的
+backend 没有设置 `SPRING_PROFILES_ACTIVE`，所以 JSON 日志文件不会生成。
 
 **Compose 服务与端口**（都可用 `.env` 覆盖）：
 
