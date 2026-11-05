@@ -145,9 +145,9 @@ async function submit() {
       <!-- 注册即视为同意平台政策 -->
       <p v-if="mode === 'register'" class="agree">
         注册即表示你已阅读并同意
-        <RouterLink to="/terms" target="_blank" rel="noopener">《用户协议》</RouterLink>
+        <RouterLink to="/terms">《用户协议》</RouterLink>
         与
-        <RouterLink to="/privacy" target="_blank" rel="noopener">《隐私政策》</RouterLink>
+        <RouterLink to="/privacy">《隐私政策》</RouterLink>
       </p>
 
       <!-- 练手项目的演示账号，方便直接上手；真上线要拿掉 -->

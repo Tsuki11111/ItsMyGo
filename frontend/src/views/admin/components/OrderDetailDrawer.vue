@@ -210,8 +210,6 @@ async function reject() {
                 <div>
                   <RouterLink
                     :to="`/product/${row.productId}`"
-                    target="_blank"
-                    rel="noopener"
                     class="item-name item-link"
                   >
                     {{ row.productName }}

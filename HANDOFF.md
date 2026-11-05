@@ -1404,6 +1404,29 @@ Compose 全栈要先把 `MYSQL_PORT` / `REDIS_PORT` / `MINIO_PORT` 等改成空�
 
 ## 6. 历史记录
 
+### 2026-11-05 晚 · 前端站内导航不再新开标签页
+
+**现象**：用户反馈「点每个按钮都新开一个标签页」。
+
+**根因**：多处**站内路由**被写死 `target="_blank" rel="noopener"` ——
+`App.vue` 顶栏（消息 / 领券中心 / 购物车 / 用户 chip）、用户下拉面板（我的订单 / 消息 /
+收藏 / 优惠券 / 地址 / 资料 / 密码 / 管理后台 / 商家后台 / 商家入驻）、登录/注册入口共 14 处，
+`Login.vue` 两个政策链接 2 处，管理端订单抽屉里的商品名 1 处，合计 **17 处站内链接**。
+SPA 里新开标签页会重新加载整个应用（重连 SSE、重起轮询、登录态重新初始化），
+既丢上下文又放大服务端压力。
+
+**修复（规则见 implementation §4.14）**：
+
+- 站内路由一律**当前标签页**（去掉 17 处 `_blank`）；
+- 只有真正离开本站的链接才新开：`AgentChatPanel` 里 AI 回答的 Markdown 链接改为
+  「**仅非本源 http(s) 外链**」加 `target=_blank rel="noopener noreferrer"`，
+  站内锚点/相对链接保持当前页；
+- 将来链到 rag_helper 独立页面（`import.html` / `chat.html` / `eval.html`）才属于该类。
+
+**验证**：`grep -r "_blank" frontend/src` 只剩 `AgentChatPanel` 的外链判断；
+`npm run build` 通过；生产**只重建并更新前端镜像**（后端不动），
+`its-my-go-frontend` 已滚动更新，`8088` 200，线上 bundle 为 `index-tuTsIEkU.js`。
+
 ### 2026-11-05 晚 · 生产 VM 重建镜像并上线（售后 M30）
 
 **背景**：生产（内网 VM `10.184.171.106`）容器全停；用户要求关闭开发环境容器、

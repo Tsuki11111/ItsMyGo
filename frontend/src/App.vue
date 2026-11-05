@@ -92,8 +92,6 @@ onBeforeUnmount(() => badgeStore.stopPolling())
           v-if="userStore.isLoggedIn"
           :to="userStore.isAdmin ? '/admin/messages' : '/user/messages'"
           class="link badge-link"
-          target="_blank"
-          rel="noopener"
         >
           <el-icon><ChatDotRound /></el-icon>
           <el-badge
@@ -107,8 +105,6 @@ onBeforeUnmount(() => badgeStore.stopPolling())
         <RouterLink
           to="/coupons"
           class="link badge-link"
-          target="_blank"
-          rel="noopener"
         >
           <el-icon><Ticket /></el-icon>
           <el-badge
@@ -122,8 +118,6 @@ onBeforeUnmount(() => badgeStore.stopPolling())
         <RouterLink
           to="/cart"
           class="link badge-link"
-          target="_blank"
-          rel="noopener"
         >
           <el-icon><ShoppingCart /></el-icon>
           <el-badge
@@ -141,8 +135,6 @@ onBeforeUnmount(() => badgeStore.stopPolling())
             <RouterLink
               to="/user/orders"
               class="user-chip"
-              target="_blank"
-              rel="noopener"
             >
               <span class="chip-avatar">
                 <ProductImage
@@ -159,8 +151,6 @@ onBeforeUnmount(() => badgeStore.stopPolling())
                 <RouterLink
                   to="/user/orders"
                   class="panel-item"
-                  target="_blank"
-                  rel="noopener"
                   @click="panelOpen = false"
                 >
                   <el-icon><Tickets /></el-icon>我的订单
@@ -168,8 +158,6 @@ onBeforeUnmount(() => badgeStore.stopPolling())
                 <RouterLink
                   :to="userStore.isAdmin ? '/admin/messages' : '/user/messages'"
                   class="panel-item"
-                  target="_blank"
-                  rel="noopener"
                   @click="panelOpen = false"
                 >
                   <el-icon><ChatDotRound /></el-icon>
@@ -178,8 +166,6 @@ onBeforeUnmount(() => badgeStore.stopPolling())
                 <RouterLink
                   to="/user/favorites"
                   class="panel-item"
-                  target="_blank"
-                  rel="noopener"
                   @click="panelOpen = false"
                 >
                   <el-icon><Star /></el-icon>我的收藏
@@ -187,8 +173,6 @@ onBeforeUnmount(() => badgeStore.stopPolling())
                 <RouterLink
                   to="/user/coupons"
                   class="panel-item"
-                  target="_blank"
-                  rel="noopener"
                   @click="panelOpen = false"
                 >
                   <el-icon><Ticket /></el-icon>我的优惠券
@@ -196,8 +180,6 @@ onBeforeUnmount(() => badgeStore.stopPolling())
                 <RouterLink
                   to="/user/addresses"
                   class="panel-item"
-                  target="_blank"
-                  rel="noopener"
                   @click="panelOpen = false"
                 >
                   <el-icon><Location /></el-icon>收货地址
@@ -205,8 +187,6 @@ onBeforeUnmount(() => badgeStore.stopPolling())
                 <RouterLink
                   to="/user/profile"
                   class="panel-item"
-                  target="_blank"
-                  rel="noopener"
                   @click="panelOpen = false"
                 >
                   <el-icon><User /></el-icon>个人资料
@@ -214,8 +194,6 @@ onBeforeUnmount(() => badgeStore.stopPolling())
                 <RouterLink
                   to="/user/password"
                   class="panel-item"
-                  target="_blank"
-                  rel="noopener"
                   @click="panelOpen = false"
                 >
                   <el-icon><Lock /></el-icon>修改密码
@@ -225,8 +203,6 @@ onBeforeUnmount(() => badgeStore.stopPolling())
                   <RouterLink
                     to="/admin"
                     class="panel-item"
-                    target="_blank"
-                    rel="noopener"
                     @click="panelOpen = false"
                   >
                     <el-icon><Setting /></el-icon>管理后台
@@ -236,8 +212,6 @@ onBeforeUnmount(() => badgeStore.stopPolling())
                   <RouterLink
                     to="/merchant/profile"
                     class="panel-item"
-                    target="_blank"
-                    rel="noopener"
                     @click="panelOpen = false"
                   >
                     <el-icon><Shop /></el-icon>商家后台
@@ -247,8 +221,6 @@ onBeforeUnmount(() => badgeStore.stopPolling())
                   <RouterLink
                     to="/merchant/apply"
                     class="panel-item"
-                    target="_blank"
-                    rel="noopener"
                     @click="panelOpen = false"
                   >
                     <el-icon><Shop /></el-icon>商家入驻
@@ -265,7 +237,7 @@ onBeforeUnmount(() => badgeStore.stopPolling())
           </div>
         </template>
 
-        <RouterLink v-else to="/login" class="link" target="_blank" rel="noopener">
+        <RouterLink v-else to="/login" class="link">
           登录 / 注册
         </RouterLink>
       </nav>

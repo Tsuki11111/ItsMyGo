@@ -69,10 +69,18 @@ const activeAssistantId = ref<string | null>(null)
 let abortController: AbortController | null = null
 let assistantSeq = 0
 
+// 只有「真正离开本站」的外链才新开标签页（模型答案里的参考链接）；
+// 站内锚点 / 相对链接保持当前页，避免把用户的会话现场顶掉。
 DOMPurify.addHook('afterSanitizeAttributes', (node) => {
-  if (node.tagName === 'A') {
+  if (node.tagName !== 'A') return
+  const href = node.getAttribute('href') || ''
+  const external = /^https?:\/\//i.test(href) && !href.startsWith(window.location.origin)
+  if (external) {
     node.setAttribute('target', '_blank')
     node.setAttribute('rel', 'noopener noreferrer')
+  } else {
+    node.removeAttribute('target')
+    node.removeAttribute('rel')
   }
 })
 
