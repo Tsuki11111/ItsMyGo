@@ -398,6 +398,11 @@ item.setUnitPrice(sku.getPrice());          // 下单那一刻**那一款**的�
 item.setSpecText(sku.getSpecText());        // 「颜色:黑色;版本:静音版」
 ```
 
+`product_image` 优先取该 SKU 的图，没有 SKU 图才用商品主图。历史订单可能没有图片快照
+（下单时商品无图，或演示数据重置后商品被删），读取订单时 `fillMissingProductImages()`
+**只对空值**用当前 SKU / 商品图兜底，已有快照保持不动；商品已删除则保持空，前端用
+首字渐变占位。**价格、名称等其他快照字段不做任何兜底。**
+
 `product_id` / `sku_id` 只是留个追溯线索，**展示订单时绝不能 join 商品表取当前值** ——
 否则商品一改价，所有历史订单的金额跟着变，对账就废了。
 

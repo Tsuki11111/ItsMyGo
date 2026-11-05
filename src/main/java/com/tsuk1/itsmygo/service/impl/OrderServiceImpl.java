@@ -466,6 +466,8 @@ public class OrderServiceImpl implements OrderService {
                 .flatMap(order -> itemsByOrder.getOrDefault(order.getId(), List.of()).stream())
                 .toList();
         fillReviewed(completedItems);
+        fillMissingProductImages(itemsByOrder.values().stream()
+                .flatMap(List::stream).toList());
 
         List<OrderView> views = new ArrayList<>(orders.size());
         for (Order order : orders) {
@@ -900,6 +902,7 @@ public class OrderServiceImpl implements OrderService {
         if (OrderStatus.COMPLETED.name().equals(order.getStatus())) {
             fillReviewed(items);
         }
+        fillMissingProductImages(items);
         return OrderView.full(order, OrderStatus.valueOf(order.getStatus()).label(), items);
     }
 
@@ -932,6 +935,40 @@ public class OrderServiceImpl implements OrderService {
                 items.stream().map(OrderItem::getId).toList()));
         for (OrderItem item : items) {
             item.setReviewed(reviewedIds.contains(item.getId()));
+        }
+    }
+
+    /**
+     * 历史订单的图片快照可能为空（下单时商品无图，或 seed 数据的商品后来被删）。
+     * 只对空值按当前 SKU / 商品图兜底，已有快照保持不动 —— 快照语义不变。
+     * 商品和 SKU 各一次批量查询，不按行 N+1。
+     */
+    private void fillMissingProductImages(List<OrderItem> items) {
+        List<OrderItem> missing = items.stream()
+                .filter(item -> !StringUtils.hasText(item.getProductImage()))
+                .toList();
+        if (missing.isEmpty()) {
+            return;
+        }
+        Set<Long> productIds = missing.stream().map(OrderItem::getProductId)
+                .filter(java.util.Objects::nonNull).collect(Collectors.toSet());
+        Set<Long> skuIds = missing.stream().map(OrderItem::getSkuId)
+                .filter(java.util.Objects::nonNull).collect(Collectors.toSet());
+        Map<Long, Product> products = productIds.isEmpty() ? Map.of()
+                : productMapper.selectByIds(productIds).stream()
+                        .collect(Collectors.toMap(Product::getId, Function.identity()));
+        Map<Long, ProductSku> skus = skuIds.isEmpty() ? Map.of()
+                : skuMapper.selectByIds(skuIds).stream()
+                        .collect(Collectors.toMap(ProductSku::getId, Function.identity()));
+        for (OrderItem item : missing) {
+            ProductSku sku = skus.get(item.getSkuId());
+            Product product = products.get(item.getProductId());
+            String image = sku != null && StringUtils.hasText(sku.getImage())
+                    ? sku.getImage()
+                    : product == null ? "" : product.getMainImage();
+            if (StringUtils.hasText(image)) {
+                item.setProductImage(image);
+            }
         }
     }
 
