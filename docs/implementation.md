@@ -147,7 +147,8 @@ Dockerfile 把前端工程放到 `/app/frontend`、政策文本放到 `/app/docs
 **Compose 拓扑**（根 `docker-compose.yml`）：MySQL / Redis / MinIO / RabbitMQ /
 backend / frontend 六服务 + `seed` profile。容器、卷、网络统一 `its-my-go-*`；
 中间件都带 healthcheck，backend `depends_on ... service_healthy`；
-frontend 依赖 backend。seed 用 MySQL 客户端镜像导入 `sql/seed-data.sql`，
+frontend 依赖 backend。seed 用 MySQL 客户端镜像依次导入 `sql/seed-data.sql` 与
+`sql/seed-product-details.sql`（商品详情文案按商品名 UPDATE，因为 reset 后自增 id 会变），
 **客户端必须带 `--default-character-set=utf8mb4`**（否则中文按 latin1 入库变乱码）。
 
 **两套地址必须分开**：

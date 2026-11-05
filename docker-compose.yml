@@ -178,7 +178,7 @@ services:
       MYSQL_PWD: ${DB_PASSWORD:-itsmygo_local_password}
     volumes:
       - ./sql:/seed:ro
-    entrypoint: ["sh", "-c", "mysql --default-character-set=utf8mb4 -h mysql -u\"$$DB_USERNAME\" ${DB_NAME:-its_mygo} < /seed/seed-data.sql"]
+    entrypoint: ["sh", "-c", "mysql --default-character-set=utf8mb4 -h mysql -u\"$$DB_USERNAME\" ${DB_NAME:-its_mygo} < /seed/seed-data.sql && mysql --default-character-set=utf8mb4 -h mysql -u\"$$DB_USERNAME\" ${DB_NAME:-its_mygo} < /seed/seed-product-details.sql"]
     networks:
       - its-my-go-net
 
