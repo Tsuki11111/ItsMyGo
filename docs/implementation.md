@@ -2197,7 +2197,7 @@ frontend/
 
 四份政策：**用户协议、隐私政策、退换货与售后政策、商家入驻与经营规范**。
 
-**单一事实源**：正式文本在仓库 [docs/policies/](docs/policies/)；前端
+**单一事实源**：正式文本在仓库 [docs/policies/](policies/)；前端
 `views/policies/PolicyView.vue` 用 Vite 的 `?raw` **直接导入同一批 Markdown**，
 `marked` 渲染 + `DOMPurify` 消毒后展示。改政策只改 md，页面与仓库文本不会漂移。
 

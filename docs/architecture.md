@@ -24,7 +24,7 @@
 | 每个机制具体怎么实现 | [docs/implementation.md](implementation.md) |
 | 现在做到哪、有哪些坑、怎么操作 | [HANDOFF.md](../HANDOFF.md) |
 | 接口清单、请求 / 响应、限流 | [docs/api.md](api.md) |
-| 部署、端口、联合启动、生产 VM | [docs/deployment.md](docs/deployment.md) |
+| 部署、端口、联合启动、生产 VM | [docs/deployment.md](deployment.md) |
 | gRPC 契约字段 | `rag_helper/proto/agent.proto`（字段源码即权威） |
 
 **冲突时的优先级**：状态与坑以 HANDOFF 为准；实现细节以 implementation 为准（本文与之冲突时
