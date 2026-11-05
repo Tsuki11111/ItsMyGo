@@ -84,7 +84,9 @@ Spring Boot 单体 + Vue 3 前后端分离，经 **gRPC 接入 RAG 客服智能�
 2. Agent 服务只在内网、只允许本单体访问
 3. 知识库导入与智能体评测是 agent 服务的管理端行为，由 Java 管理端代理，浏览器不直连 agent
 
-**对接契约**以 `rag_helper/evolution-plan.md` §5/§6 与 `rag_helper/proto/agent.proto` 为唯一权威。
+**对接契约**：字段以 `rag_helper/proto/agent.proto` 为**唯一权威**；说明性概览见
+`rag_helper/docs/architecture.md` §4，对接前提见 `rag_helper/docs/requirements.md` §4
+（rag_helper 2026-11-05 文档归并后，原 `evolution-plan.md` §5/§6 已迁到这两个位置）。
 
 ## 快速启动（Docker）
 
@@ -157,12 +159,17 @@ cd frontend && npm run dev     # 另开终端
 
 | 文件 | 作用 |
 |---|---|
-| [HANDOFF.md](HANDOFF.md) | **本项目一切细节的权威源** —— 具体进度、下一步、踩过的坑 |
-| [docs/deployment.md](docs/deployment.md) | **部署细节** —— 端口、环境变量、联合部署、手工 Compose、镜像源、**生产（内网 VM）环境与缺口** |
-| [docs/api.md](docs/api.md) | **后端接口文档** —— 全部接口、请求/响应、权限、限流与 SSE 事件 |
+| [docs/requirements.md](docs/requirements.md) | **需求分析** —— 产品定位、角色与场景、功能 / 非功能需求、平台对接前提、验收标准、范围外、里程碑与待定问题 |
+| [docs/architecture.md](docs/architecture.md) | **架构选型** —— 技术栈与理由、总体架构、接口契约概览、关键取舍、决策记录 D1–D15、跨仓库协作 |
 | [docs/implementation.md](docs/implementation.md) | **代码怎么实现的** —— 请求流转、认证链路、各模块实现要点与取舍 |
-| [docs/decisions-ecommerce.md](docs/decisions-ecommerce.md) | 需求分析与选型决策的完整理由、分阶段路线 |
+| [HANDOFF.md](HANDOFF.md) | **状态与坑的权威源** —— 具体进度、下一步、踩过的坑、环境与操作 |
+| [docs/api.md](docs/api.md) | **后端接口文档** —— 全部接口、请求 / 响应、权限、限流与 SSE 事件 |
+| [docs/deployment.md](docs/deployment.md) | **部署细节** —— 端口、环境变量、联合部署、手工 Compose、镜像源、**生产（内网 VM）环境与缺口** |
 | [CLAUDE.md](CLAUDE.md) | 给 AI 助手的项目约定与协作偏好 |
 
+> **文档分层**（2026-11-05 归并）：需求看 requirements、选型看 architecture、
+> 「怎么做」看 implementation、「现在什么状态 / 哪里有坑」看 HANDOFF、接口看 api、部署看 deployment。
+> 旧的 [docs/decisions-ecommerce.md](docs/decisions-ecommerce.md) 已改为**跳转页**，不再维护。
+>
 > 本 README 是 [HANDOFF.md](HANDOFF.md) 的**精简报告**。
-> 两者内容允许重复（一个详细、一个简洁），**如有出入一律以 HANDOFF 为准**。
+> 两者内容允许重复（一个详细、一个简洁），**如有出入一律以 HANDOFF 为准**（需求以 requirements 为准）。

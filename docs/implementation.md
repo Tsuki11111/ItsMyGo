@@ -6,7 +6,9 @@
 > 三者分工：**README** 讲「是什么」（技术栈 / 架构 / 部署）、
 > **HANDOFF** 讲「到哪了」（进度 / 下一步 / 踩过的坑）、
 > **本文**讲「怎么做到的」（实现细节）。
-> 需求与选型理由见 [decisions-ecommerce.md](decisions-ecommerce.md)。
+> **文档分层**：需求与范围看 [requirements.md](requirements.md)、选型与架构看
+> [architecture.md](architecture.md)、**状态 / 坑 / 操作**看 [HANDOFF.md](../HANDOFF.md)、
+> 接口清单看 [api.md](api.md)。本文只讲**实现**。
 >
 > ⚠️ **本文是代码的镜像：只要实现变了（新增机制、换了做法、改了关键取舍），就要同步更新本文。**
 > 过期的实现文档比没有更糟 —— 它会让人按旧做法去改新代码。
@@ -1247,8 +1249,8 @@ tool query_orders → final 输出 5 笔真实订单。
 
 **为什么不能直接执行**：下单、退款是有真实后果的写操作。agent 只负责
 「准备草稿」，用户必须在聊天卡片里确认，Java 才按服务端快照执行。
-这与 evolution-plan §1 的三条红线一致：LLM 不直接写业务库、风控不用 LLM、
-高危动作人工确认 + 审计。
+这与 rag_helper 的三条业务红线一致（见 `rag_helper/docs/architecture.md` §6）：
+LLM 不直接写业务库、风控不用 LLM、高危动作人工确认 + 审计。
 
 **表 `agent_actions`（V21）**：`action_no`（对外 UUID）、`user_id`、`session_id`、
 `target_id`（退款存订单 id）、`type`、`status`、`payload_json`（执行快照）、
@@ -1694,7 +1696,8 @@ error_message/ip/user_agent/trace_id/detail/created_at`；`users` 增加
 
 ### 3.31 知识库文档导入（2026-10-25）
 
-**边界不变**：evolution-plan §5/§6 规定「导入/管理端继续 HTTP + JSON」，
+**边界不变**：对接契约规定「导入/管理端继续 HTTP + JSON」
+（见 `rag_helper/docs/architecture.md` §4、`rag_helper/docs/requirements.md` §4），
 所以不新增 gRPC RPC。浏览器只访问 Java 管理端，Java 带访问密钥把请求代理到
 rag_helper 的 8001 导入服务；`AGENT_GRPC_KEY` / `AGENT_IMPORT_KEY` 只留在后端。
 
@@ -2376,4 +2379,5 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 智能下单 / 退款草稿、催发货 / 催退款、知识库导入、管理端智能体评测，
 见 §3.18–§3.21、§3.23、§3.27、§3.31、§3.34。
 
-详见 [decisions-ecommerce.md](decisions-ecommerce.md) §4 的分阶段路线。
+详见 [requirements.md](requirements.md) §7 的路线与里程碑（逐轮验收记录在
+[HANDOFF.md](../HANDOFF.md) §6）。

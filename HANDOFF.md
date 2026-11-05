@@ -2,11 +2,13 @@
 
 > **读者**：下一个接手本项目的 Claude 会话
 > **性质**：本项目**状态层的权威源** —— 做到哪、下一步做什么、踩过哪些坑。
-> [README.md](README.md) 是它的**精简报告**（内容以本文为准，两者允许重复）；
-> [docs/implementation.md](docs/implementation.md) 讲**代码具体怎么实现的**；
-> 需求分析与选型理由见 [docs/decisions-ecommerce.md](docs/decisions-ecommerce.md)
+> **文档已按四层归并**（2026-11-05）：需求与范围在 [docs/requirements.md](docs/requirements.md)，
+> 选型与架构、契约概览在 [docs/architecture.md](docs/architecture.md)（决策记录在其 §6），
+> 实现细节在 [docs/implementation.md](docs/implementation.md)，[README.md](README.md) 是门面。
+> 旧的 [docs/decisions-ecommerce.md](docs/decisions-ecommerce.md) 已改为跳转页。
 >
-> **改动本项目时**：先改 implementation.md（实现变了就必须改），再改本文，最后同步 README。
+> **改动本项目时**：实现变了先改 implementation；需求 / 范围变了改 requirements；
+> 选型 / 架构变了改 architecture；**状态与坑先改本文**；最后同步 README。
 
 ---
 
@@ -14,15 +16,21 @@
 
 1. **[README.md](README.md)** —— 项目是什么、技术栈、架构、部署方式。**先读它**。
 2. **本文件** —— 现在做到哪、下一步做什么、哪里有坑。
-3. **[docs/decisions-ecommerce.md](docs/decisions-ecommerce.md)** —— 需求分析、选型理由、
-   分阶段路线的**唯一权威**。只要涉及「接下来做什么」，先读它。
-4. **[docs/implementation.md](docs/implementation.md)** —— **代码具体怎么实现的**：
+3. **[docs/requirements.md](docs/requirements.md)** —— **需求与范围的权威**：定位、角色与场景、
+   功能 / 非功能需求、平台对接前提、验收标准、范围外、里程碑与待定问题。
+   **只要涉及「接下来做什么」，先读它。**
+4. **[docs/architecture.md](docs/architecture.md)** —— **选型与架构**：技术栈与理由、总体架构、
+   接口契约概览、关键取舍、决策记录 D1–D15、跨仓库协作流程。
+5. **[docs/implementation.md](docs/implementation.md)** —— **代码具体怎么实现的**：
    一条请求怎么流转、认证全链路、各业务模块的实现要点与关键取舍、测试怎么写的。
    **动代码之前先读它**，别重复造已有的机制。
-5. **涉及客服 / agent / gRPC 对接时**，还必须读外部仓库
-   `D:\PycharmProjects\rag_helper`：
-   - `evolution-plan.md` **§5（gRPC 接口）、§6（平台对接前提）** —— 对接契约的唯一权威
-   - `proto/agent.proto` —— Java 侧生成 stub 的凭据
+6. **涉及客服 / agent / gRPC 对接时**，还必须读外部仓库
+   `D:\PycharmProjects\rag_helper`（2026-11-05 那边的文档已归并，旧 `evolution-plan.md`
+   与 `docs/decisions-evolution.md` 变成跳转页）：
+   - `proto/agent.proto` —— **契约字段的唯一权威**，Java 侧据此生成 stub
+   - `docs/architecture.md` **§4** —— gRPC / 事件 / 内部回调 / 动作流程的说明性概览
+   - `docs/requirements.md` **§4** —— 平台对接前提（身份、票据、写操作、隔离边界）
+   - `HANDOFF.md` —— 那边的进度与踩坑
 
 ---
 
@@ -1350,6 +1358,35 @@ Compose 全栈要先把 `MYSQL_PORT` / `REDIS_PORT` / `MINIO_PORT` 等改成空�
 
 ## 6. 历史记录
 
+### 2026-11-05 · 文档结构归并（需求 / 架构选型 / 实现 / 状态四层）
+
+**背景**：`docs/decisions-ecommerce.md` 同时承担「需求分析 + 技术选型 + 对接契约 + 分阶段路线」，
+和 implementation、HANDOFF 的边界不清；同时 rag_helper 在 2026-11-05 把它的
+`evolution-plan.md`（路线 + 契约 + 排期）拆成了 `docs/requirements.md` + `docs/architecture.md`，
+并把 `docs/decisions-evolution.md` 并入 architecture §6。两边文档模型需要对齐。
+
+**改动**：
+
+| 层次 | 文件 | 回答什么问题 |
+|---|---|---|
+| 需求 | **[docs/requirements.md](docs/requirements.md)**（新） | 要做什么、给谁、做到什么程度、什么不做、怎么验收；含**平台对接前提**（对齐 rag_helper requirements §4） |
+| 架构选型 | **[docs/architecture.md](docs/architecture.md)**（新） | 选了什么技术、为什么、总体架构、**接口契约概览**、关键取舍、决策记录 D1–D15、跨仓库协作 |
+| 实现 | [docs/implementation.md](docs/implementation.md)（保留） | 每个机制的落地方式、坑与取舍 |
+| 状态 / 坑 / 操作 | 本文件（保留） | 做到哪、下一步、踩过的坑、环境与命令 |
+
+- **旧文件改为跳转页**：`docs/decisions-ecommerce.md` 内含「原章节 → 新位置」对照，
+  确认不再需要旧链接后可 `git rm`。
+- **跨仓库引用改指 rag_helper 新位置**：原 `evolution-plan.md` §5/§6 → 现
+  `rag_helper/docs/architecture.md` §4（契约说明）+ `rag_helper/docs/requirements.md` §4
+  （对接前提）；**契约字段仍以 `rag_helper/proto/agent.proto` 为准**（那边未改字段）。
+- **同步改动**：README 文档表与契约句、CLAUDE.md 阅读顺序与关联仓库表、
+  implementation 头部定位与两处 evolution-plan 引用、HANDOFF 顶部与 §0。
+
+**维护规矩（防止再漂移）**：需求 / 范围类改动只写 requirements；选型 / 架构 / 契约概览类改动只写
+architecture；实现细节只写 implementation；**状态、坑、操作只写本文件**；最后同步 README。
+跳转页里不要再补内容。四份文档冲突时：状态以 HANDOFF 为准、实现以 implementation 为准，
+并回头修 requirements / architecture。
+
 ### 2026-11-05 · 客服召回图片同源化
 
 **背景**：RAG 在知识库导入时把 MinIO 绝对 URL 固化进向量库（见 rag_helper HANDOFF §4.24），
@@ -1627,7 +1664,8 @@ KPI 卡片、趋势图、热销/低库存/最近订单三块。
 
 ### 2026-10-25 · 管理端知识库导入（M22）
 
-**边界**：evolution-plan §5/§6 规定导入/管理端继续 HTTP + JSON，因此**不新增 gRPC RPC**；
+**边界**：对接契约规定导入/管理端继续 HTTP + JSON（现见 `rag_helper/docs/architecture.md` §4、
+`rag_helper/docs/requirements.md` §4），因此**不新增 gRPC RPC**；
 浏览器只访问 Java，Java 带访问密钥代理到 rag_helper 8001。
 
 **后端**：`AdminKnowledgeController` 四个接口（上传 / 文档列表 / 任务状态 / 撤回）；
@@ -2034,7 +2072,8 @@ agent 能按订单号或最近订单查询**当前登录用户自己的**订单�
 - 回归新增「订单查询：票据与格式化」，**51/51 全绿**
 
 **契约**：`proto/agent.proto` 不变；新增的是 `agent → Java` 的内部 HTTP 边，
-已同步到 `rag_helper/evolution-plan.md` §6 与两边 HANDOFF / README / implementation。
+已同步到 `rag_helper/docs/requirements.md` §4 与 `rag_helper/docs/architecture.md` §4，
+以及两边 HANDOFF / README / implementation。
 
 **E2E**：重启 8080 + 8003，用 `testuser` 问「我的订单现在都到哪一步了」——
 执行流出现 `delegate order-service → tool query_orders`，final 返回 5 笔真实订单
