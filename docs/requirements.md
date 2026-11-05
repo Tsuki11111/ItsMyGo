@@ -11,7 +11,8 @@
 > `rag_helper/docs/requirements.md` §4。
 >
 > 归并说明：原 `docs/decisions-ecommerce.md` 的需求、验收、范围外、里程碑、待定问题并入本文；
-> 技术选型与决策理由并入 [docs/architecture.md](architecture.md)。旧文件已改为跳转页。
+> 技术选型与决策理由并入 [docs/architecture.md](architecture.md)。
+> 原文件已于 2026-11-05 **删除**（原文可用 `git log -- docs/decisions-ecommerce.md` 查）。
 > 本文与 HANDOFF 冲突时以 HANDOFF 为准，并回头修本文。
 
 ---

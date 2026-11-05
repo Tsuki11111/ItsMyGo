@@ -10,7 +10,8 @@
 > 契约说明见 `rag_helper/docs/architecture.md` §4，对接前提见
 > `rag_helper/docs/requirements.md` §4。
 >
-> 归并说明：原 `docs/decisions-ecommerce.md` 的技术选型、中间件约定与对接契约并入本文；
+> 归并说明：原 `docs/decisions-ecommerce.md`（已于 2026-11-05 删除，原文可用 `git log` 查）
+> 的技术选型、中间件约定与对接契约并入本文；
 > 需求、验收、范围外、里程碑并入 [docs/requirements.md](requirements.md)。
 
 ---
@@ -252,7 +253,7 @@ agent 工具 prepare（只生成草稿）→ Java 落 agent_actions（PENDING_CO
 **维护规矩（防止文档再次漂移）**：
 
 1. 需求 / 范围类改动只写 requirements；选型 / 架构 / 契约概览类改动只写 architecture；
-   实现细节只写 implementation；**不要再往跳转页（旧 decisions-ecommerce）里补内容**；
+   实现细节只写 implementation；**原 decisions-ecommerce 已删除，不要再新建重复的「需求 + 选型」文档**；
 2. 状态、踩坑、操作步骤仍然只写 HANDOFF；
 3. 契约以 `rag_helper/proto/agent.proto` 为准，本文 §4 只是说明性概览；改 proto 必须双端同步；
 4. 四份文档若互相矛盾：状态以 HANDOFF 为准、实现以 implementation 为准，

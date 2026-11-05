@@ -5,7 +5,8 @@
 > **文档已按四层归并**（2026-11-05）：需求与范围在 [docs/requirements.md](docs/requirements.md)，
 > 选型与架构、契约概览在 [docs/architecture.md](docs/architecture.md)（决策记录在其 §6），
 > 实现细节在 [docs/implementation.md](docs/implementation.md)，[README.md](README.md) 是门面。
-> 旧的 [docs/decisions-ecommerce.md](docs/decisions-ecommerce.md) 已改为跳转页。
+> 原 `docs/decisions-ecommerce.md` 已 **2026-11-05 删除**
+> （内容全部并入 requirements / architecture，原文可用 `git log` 查）。
 >
 > **改动本项目时**：按 **§4.9「新功能开发流程」** 执行 ——
 > 需求 → 自评审 → 架构 → 代码 → 实现 → HANDOFF / README → **自动提交推送**（顺序固定）。
@@ -1411,8 +1412,8 @@ Compose 全栈要先把 `MYSQL_PORT` / `REDIS_PORT` / `MINIO_PORT` 等改成空�
 | 实现 | [docs/implementation.md](docs/implementation.md)（保留） | 每个机制的落地方式、坑与取舍 |
 | 状态 / 坑 / 操作 | 本文件（保留） | 做到哪、下一步、踩过的坑、环境与命令 |
 
-- **旧文件改为跳转页**：`docs/decisions-ecommerce.md` 内含「原章节 → 新位置」对照，
-  确认不再需要旧链接后可 `git rm`。
+- **旧文件已删除**：`docs/decisions-ecommerce.md` 先改成「原章节 → 新位置」跳转页，
+  当天确认现存引用已全部改指新文档后 `git rm`；原文可用 `git log -- docs/decisions-ecommerce.md` 查。
 - **跨仓库引用改指 rag_helper 新位置**：原 `evolution-plan.md` §5/§6 → 现
   `rag_helper/docs/architecture.md` §4（契约说明）+ `rag_helper/docs/requirements.md` §4
   （对接前提）；**契约字段仍以 `rag_helper/proto/agent.proto` 为准**（那边未改字段）。

@@ -169,7 +169,7 @@ cd frontend && npm run dev     # 另开终端
 
 > **文档分层**（2026-11-05 归并）：需求看 requirements、选型看 architecture、
 > 「怎么做」看 implementation、「现在什么状态 / 哪里有坑」看 HANDOFF、接口看 api、部署看 deployment。
-> 旧的 [docs/decisions-ecommerce.md](docs/decisions-ecommerce.md) 已改为**跳转页**，不再维护。
+> 原 `docs/decisions-ecommerce.md` 已删除（内容全部并入上面两份，原文可用 `git log` 查）。
 >
 > 本 README 是 [HANDOFF.md](HANDOFF.md) 的**精简报告**。
 > 两者内容允许重复（一个详细、一个简洁），**如有出入一律以 HANDOFF 为准**（需求以 requirements 为准）。

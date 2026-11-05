@@ -18,8 +18,9 @@
 
 **要动代码之前必须先读 implementation.md**，别重复造已有的轮子。
 
-> 旧的 [docs/decisions-ecommerce.md](docs/decisions-ecommerce.md) 已改为**跳转页**（原需求并入
-> requirements、原选型并入 architecture），**不要再往里面补内容**。
+> 原 `docs/decisions-ecommerce.md` 已于 2026-11-05 **删除**：
+> 需求并入 requirements、选型并入 architecture；需要原文时用 `git log -- docs/decisions-ecommerce.md` 查。
+> **不要再新建一份重复的「需求 + 选型」文档。**
 
 ---
 
@@ -59,7 +60,7 @@ Java 的 `/internal/agent/**`（凭证是 Java 每轮签发的短期票据，模
   各文档分工：requirements 讲「要什么」、architecture 讲「为什么这么选」、
   implementation 讲「怎么做到的」（**代码的镜像，实现变了必须更新**）、
   HANDOFF 讲「到哪了」（**状态与坑只写这里**）、README 是精简报告（以 HANDOFF 为准）。
-  **旧的跳转页（decisions-ecommerce）不要再补内容。**
+  **原 decisions-ecommerce 已删除**：需求写 requirements、选型写 architecture，别再新建重复文档。
 - **收到用户补充的新约束，立刻写进文档**，不要只留在对话里（本项目的 Docker 命名约定
   就是这么来的）
 - **本项目按高并发标准做**（用户 2026-10-15 明确要求）—— 即使是练手项目，
