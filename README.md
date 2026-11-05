@@ -86,7 +86,7 @@ Spring Boot 单体 + Vue 3 前后端分离，经 **gRPC 接入 RAG 客服智能�
 
 **对接契约**：字段以 `rag_helper/proto/agent.proto` 为**唯一权威**；说明性概览见
 `rag_helper/docs/architecture.md` §4，对接前提见 `rag_helper/docs/requirements.md` §4
-（rag_helper 2026-11-05 文档归并后，原 `evolution-plan.md` §5/§6 已迁到这两个位置）。
+（rag_helper 2026-11-05 文档归并后，原 `evolution-plan.md` §5/§6 已迁到这两个位置，旧文件已删除）。
 
 ## 快速启动（Docker）
 

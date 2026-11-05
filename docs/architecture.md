@@ -303,5 +303,6 @@ agent 工具 prepare（只生成草稿）→ Java 落 agent_actions（PENDING_CO
 6. 端到端：`rag_helper/deploy.sh joint` → Java 侧真实聊一轮 / 上传一份 MD 验证导入。
 
 > rag_helper 2026-11-05 做过一次文档归并：`evolution-plan.md` 与 `docs/decisions-evolution.md`
-> 已变为跳转页；原 evolution-plan §5 / §6 对应现 `docs/architecture.md` §4 与
-> `docs/requirements.md` §4，`proto/agent.proto` 字段未变。
+> **已删除**（内容并入 `docs/requirements.md` / `docs/architecture.md`）；原 evolution-plan
+> §5 / §6 对应现 `docs/architecture.md` §4 与 `docs/requirements.md` §4，
+> `proto/agent.proto` 字段未变。

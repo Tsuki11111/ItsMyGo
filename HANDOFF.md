@@ -27,7 +27,8 @@
    **动代码之前先读它**，别重复造已有的机制。
 6. **涉及客服 / agent / gRPC 对接时**，还必须读外部仓库
    `D:\PycharmProjects\rag_helper`（2026-11-05 那边的文档已归并，旧 `evolution-plan.md`
-   与 `docs/decisions-evolution.md` 变成跳转页）：
+   与 `docs/decisions-evolution.md` **已删除**，内容并入 `docs/requirements.md` /
+   `docs/architecture.md`；历史章节号映射见那边的 `implementation.md` 头部）：
    - `proto/agent.proto` —— **契约字段的唯一权威**，Java 侧据此生成 stub
    - `docs/architecture.md` **§4** —— gRPC / 事件 / 内部回调 / 动作流程的说明性概览
    - `docs/requirements.md` **§4** —— 平台对接前提（身份、票据、写操作、隔离边界）
@@ -1417,6 +1418,8 @@ Compose 全栈要先把 `MYSQL_PORT` / `REDIS_PORT` / `MINIO_PORT` 等改成空�
 - **跨仓库引用改指 rag_helper 新位置**：原 `evolution-plan.md` §5/§6 → 现
   `rag_helper/docs/architecture.md` §4（契约说明）+ `rag_helper/docs/requirements.md` §4
   （对接前提）；**契约字段仍以 `rag_helper/proto/agent.proto` 为准**（那边未改字段）。
+  rag_helper 当天随后（`7c9db85`）把 `evolution-plan.md` / `docs/decisions-evolution.md`
+  两个跳转页也**删除**了，其历史章节号的映射见那边 `implementation.md` 头部；本仓库引用已同步改为「已删除」。
 - **同步改动**：README 文档表与契约句、CLAUDE.md 阅读顺序与关联仓库表、
   implementation 头部定位与两处 evolution-plan 引用、HANDOFF 顶部与 §0。
 

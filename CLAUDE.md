@@ -30,8 +30,9 @@
 Python 项目，RAG 客服智能体「买小购」，gRPC 服务端跑在 **8003**。
 
 **涉及客服 / agent / gRPC 的改动，动手前先读那边**（⚠️ 2026-11-05 rag_helper 做过一次
-**文档归并**：`evolution-plan.md` 与 `docs/decisions-evolution.md` 已变为跳转页，
-原 evolution-plan §5 / §6 现对应下表的新位置；`proto/agent.proto` 字段未变）：
+**文档归并**：`evolution-plan.md` 与 `docs/decisions-evolution.md` **已删除**，内容分别并入
+`docs/requirements.md` 与 `docs/architecture.md`；原 evolution-plan §5 / §6 现对应下表的新位置，
+历史章节号的映射见 `rag_helper/implementation.md` 头部；`proto/agent.proto` 字段未变）：
 
 | 读什么 | 为什么 |
 |---|---|
