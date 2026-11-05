@@ -83,6 +83,24 @@ function renderMarkdown(text: string): string {
   return DOMPurify.sanitize(html)
 }
 
+/**
+ * 召回图片来自 RAG 自己的 MinIO（http://<host>:9002/rag-helper-knowledge-files/...）。
+ * 展示时改成同源 /rag-images/<bucket>/<path>，由 Nginx 反代到 MinIO：
+ * 页面与图片同源，部署地址变化或以后上 HTTPS 都不影响历史图片。
+ */
+const RAG_BUCKET = 'rag-helper-knowledge-files'
+function sameOriginImage(url: string): string {
+  if (!url) return ''
+  try {
+    const { pathname } = new URL(url, window.location.origin)
+    const marker = `/${RAG_BUCKET}/`
+    const index = pathname.indexOf(marker)
+    return index >= 0 ? `/rag-images${pathname.slice(index)}` : url
+  } catch {
+    return url
+  }
+}
+
 const sessionKey = computed(() =>
   userStore.user ? `its-my-go:agent-session:${userStore.user.userId}` : '',
 )
@@ -537,8 +555,8 @@ onBeforeUnmount(() => {
               <figure v-for="(image, index) in message.images" :key="index" class="image-item">
                 <div class="image-wrap">
                   <el-image
-                    :src="image.url"
-                    :preview-src-list="message.images.map((item) => item.url)"
+                    :src="sameOriginImage(image.url)"
+                    :preview-src-list="message.images.map((item) => sameOriginImage(item.url))"
                     :initial-index="index"
                     preview-teleported
                     fit="contain"

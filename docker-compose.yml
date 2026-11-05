@@ -158,6 +158,9 @@ services:
     container_name: its-my-go-frontend
     depends_on:
       - backend
+    # 客服召回图片反代到 rag_helper 的 MinIO（宿主机 9002）
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "${FRONTEND_PORT:-8088}:80"
     networks:

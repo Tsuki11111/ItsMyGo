@@ -1308,6 +1308,25 @@ Compose 全栈要先把 `MYSQL_PORT` / `REDIS_PORT` / `MINIO_PORT` 等改成空�
 
 ## 6. 历史记录
 
+### 2026-11-05 · 客服召回图片同源化
+
+**背景**：RAG 在知识库导入时把 MinIO 绝对 URL 固化进向量库（见 rag_helper HANDOFF §4.24），
+VM 换 IP 后召回图片全部裂开。RAG 侧已改为输出时按当前配置重写主机名；
+本轮按用户要求把 ItsMyGo 展示层彻底改成同源。
+
+**改动**：
+- `AgentChatPanel.sameOriginImage()` 把 `http://<host>:9002/rag-helper-knowledge-files/...`
+  转成 `/rag-images/rag-helper-knowledge-files/...`；
+- Nginx 增加 `/rag-images/` → `http://host.docker.internal:9002/`；
+  frontend 容器增加 `extra_hosts: host.docker.internal:host-gateway`；
+- Vite 开发代理同步（`RAG_MINIO_TARGET`）；
+- **对接契约不变**：`Image.url` 仍是绝对 URL，转换只发生在展示层。
+
+**验证**：客服聊天 6 张召回图全部走 `/rag-images/...`，加载成功；URL 中不再带 9002 主机名。
+
+**注意**：rag_helper 重启后，Java 的 gRPC 长连接要等自动重连（约 30 秒），期间会话列表
+和历史会报「加载失败」，之后自动恢复 —— 不是故障。
+
 ### 2026-11-05 · 前端静态资源缓存策略
 
 **现象**：修好页面宽度后，浏览器仍显示旧布局 —— 普通刷新没用，因为 `index.html`

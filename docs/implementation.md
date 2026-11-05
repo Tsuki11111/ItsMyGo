@@ -139,11 +139,12 @@ Flyway 自己建的 `flyway_schema_history` 表是迁移记录，**不要动**�
 产物交给 `nginx:1.27-alpine`。**构建上下文是仓库根，不是 `frontend/`** —— PolicyView
 用 `?raw` 直接导入 `docs/policies/*.md`，两个目录必须保持仓库里的相对位置；
 Dockerfile 把前端工程放到 `/app/frontend`、政策文本放到 `/app/docs/policies`。
-`frontend/nginx.conf` 负责五件事：`/api/` 反代 `http://backend:8080`；
-`/its-my-go-product-images/` 反代 `http://minio:9000`（图片同源）；`proxy_buffering off`
-保证 SSE 实时；`client_max_body_size 210m` 放行知识库 PDF；**`index.html` 不缓存、
-`/assets/` 长缓存** —— 否则发版后浏览器继续用旧 bundle，改了样式用户也看不到。
-SPA 路由用 `try_files ... /index.html`。
+`frontend/nginx.conf` 负责六件事：`/api/` 反代 `http://backend:8080`；
+`/its-my-go-product-images/` 反代 `http://minio:9000`（商品图同源）；
+`/rag-images/` 反代 `http://host.docker.internal:9002`（客服召回图同源）；
+`proxy_buffering off` 保证 SSE 实时；`client_max_body_size 210m` 放行知识库 PDF；
+**`index.html` 不缓存、`/assets/` 长缓存** —— 否则发版后浏览器继续用旧 bundle，
+改了样式用户也看不到。SPA 路由用 `try_files ... /index.html`。
 
 **Compose 拓扑**（根 `docker-compose.yml`）：MySQL / Redis / MinIO / RabbitMQ /
 backend / frontend 六服务 + `seed` profile。容器、卷、网络统一 `its-my-go-*`；
@@ -2242,6 +2243,9 @@ frontend/
   历史消息同样折叠，展开后恢复该轮完整执行流（`HistoryMessage.trace` 透传）。
 - **召回图片**：`grid auto-fit minmax(240px, 1fr)` 两列自适应、间距 12px；
   图片 280px 高、`fit=contain` 不裁切，左上角显示「图 N」标号，图注在图下。
+  **展示时把 RAG 的 MinIO 绝对地址转成同源 `/rag-images/<bucket>/<path>`**
+  （`sameOriginImage()`），由前端 Nginx 反代到 rag_helper 的 MinIO
+  （`host.docker.internal:9002`）—— URL 不含主机名，换 IP / 上 HTTPS 都不影响。
   聊天区高度提升到 `min(860px, 100vh - 130px)`，给图片留足空间。
 - 当前流未结束时禁用发送；中文输入法用 `isComposing` 防误发送。
 - 客服服务不可用时显示 SSE `error` 事件里的通用文案，不自动重试。
