@@ -1,6 +1,8 @@
 package com.tsuk1.itsmygo;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.tsuk1.itsmygo.common.order.OrderCreateProperties;
+import com.tsuk1.itsmygo.common.order.OrderCreatedMqPublisher;
 import com.tsuk1.itsmygo.common.order.OrderTimeoutPublisher;
 import com.tsuk1.itsmygo.dto.AddressRequest;
 import com.tsuk1.itsmygo.dto.CartAddRequest;
@@ -22,6 +24,7 @@ import com.tsuk1.itsmygo.mapper.ProductMapper;
 import com.tsuk1.itsmygo.mapper.ReviewMapper;
 import com.tsuk1.itsmygo.mapper.UserCouponMapper;
 import com.tsuk1.itsmygo.service.OrderService;
+import com.tsuk1.itsmygo.service.OrderSettlementService;
 import com.tsuk1.itsmygo.service.ShipmentService;
 import com.tsuk1.itsmygo.service.StockService;
 import com.tsuk1.itsmygo.service.impl.OrderServiceImpl;
@@ -612,7 +615,10 @@ class OrderControllerTest extends ApiTestBase {
         OrderServiceImpl service = new OrderServiceImpl(orderMapper, countingMapper, cartItemMapper,
                 productMapper, productSkuMapper, addressMapper, paymentMapper, stockService,
                 redisTemplate, reviewMapper, userCouponMapper, merchantMapper,
-                Mockito.mock(ShipmentService.class), Mockito.mock(OrderTimeoutPublisher.class));
+                Mockito.mock(ShipmentService.class), Mockito.mock(OrderTimeoutPublisher.class),
+                new OrderCreateProperties(false, false, 120, 60_000L, 240, 3),
+                Mockito.mock(OrderCreatedMqPublisher.class),
+                Mockito.mock(OrderSettlementService.class));
 
         PageResponse<OrderView> result = service.pageForCustomer(
                 currentUserId(token), 1, 10, 3);

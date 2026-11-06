@@ -254,7 +254,8 @@ Authorization: Bearer <token>
 | `discountAmount` | number | 优惠金额 |
 | `refundedAmount` | number | 累计已退金额（售后单累加）；等于 `totalAmount` 表示整单退完 |
 | `userCouponId` / `couponName` | number/string | 使用的券及名称快照 |
-| `status` | string | 见订单状态枚举 |
+| `status` | string | 见订单状态枚举；M31 起下单可能先返回 `CREATING`（创建中） |
+| `createError` | string | 下单异步补账失败原因（仅 `CREATE_FAILED` 有值，M31） |
 | `receiver` / `phone` / `address` | string | 收货信息快照 |
 | `trackingNo` | string | 物流单号 |
 | `statusBeforeRefund` | string/null | 退款前状态 |
@@ -586,6 +587,12 @@ Authorization: Bearer <token>
 ---
 
 ## 10. 订单、支付与售后
+
+> **M31 下单异步补账**：`itsmygo.order-create.async=true`（默认）时，`POST /api/orders`
+> 返回的订单状态是 `CREATING`（中文「创建中」）；前端需轮询 `GET /api/orders/{id}`，
+> 直到 `PENDING_PAYMENT`（可支付）或 `CREATE_FAILED`（看 `createError`，提示重新下单）。
+> `CREATING` 期间**不能支付、不能取消**；`async=false` 时行为与旧链路一致（直接待支付）。
+> 状态机与失败补偿见 architecture §3.6 / implementation §3.36。
 
 | 方法 | 路径 | 权限 | 参数/请求 | 返回 |
 |---|---|---|---|---|

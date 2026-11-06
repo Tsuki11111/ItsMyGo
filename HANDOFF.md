@@ -38,12 +38,15 @@
 
 ## 1. 当前状态一句话
 
-**交易闭环、多商户、AI 客服、运营后台、平台政策、压测、售后、Docker 部署均已完成（2026-11-05）。**
-后端自动化测试 **265 条**（新增售后 11 条；此前新增智能体评测 2 条、商品问答 1 条），
-CI 跑 261 条（跳过 4 条依赖 MinIO 的用例）。数据库 schema 到 **v31**。
+**交易闭环、多商户、AI 客服、运营后台、平台政策、压测、售后、下单异步补账、Docker 部署均已完成（2026-11-06）。**
+后端自动化测试 **274 条**（M31 新增 9 条；此前售后 11 条、智能体评测 2 条、商品问答 1 条），
+CI 跑 270 条（跳过 4 条依赖 MinIO 的用例）。数据库 schema 到 **v32**。
 
 - **交易**：商品 / SKU、购物车、按店拆单、支付、发货、收货、取消、超时关单、退款；
   库存与优惠券回滚。
+- **下单异步补账（M31 / D1）**：同步段只落占位订单（`CREATING`）+ 明细 + Redis 预扣，
+  事务提交后发 MQ；异步补 DB 扣库存 / 占券 / 清购物车 / 转待支付，失败转 `CREATE_FAILED`
+  并回补 Redis/券；扫描兜底重投；`async=false` 可退回旧同步链路。
 - **售后（M30）**：独立售后单 —— 仅退款 / 退货退款、按订单项部分退款（优惠等比分摊）、
   原因字典、凭证图、商家 48h 超时自动同意 / 退货 7 天自动确认、平台介入、三端页面与时间线；
   旧整单退款接口保留并存。
@@ -55,8 +58,8 @@ CI 跑 261 条（跳过 4 条依赖 MinIO 的用例）。数据库 schema 到 **
   管理员邀请审批；商家端经营看板。
 - **部署**：`./deploy.sh` 一键全栈；`rag_helper/deploy.sh joint` 联合部署；
   生产是**内网 VM**（静态 IP、离线镜像包、图片同源），缺口见
-  [docs/deployment.md](docs/deployment.md)。**2026-11-05 晚已重建镜像并上线 M30**
-  （VM 上 Flyway 已迁到 v31，prod profile 生效）。
+  [docs/deployment.md](docs/deployment.md)。**2026-11-05 晚已重建镜像并上线 M30**；
+  **2026-11-06 M31 已实现**（后端 + 前端），待后续发版上线（VM 仍是上一版镜像）。
 - **体验与合规**：品牌专区 / 缩略图、四份平台政策（协议 / 隐私 / 售后 / 商家规范）、
   2026-11-02 首次压测（读接口 2600–3500 QPS、并发不超卖、支付幂等）、
   2026-11-05 图片地址同源化（换 IP 不再裂图）。
@@ -723,7 +726,7 @@ git ls-files -s mvnw        # 应该显示 100755
 
 **当前的应对**：`StorageServiceTest` 用 `@DisabledIfEnvironmentVariable(SKIP_MINIO_TESTS)`
 跳过（该类共 4 条用例），CI 里设 `SKIP_MINIO_TESTS=true` ——
-**CI 跑 261 条，本地跑全部 265 条**。
+**CI 跑 270 条，本地跑全部 274 条**。
 这是**已知并记录的缺口，不是遗漏**。
 
 **将来要补的话**，可选方向：找 MinIO 的历史镜像 tag、换成别的 S3 兼容实现
@@ -1418,6 +1421,41 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 用 Node 读写才安全。
 
 ## 6. 历史记录
+
+### 2026-11-06 · 下单异步补账（M31 / D1：半同步占位 + MQ 补账）
+
+**背景**：用户要求引入 RabbitMQ 保证双写一致性。讨论后确认走 **D1 半同步占位 + 异步补账**
+（不是纯异步落库），并先落 requirements §2.6 + architecture §3.2/§3.6/§4.7 + D21–D23。
+
+**实现**：
+
+- `OrderStatus` 新增 `CREATING` / `CREATE_FAILED`；V32 迁移加 `orders.create_error` /
+  `create_attempts` + `(status, created_at)` 索引；
+- `OrderServiceImpl.create` 同步段改为：校验 → Redis 预扣 → INSERT 占位订单 + 明细 →
+  提交后发 MQ（`async=false` 则同事务内直接结算，保持旧行为）；
+- `OrderSettlementServiceImpl`：**先 CAS 抢单再扣 DB 库存**（防重复消费双扣）→ 券占用 →
+  按快照 ID 清购物车 → 提交后发超时关单消息；`failCreation` 回补 Redis/券并写失败原因；
+- MQ：`OrderCreatedRabbitTopology` / `OrderCreatedSender` / `OrderCreatedMqPublisher` /
+  `OrderCreatedConsumer`（失败先补偿再 reject 不重投）；
+- 兜底：`OrderCreationScanJob`（Redis 锁）扫 CREATING 超时（默认 120s）→ 重投事件（最多 3 次）
+  → 仍失败则置 CREATE_FAILED；
+- 守卫：`pay()` 对 CREATING/CREATE_FAILED 明确报错；`cancel()` CREATING 拒绝；
+  超时关单仍只处理 PENDING_PAYMENT；
+- 前端：结算结果页 / 订单详情在 CREATING 时每秒轮询，支付按钮只在 PENDING_PAYMENT 出现，
+  CREATE_FAILED 显示原因；
+- 配置：`itsmygo.order-create.*` / `.env` 的 `ORDER_CREATE_*`；测试 profile 用 `async=false`。
+
+**踩坑与修正**：
+
+1. 旧 `reserveStock()` 里还留着 DB 扣减，结算服务又扣一次 → 全部并发用例报「库存不足」；
+   已把同步段改成**只扣 Redis**，DB 条件扣减只留在结算服务。
+2. 同步降级时结算服务改的是它自己查出来的实体，响应里的占位实体仍是 CREATING →
+   AgentAction 下单测试拿到错误状态；已在同步分支同步占位实体状态。
+
+**验证**：全量 **274 条**测试通过（`OrderAsyncCreationTest` 6 条 + `OrderCreatedConsumerTest`
+3 条）；前端 `npm run build` 通过。**未连真实 RabbitMQ 跑端到端**（本机 RabbitMQ 镜像拉取失败；
+异步链路用消费端单测 + 补偿单测覆盖，扫描/发送在 `async=false` 下不进链路）。上线前需在
+VM 上重建镜像并做一次真实 MQ 联调（含 Flyway V32 迁移）。
 
 ### 2026-11-05 晚 · 补齐根目录 npm 常用脚本（dev / build / test / type-check）
 

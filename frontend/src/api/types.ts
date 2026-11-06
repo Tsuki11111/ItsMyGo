@@ -267,6 +267,8 @@ export interface Order {
   address: string
   trackingNo: string
   statusBeforeRefund: string | null
+  /** 下单异步补账失败原因（M31，仅 CREATE_FAILED 有值） */
+  createError?: string
   refundReason: string
   refundAppliedAt: string | null
   refundHandledAt: string | null

@@ -5,6 +5,8 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.tsuk1.itsmygo.common.ResultCode;
 import com.tsuk1.itsmygo.common.exception.BizException;
+import com.tsuk1.itsmygo.common.order.OrderCreateProperties;
+import com.tsuk1.itsmygo.common.order.OrderCreatedMqPublisher;
 import com.tsuk1.itsmygo.common.order.OrderTimeoutPublisher;
 import com.tsuk1.itsmygo.dto.CheckoutView;
 import com.tsuk1.itsmygo.dto.CreateOrderRequest;
@@ -33,6 +35,7 @@ import com.tsuk1.itsmygo.mapper.ProductSkuMapper;
 import com.tsuk1.itsmygo.mapper.ReviewMapper;
 import com.tsuk1.itsmygo.mapper.UserCouponMapper;
 import com.tsuk1.itsmygo.service.OrderService;
+import com.tsuk1.itsmygo.service.OrderSettlementService;
 import com.tsuk1.itsmygo.service.ShipmentService;
 import com.tsuk1.itsmygo.service.StockService;
 import lombok.extern.slf4j.Slf4j;
@@ -89,6 +92,9 @@ public class OrderServiceImpl implements OrderService {
     private final MerchantMapper merchantMapper;
     private final ShipmentService shipmentService;
     private final OrderTimeoutPublisher orderTimeoutPublisher;
+    private final OrderCreateProperties orderCreateProperties;
+    private final OrderCreatedMqPublisher orderCreatedMqPublisher;
+    private final OrderSettlementService orderSettlementService;
 
     public OrderServiceImpl(OrderMapper orderMapper, OrderItemMapper orderItemMapper,
                             CartItemMapper cartItemMapper, ProductMapper productMapper,
@@ -97,7 +103,10 @@ public class OrderServiceImpl implements OrderService {
                             StringRedisTemplate redisTemplate, ReviewMapper reviewMapper,
                             UserCouponMapper userCouponMapper, MerchantMapper merchantMapper,
                             ShipmentService shipmentService,
-                            OrderTimeoutPublisher orderTimeoutPublisher) {
+                            OrderTimeoutPublisher orderTimeoutPublisher,
+                            OrderCreateProperties orderCreateProperties,
+                            OrderCreatedMqPublisher orderCreatedMqPublisher,
+                            OrderSettlementService orderSettlementService) {
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
         this.cartItemMapper = cartItemMapper;
@@ -112,6 +121,9 @@ public class OrderServiceImpl implements OrderService {
         this.merchantMapper = merchantMapper;
         this.shipmentService = shipmentService;
         this.orderTimeoutPublisher = orderTimeoutPublisher;
+        this.orderCreateProperties = orderCreateProperties;
+        this.orderCreatedMqPublisher = orderCreatedMqPublisher;
+        this.orderSettlementService = orderSettlementService;
     }
 
     /**
@@ -266,6 +278,14 @@ public class OrderServiceImpl implements OrderService {
                 reserveStock(skus.get(line.skuId()), line.quantity(), reserved);
             }
 
+            // 购物车结算的待清行先快照：异步补账时按 ID 删除，避免误删补账期间新加入的商品
+            List<Long> cartItemIds = fromCart
+                    ? cartItemMapper.selectList(Wrappers.<CartItem>lambdaQuery()
+                            .eq(CartItem::getUserId, userId)
+                            .eq(CartItem::getSelected, 1))
+                            .stream().map(CartItem::getId).toList()
+                    : List.of();
+
             List<OrderView> views = new ArrayList<>(groups.size());
             List<Order> createdOrders = new ArrayList<>(groups.size());
             for (Map.Entry<Long, List<OrderLine>> entry : groups.entrySet()) {
@@ -284,7 +304,10 @@ public class OrderServiceImpl implements OrderService {
                 order.setTotalAmount(goodsTotal.subtract(discount));
                 order.setUserCouponId(coupon == null ? null : coupon.getId());
                 order.setCouponName(coupon == null ? "" : coupon.getCouponName());
-                order.setStatus(OrderStatus.PENDING_PAYMENT.name());
+                // M31：先落占位订单，券占用 / DB 扣库存 / 清购物车在补账阶段完成
+                order.setStatus(OrderStatus.CREATING.name());
+                order.setCreateError("");
+                order.setCreateAttempts(0);
                 // 收货信息也快照：用户以后改地址或删地址，这张订单不受影响
                 order.setReceiver(address.getReceiver());
                 order.setPhone(address.getPhone());
@@ -293,12 +316,6 @@ public class OrderServiceImpl implements OrderService {
                 order.setTrackingNo("");
                 orderMapper.insert(order);
                 createdOrders.add(order);
-
-                // 券的使用是条件更新：期间被别的订单用掉/过期就 0 行，整单回滚
-                if (coupon != null
-                        && userCouponMapper.markUsed(coupon.getId(), userId, order.getId()) == 0) {
-                    throw new BizException(ResultCode.BAD_REQUEST, "优惠券已使用或已过期");
-                }
 
                 List<OrderItem> items = new ArrayList<>(entry.getValue().size());
                 for (OrderLine line : entry.getValue()) {
@@ -319,19 +336,26 @@ public class OrderServiceImpl implements OrderService {
                     orderItemMapper.insert(item);
                     items.add(item);
                 }
-                views.add(new OrderView(order, OrderStatus.PENDING_PAYMENT.label(),
+                views.add(new OrderView(order, OrderStatus.CREATING.label(),
                         items, items.size()));
             }
 
-            // 只有购物车结算才清空勾选行 —— 「立即购买」从头到尾没碰过购物车
-            if (fromCart) {
-                cartItemMapper.delete(Wrappers.<CartItem>lambdaQuery()
-                        .eq(CartItem::getUserId, userId)
-                        .eq(CartItem::getSelected, 1));
+            List<Long> orderIds = createdOrders.stream().map(Order::getId).toList();
+            if (orderCreateProperties.async()) {
+                // 事务提交后发 MQ；补账失败由消费端收尾（CREATE_FAILED）
+                orderCreatedMqPublisher.publishAfterCommit(orderIds, cartItemIds);
+            } else {
+                // 同步降级：与旧链路等价（测试 / 无 MQ 环境）
+                orderSettlementService.settle(orderIds, cartItemIds);
+                // 结算服务改的是它自己查出来的实体；占位实体的状态要同步，否则响应里还是「创建中」
+                for (Order order : createdOrders) {
+                    order.setStatus(OrderStatus.PENDING_PAYMENT.name());
+                }
+                views = views.stream()
+                        .map(v -> new OrderView(v.order(), OrderStatus.PENDING_PAYMENT.label(),
+                                v.items(), v.itemCount()))
+                        .toList();
             }
-
-            // 事务提交后才发延迟消息；发送失败只记日志，扫描兜底
-            orderTimeoutPublisher.publishAfterCommit(createdOrders);
             return CheckoutView.of(views);
         } catch (RuntimeException e) {
             releaseReserved.run();
@@ -403,22 +427,17 @@ public class OrderServiceImpl implements OrderService {
     }
 
     /**
-     * 两层防线（粒度是 **SKU**）：
-     *   1. Redis 预扣 —— 原子 Lua，把大部分并发挡在数据库外
-     *   2. 数据库条件更新 —— {@code WHERE stock >= ?}，防超卖的最终真相
-     * 第一层过了第二层没过（例如 Redis 数据偏乐观），照样按库存不足处理。
+     * 同步段只做 Redis 预扣（挡并发）；**数据库条件扣减在补账阶段完成**
+     * （{@link OrderSettlementService}，异步 MQ 或同步降级都走它）。
+     *
+     * <p>这样下单请求不用等 SKU 行更新，占位订单落库即可返回；
+     * `WHERE stock >= ?` 仍是防超卖的最终真相。</p>
      */
     private void reserveStock(ProductSku sku, int quantity, Map<Long, Integer> reserved) {
         if (!stockService.tryReserve(sku.getId(), quantity)) {
             throw new BizException(ResultCode.BAD_REQUEST, "库存不足");
         }
         reserved.merge(sku.getId(), quantity, Integer::sum);
-
-        if (skuMapper.deductStock(sku.getId(), quantity) == 0) {
-            throw new BizException(ResultCode.BAD_REQUEST, "库存不足");
-        }
-        // 商品上的库存/销量是各 SKU 的汇总，只服务列表页显示，**不参与任何判定**
-        productMapper.applyDeducted(sku.getProductId(), quantity);
     }
 
     /**
@@ -515,6 +534,12 @@ public class OrderServiceImpl implements OrderService {
     @Transactional
     public OrderView pay(Long userId, Long orderId) {
         Order order = requireOwned(userId, orderId);
+        if (OrderStatus.CREATING.name().equals(order.getStatus())) {
+            throw new BizException(ResultCode.BAD_REQUEST, "订单创建中，请稍后支付");
+        }
+        if (OrderStatus.CREATE_FAILED.name().equals(order.getStatus())) {
+            throw new BizException(ResultCode.BAD_REQUEST, "订单创建失败，请重新下单");
+        }
         transition(order, OrderStatus.PAID, order::setPaidAt);
 
         // 落支付流水。uk_order_id 是数据库层兜底：即使有并发请求绕过了状态机，
@@ -703,6 +728,9 @@ public class OrderServiceImpl implements OrderService {
     @Transactional
     public OrderView cancel(Long userId, Long orderId) {
         Order order = requireOwned(userId, orderId);
+        if (OrderStatus.CREATING.name().equals(order.getStatus())) {
+            throw new BizException(ResultCode.BAD_REQUEST, "订单创建中，请稍候再操作");
+        }
         OrderStatus current = OrderStatus.valueOf(order.getStatus());
         if (!current.cancellable()) {
             throw new BizException(ResultCode.BAD_REQUEST,

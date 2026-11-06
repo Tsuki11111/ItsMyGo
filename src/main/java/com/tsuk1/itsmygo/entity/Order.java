@@ -49,6 +49,12 @@ public class Order {
     /** 见 {@link OrderStatus}，库里存枚举名字符串 */
     private String status;
 
+    /** 下单异步补账失败原因：仅 CREATE_FAILED 时有值 */
+    private String createError;
+
+    /** CREATING 超时扫描重投次数（M31）；正常情况恒为 0 */
+    private Integer createAttempts;
+
     /** 以下是下单时的收货信息快照，用户改地址不影响历史订单 */
     private String receiver;
 

@@ -94,6 +94,10 @@ PowerShell 用 `./deploy.ps1`，参数相同；跳过演示数据用 `./deploy.p
   `AFTER_SALE_RETURN_CONFIRM_DAYS`（退货确认期，默认 7 天）、`AFTER_SALE_SCAN_INTERVAL_MS`
   （扫描间隔，默认 5 分钟）；`AFTER_SALE_SCAN_ENABLED=false` 可停掉自动处理。
   这是**扫描式**的，不需要 RabbitMQ。
+- `ORDER_CREATE_*`：下单异步补账 —— `ORDER_CREATE_ASYNC=false` 退回同步补账（联调/排障用）、
+  `ORDER_CREATE_TIMEOUT_SECONDS`（CREATING 超时，默认 120）、`ORDER_CREATE_SCAN_ENABLED`、
+  `ORDER_CREATE_MAX_REPUBLISH`（超时重投次数，默认 3）。异步模式依赖 RabbitMQ
+  （与超时关单共用同一实例，队列独立）。
 
 ## 从旧版本升级（图片绝对地址 → 相对路径）
 

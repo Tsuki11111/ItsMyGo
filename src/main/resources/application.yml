@@ -91,6 +91,14 @@ itsmygo:
     scan-enabled: ${ORDER_TIMEOUT_SCAN_ENABLED:true}
     scan-interval-ms: ${ORDER_TIMEOUT_SCAN_INTERVAL_MS:300000}
     scan-lock-ttl-seconds: ${ORDER_TIMEOUT_SCAN_LOCK_TTL_SECONDS:240}
+  # 下单异步补账（M31 / D1）：async=false 退回同步补账（测试/无 MQ 环境）
+  order-create:
+    async: ${ORDER_CREATE_ASYNC:true}
+    scan-enabled: ${ORDER_CREATE_SCAN_ENABLED:true}
+    creating-timeout-seconds: ${ORDER_CREATE_TIMEOUT_SECONDS:120}
+    scan-interval-ms: ${ORDER_CREATE_SCAN_INTERVAL_MS:60000}
+    scan-lock-ttl-seconds: ${ORDER_CREATE_SCAN_LOCK_TTL_SECONDS:240}
+    max-republish: ${ORDER_CREATE_MAX_REPUBLISH:3}
   # 售后（M30）：商家审核超时自动同意、退货超时自动确认收货；扫描式，无需 MQ
   after-sale:
     enabled: ${AFTER_SALE_SCAN_ENABLED:true}

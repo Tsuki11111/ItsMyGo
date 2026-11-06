@@ -29,6 +29,8 @@ const notFound = ref(false)
 const startingChat = ref(false)
 const logistics = ref<LogisticsView | null>(null)
 let logisticsTimer: number | undefined
+/** M31：订单「创建中」时轮询，补账完成（或失败）后停止 */
+let creatingTimer: number | undefined
 
 const order = computed(() => view.value?.order ?? null)
 const payable = computed(() => order.value?.status === 'PENDING_PAYMENT')
@@ -91,6 +93,7 @@ async function load() {
       .then((result) => result.records)
       .catch(() => [])
     startLogisticsPolling()
+    startCreatingPolling()
   } catch {
     // 不存在 / 不是自己的订单 —— 后端一律当「不存在」返回 404
     view.value = null
@@ -126,7 +129,32 @@ function startLogisticsPolling() {
   }, 30_000)
 }
 
-onBeforeUnmount(stopLogisticsPolling)
+/** 订单「创建中」时每秒刷新一次，补账结束（成功或失败）后停 */
+function stopCreatingPolling() {
+  if (creatingTimer) {
+    window.clearInterval(creatingTimer)
+    creatingTimer = undefined
+  }
+}
+
+function startCreatingPolling() {
+  stopCreatingPolling()
+  if (!order.value || order.value.status !== 'CREATING') return
+  creatingTimer = window.setInterval(async () => {
+    if (!order.value) return
+    try {
+      view.value = await fetchOrder(order.value.id)
+      if (order.value.status !== 'CREATING') stopCreatingPolling()
+    } catch {
+      // 刷新失败不打断页面
+    }
+  }, 1000)
+}
+
+onBeforeUnmount(() => {
+  stopLogisticsPolling()
+  stopCreatingPolling()
+})
 
 async function onPay() {
   if (!order.value) return
@@ -266,6 +294,22 @@ onMounted(load)
       </section>
 
       <!-- ── 收货信息 ── -->
+      <el-alert
+        v-if="order.status === 'CREATING'"
+        class="block"
+        type="info"
+        :closable="false"
+        show-icon
+        title="订单创建中，正在确认库存，请稍候（自动刷新）"
+      />
+      <el-alert
+        v-if="order.status === 'CREATE_FAILED'"
+        class="block"
+        type="error"
+        :closable="false"
+        show-icon
+        :title="order.createError || '订单创建失败，请重新下单'"
+      />
       <section class="block">
         <h2 class="block-title">收货信息</h2>
         <p class="line">

@@ -8,6 +8,8 @@
 export type OrderStatusTag = 'primary' | 'success' | 'warning' | 'info' | 'danger'
 
 const STATUS_MAP: Record<string, { label: string; tag: OrderStatusTag }> = {
+  CREATING: { label: '创建中', tag: 'info' },
+  CREATE_FAILED: { label: '创建失败', tag: 'danger' },
   PENDING_PAYMENT: { label: '待支付', tag: 'warning' },
   PAID: { label: '待发货', tag: 'primary' },
   SHIPPED: { label: '待收货', tag: 'primary' },
@@ -27,6 +29,8 @@ export function orderStatusTag(status: string): OrderStatusTag {
 
 /** 管理端筛选下拉用；管理端接口只接受单个状态名 */
 export const ORDER_STATUS_OPTIONS = [
+  { value: 'CREATING', label: '创建中' },
+  { value: 'CREATE_FAILED', label: '创建失败' },
   { value: 'PENDING_PAYMENT', label: '待支付' },
   { value: 'PAID', label: '待发货' },
   { value: 'SHIPPED', label: '待收货' },

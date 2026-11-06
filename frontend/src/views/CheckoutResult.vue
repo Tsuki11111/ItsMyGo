@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { fetchOrder, payOrder } from '@/api/order'
+import { orderStatusTag } from '@/utils/orderStatus'
 import type { OrderView } from '@/api/types'
 
 const route = useRoute()
@@ -11,6 +12,9 @@ const router = useRouter()
 const orders = ref<OrderView[]>([])
 const loading = ref(true)
 const payingId = ref<number | null>(null)
+/** M31：订单可能处于「创建中」，轮询到补账完成再允许支付 */
+const polling = ref(false)
+let pollTimer: number | undefined
 
 function ids(): number[] {
   const raw = route.query.ids
@@ -18,10 +22,44 @@ function ids(): number[] {
   return raw.split(',').map(Number).filter((id) => Number.isFinite(id) && id > 0)
 }
 
+function hasCreating(): boolean {
+  return orders.value.some((view) => view.order.status === 'CREATING')
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    window.clearInterval(pollTimer)
+    pollTimer = undefined
+  }
+  polling.value = false
+}
+
+async function refresh() {
+  try {
+    orders.value = await Promise.all(ids().map((id) => fetchOrder(id)))
+  } catch {
+    // 轮询失败不打断页面，下一轮再试
+  }
+}
+
+/** 有「创建中」订单时每 1 秒刷新，直到全部补账结束 */
+function startPolling() {
+  stopPolling()
+  if (!hasCreating()) return
+  polling.value = true
+  pollTimer = window.setInterval(async () => {
+    await refresh()
+    if (!hasCreating()) stopPolling()
+  }, 1000)
+}
+
+onBeforeUnmount(stopPolling)
+
 async function load() {
   loading.value = true
   try {
     orders.value = await Promise.all(ids().map((id) => fetchOrder(id)))
+    startPolling()
   } finally {
     loading.value = false
   }
@@ -65,8 +103,32 @@ onMounted(load)
           <p class="shop">{{ view.order.merchantName }}</p>
           <p class="order-no">{{ view.order.orderNo }}</p>
         </div>
-        <el-tag type="warning" size="small">{{ view.statusLabel }}</el-tag>
+        <el-tag :type="orderStatusTag(view.order.status)" size="small">
+          {{ view.statusLabel }}
+        </el-tag>
       </div>
+
+      <el-alert
+        v-if="view.order.status === 'CREATING'"
+        type="info"
+        :closable="false"
+        show-icon
+        title="订单创建中，正在确认库存，请稍候…"
+      />
+      <el-alert
+        v-if="view.order.status === 'CREATE_FAILED'"
+        type="error"
+        :closable="false"
+        show-icon
+        :title="view.order.createError || '订单创建失败，请重新下单'"
+      />
+      <el-alert
+        v-if="polling && orders.some((item) => item.order.status === 'CREATING')"
+        class="polling-hint"
+        type="info"
+        :closable="false"
+        title="正在确认订单状态，请勿关闭页面…"
+      />
 
       <div class="order-body">
         <span class="time">{{ formatTime(view.order.createdAt) }}</span>

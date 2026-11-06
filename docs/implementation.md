@@ -1884,10 +1884,63 @@ PENDING_REVIEW ─同意(仅退款)──────────> REFUNDED
 累计已退、支付流水未退）、整单退完（订单 REFUNDED + 流水 REFUNDED）、优惠等比分摊、
 退货退款全链路（待退货 → 退货中 → 确认收货）、未发货不能退货退款、驳回必填理由且可重新申请、
 撤销后可重新申请、同订单项超量被拒、他人不可见（404）、原因字典 CRUD 与重复编码拒绝。
-验证：全量 **265 条**通过；`npm run build` 通过。
+验证：全量 **265 条**通过；`npm run build` 通过。（M31 后总数已到 274，见 §3.36）
 
 > 另外顺手修了一条**既有的过时测试**：2026-11-05 图片同源化后 URL 变成相对路径，
 > 但 `StorageServiceTest` 仍断言绝对 URL；已改为「断言相对路径 + 直连 MinIO 时补主机」。
+
+---
+
+### 3.36 下单异步补账（M31 / D1，2026-11-06）
+
+**要解决的问题**：把下单响应路径里"可重试但耗时"的写操作移出去，同时不能出现
+"读己所写消失"（订单号立即可查）。做法是**半同步占位 + 异步补账**：
+
+```
+同步段（@Transactional create）：
+  校验令牌 / 地址 / 商品 / SKU / 店铺 / 券
+  → Redis 预扣（只扣 Redis，不再同步扣 DB 库存）
+  → INSERT orders(status=CREATING) + INSERT order_items（快照）
+  → async=true：事务提交后发 MQ；async=false：同一事务内直接 settle（降级旧行为）
+
+异步段（OrderSettlementServiceImpl.settle，一个事务）：
+  ① 先 CAS CREATING → PENDING_PAYMENT（抢到才继续；防重复消费双扣）
+  ② 按 SKU 汇总 DB 条件扣库存 + 商品汇总
+  ③ 占用券（条件更新）
+  ④ 按事件里的快照 ID 清购物车（不按"当前勾选"删，避免误删新加商品）
+  ⑤ 事务提交后发超时关单延迟消息
+  失败：事务回滚 → 消费端调 failCreation（CAS CREATING → CREATE_FAILED，
+        回补 Redis 预扣、回滚券、写 create_error）
+```
+
+**关键顺序**：`settle` 里**先 CAS 抢订单、再扣库存**。如果先扣库存后抢单，重复消费会各扣
+一次；先抢单后只有赢家扣。补账事务整体回滚时 CAS 也会撤销，不会留下"已待支付但没扣库存"。
+
+**MQ 拓扑**：`its-my-go-order-created-exchange` → `its-my-go-order-created-queue`（direct、
+durable），事件体 `{orderIds, cartItemIds}`；消费者不信任事件内容，以 DB 里 CREATING 订单为准。
+发送失败只记日志，由扫描兜底。
+
+**兜底扫描**：`OrderCreationScanJob`（`@Scheduled` + Redis 锁）找出 CREATING 超过
+`creating-timeout-seconds`（默认 120s）的订单：未超过重投次数就 `create_attempts+1` 重投事件，
+超过 `max-republish` 则 `failCreation`。`async=false`（测试/无 MQ）时直接 settle。
+
+**开关**：`itsmygo.order-create.async`（默认 true）、`scan-enabled`、`creating-timeout-seconds`、
+`scan-interval-ms`、`scan-lock-ttl-seconds`、`max-republish`；`.env` 里是 `ORDER_CREATE_*`。
+测试 profile 用 `async=false`，因此旧用例行为不变（下单后直接待支付）。
+
+**状态守卫**：`OrderStatus` 新增 `CREATING` / `CREATE_FAILED`（`cancellable()` 不含 CREATING，
+`payable` 仍只认 PENDING_PAYMENT）；`pay()` 对 CREATING / CREATE_FAILED 给明确文案；
+`cancel()` 对 CREATING 拒绝；超时关单查询仍只处理 PENDING_PAYMENT。
+
+**前端**：结算结果页与订单详情在 CREATING 时每秒轮询到补账结束；支付按钮只在
+PENDING_PAYMENT 出现；CREATE_FAILED 显示 `createError` 并提示重新下单。
+
+**测试**：`OrderAsyncCreationTest` 6 条（降级模式立即结算/扣库存、补账幂等、创建中不可支付 /
+不可取消、失败置 CREATE_FAILED 且不可支付）；`OrderCreatedConsumerTest` 3 条（正常消费、
+失败补偿后 reject、坏消息忽略）。全量 **274 条**通过。
+
+> 已知边界：事件至少一次、非严格一次；无 Outbox；最坏补账延迟 = 扫描间隔；
+> `async=false` 与异步是两条路径，都需要覆盖（见 architecture §7）。
 
 ---
 

@@ -37,4 +37,23 @@ public interface OrderMapper extends BaseMapper<Order> {
             WHERE id = #{id}
             """)
     int addRefundedAmount(@Param("id") Long id, @Param("amount") java.math.BigDecimal amount);
+
+    /** CREATING 超时扫描：找出超过指定秒数还没补账完成的占位订单。 */
+    @Select("""
+            SELECT * FROM orders
+            WHERE status = 'CREATING'
+              AND created_at <= DATE_SUB(NOW(), INTERVAL #{seconds} SECOND)
+            ORDER BY id
+            LIMIT #{limit}
+            """)
+    java.util.List<Order> selectCreatingBefore(@Param("seconds") int seconds,
+                                               @Param("limit") int limit);
+
+    /** CREATING 超时重投计数（同时作为扫描去重：只有 status 仍是 CREATING 才加）。 */
+    @Update("""
+            UPDATE orders
+            SET create_attempts = create_attempts + 1, updated_at = NOW()
+            WHERE id = #{id} AND status = 'CREATING'
+            """)
+    int incrementCreateAttempts(@Param("id") Long id);
 }
