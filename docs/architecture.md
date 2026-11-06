@@ -437,3 +437,14 @@ agent 工具 prepare（只生成草稿）→ Java 落 agent_actions（PENDING_CO
 > **已删除**（内容并入 `docs/requirements.md` / `docs/architecture.md`）；原 evolution-plan
 > §5 / §6 对应现 `docs/architecture.md` §4 与 `docs/requirements.md` §4，
 > `proto/agent.proto` 字段未变。
+
+**管理端代理三条线**（都不属于 gRPC 契约，新增时**不改 proto**，浏览器也不直连 agent）：
+
+| 管理域 | Java 端点 | rag_helper 端点 | 密钥 |
+|---|---|---|---|
+| 知识库导入 | `/api/admin/knowledge/**` | 8001 `/upload`、`/documents`、`/status` 等 | `AGENT_IMPORT_KEY` |
+| 智能体评测 | `/api/admin/agent-eval/**` | 8002 `/eval/**` | `AGENT_EVAL_KEY` |
+| 知识缺口（2026-11-06） | `/api/admin/knowledge-gaps/**` | 8001 `/knowledge-gaps*`（5 个） | `AGENT_IMPORT_KEY` |
+
+知识缺口的流程是「机器挖缺口 → **人工核实** → 发布入库」，rag_helper 侧的草稿接口只生成文本、
+不落库；发布复用既有导入链路，返回 `taskId` 后由平台用知识库页的进度接口轮询。

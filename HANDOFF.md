@@ -1435,6 +1435,35 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 
 ## 6. 历史记录
 
+### 2026-11-06 · 知识缺口管理端接入（代理 rag_helper）
+
+**背景**：rag_helper 当天落地「知识缺口闭环」——从线上 `no_match` / 仅靠联网的提问里挖缺口，
+生成 FAQ 草稿；它这侧没有页面，需要平台管理端提供入口。
+
+**后端**：
+- `AdminKnowledgeGapController`（`/api/admin/knowledge-gaps`，ADMIN）：列表、周报、生成草稿、
+  状态回写、发布；草稿限流 5 次/60s、发布 3 次/60s，写操作全部 `@AdminAudit`。
+- `KnowledgeGapClient` 复用 `itsmygo.knowledge.*`（rag_helper 8001 + `AGENT_IMPORT_KEY`），
+  读超时 3 分钟；DTO 在 `dto/knowledgegap/`。
+- **发布不新建导入通道**：草稿交给 rag_helper 的导入链路，返回 `taskId`，
+  进度沿用「知识库」页的 `GET /api/admin/knowledge/tasks/{taskId}`。
+
+**前端**：
+- 新增 `/admin/knowledge-gaps` 页（列表 / 周报 / 草稿弹窗 / 批量状态），菜单「知识缺口」。
+- 侧栏高亮改成**最长前缀匹配**：`/admin/knowledge-gaps` 也以 `/admin/knowledge` 开头，
+  原实现会把「知识缺口」高亮成「知识库」。
+
+**验证**：后端 `-DskipTests compile` / `test-compile` 通过；前端 `npm run type-check` 通过。
+`AdminKnowledgeGapControllerTest` 新增 4 条（管理员列表/周报/草稿/状态、发布返回 taskId 且空
+Markdown 被拒、非法参数不触达 agent、顾客 403）。
+**本机没跑全量测试**：MySQL / Docker 未启动，Spring 上下文起不来（与本次改动无关）——
+需要在有依赖的机器上补跑 `./mvnw test` 与真实联调（起 rag_helper 8001 后点一轮
+「生成草稿 → 发布 → 知识库看 taskId 进度」）。
+
+**契约**：不涉及 gRPC；`proto/agent.proto` 未改。文档同步见
+`docs/api.md` §17.12.1 / §20、`docs/architecture.md` §9、`docs/implementation.md` §3.37、
+`docs/requirements.md` §2.3。
+
 ### 2026-11-06 · 新标签页策略回补（旁支新开、主流程同页）
 
 **背景**：11-05 因“点每个按钮都新开”把 17 处站内 `_blank` 一刀切全删；用户反馈

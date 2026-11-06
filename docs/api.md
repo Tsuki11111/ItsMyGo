@@ -1014,6 +1014,27 @@ Authorization: Bearer <token>
 - 上传 / 撤回写 `admin_audit_logs`（`KNOWLEDGE_UPLOAD` / `KNOWLEDGE_REVOKE`）；
   上传限流 5 次/60s/用户。撤回不可恢复。
 
+### 17.12.1 知识缺口（2026-11-06）
+
+Java 只做**鉴权代理**，缺口聚合、聚类、周报与 FAQ 草稿都在 rag_helper 的 8001 执行。
+草稿**不会自动入库**：必须人工核实后调 `/publish` 才进知识库。
+
+| 方法 | 路径 | 请求/参数 | 返回 |
+|---|---|---|---|
+| GET | `/api/admin/knowledge-gaps` | `days=7`（1–90）、`minCount=1`（1–1000） | `KnowledgeGapListView`（按频次降序） |
+| GET | `/api/admin/knowledge-gaps/report` | `days=7` | `KnowledgeGapReportView`（Markdown） |
+| POST | `/api/admin/knowledge-gaps/draft` | `{gapIds[], days?, title?}`（1–20 个缺口） | `KnowledgeGapDraftView`（**不入库**） |
+| POST | `/api/admin/knowledge-gaps/status` | `{gapIds[], status, note?}` | `{updated, status}` |
+| POST | `/api/admin/knowledge-gaps/publish` | `{title, markdown, gapIds[]?}` | `{taskId, fileTitle, statusUpdated, note}` |
+
+- 仅 ADMIN；`status` 取 `pending|published|resolved|ignored`。
+- `KnowledgeGapView`：`gapId/question/count/firstAt/lastAt/products[]/local/web/status/statusNote`；
+  `gapId` 由 rag_helper 对归一化问题算出，**状态回写必须原样回传**。
+- 草稿生成走一次模型调用（限流 5 次/60s/用户）；发布走导入链路（限流 3 次/60s/用户），
+  返回的 `taskId` 用 `GET /api/admin/knowledge/tasks/{taskId}` 查导入进度。
+- 草稿必须一级标题开头；同一草稿重复发布会 409（按内容哈希去重）。
+- 草稿生成 / 发布 / 状态回写都写 `admin_audit_logs`（`KNOWLEDGE_GAP_*`）。
+
 ### 17.13 管理员邀请
 
 | 方法 | 路径 | 请求/参数 | 返回 |
@@ -1433,6 +1454,8 @@ refundReason, refundAppliedAt, note}`。
 | 启动智能体评测 | `POST /api/admin/agent-eval/runs` | 3 次/60s | 用户 |
 | 新建评测用例 | `POST /api/admin/agent-eval/cases` | 10 次/60s | 用户 |
 | 知识库上传 | `POST /api/admin/knowledge/upload` | 5 次/60s | 用户 |
+| 知识缺口草稿 | `POST /api/admin/knowledge-gaps/draft` | 5 次/60s | 用户 |
+| 知识缺口发布 | `POST /api/admin/knowledge-gaps/publish` | 3 次/60s | 用户 |
 | 申请售后 | `POST /api/after-sales` | 10 次/60s | 用户 |
 | 售后凭证上传 | `POST /api/after-sales/evidence` | 10 次/60s | 用户 |
 

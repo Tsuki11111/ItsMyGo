@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ChatDotRound, ChatLineRound, Collection, DataAnalysis, DataBoard, Discount, Document, Goods, Key, Menu as MenuIcon, RefreshLeft, Shop, Tickets, User } from '@element-plus/icons-vue'
+import { Aim, ChatDotRound, ChatLineRound, Collection, DataAnalysis, DataBoard, Discount, Document, Goods, Key, Menu as MenuIcon, RefreshLeft, Shop, Tickets, User } from '@element-plus/icons-vue'
 import { useChatStore } from '@/stores/chat'
 import { useUserStore } from '@/stores/user'
 
@@ -23,15 +23,19 @@ const MENU = [
   { path: '/admin/coupons', label: '优惠券管理', icon: Discount },
   { path: '/admin/reviews', label: '评价管理', icon: ChatDotRound },
   { path: '/admin/knowledge', label: '知识库', icon: Collection },
+  { path: '/admin/knowledge-gaps', label: '知识缺口', icon: Aim },
   { path: '/admin/agent-eval', label: '智能体评测', icon: DataAnalysis },
   { path: '/admin/invitations', label: '管理员邀请', icon: Key },
   { path: '/admin/audit-logs', label: '操作审计', icon: Document },
 ]
 
-/** 子路由激活时高亮对应菜单；/admin 本身由路由 redirect 兜住 */
+/** 子路由激活时高亮对应菜单；/admin 本身由路由 redirect 兜住。
+ *  取「匹配到的最长前缀」—— /admin/knowledge-gaps 也以 /admin/knowledge 开头，
+ *  不按长度取就会把知识缺口高亮成知识库。 */
 const activeMenu = computed(() => {
-  const hit = MENU.find((item) => route.path.startsWith(item.path))
-  return hit?.path ?? '/admin/dashboard'
+  const hits = MENU.filter((item) => route.path.startsWith(item.path))
+  hits.sort((a, b) => b.path.length - a.path.length)
+  return hits[0]?.path ?? '/admin/dashboard'
 })
 
 function logout() {

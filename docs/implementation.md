@@ -1946,6 +1946,35 @@ PENDING_PAYMENT 出现；CREATE_FAILED 显示 `createError` 并提示重新下�
 > 已知边界：事件至少一次、非严格一次；无 Outbox；最坏补账延迟 = 扫描间隔；
 > `async=false` 与异步是两条路径，都需要覆盖（见 architecture §7）。
 
+### 3.37 知识缺口管理端（2026-11-06）
+
+**目标**：把线上「答不上来」的问题（rag_helper 侧 `no_match` / 仅靠联网）变成可运营的补知识
+流程：看缺口 → 生成 FAQ 草稿 → 人工核实 → 发布入库 → 标记 resolved。
+
+**后端**：
+- `AdminKnowledgeGapController`（`/api/admin/knowledge-gaps`，ADMIN）：列表、周报、生成草稿、
+  状态回写、发布。草稿生成限流 5 次/60s/用户、发布 3 次/60s/用户；写操作全部 `@AdminAudit`。
+- `KnowledgeGapClient`：复用 `itsmygo.knowledge.*`（8001 + `AGENT_IMPORT_KEY`），
+  `RestClient` + JDK `HttpClient`，读超时 3 分钟（草稿要调模型、周报可能算 embedding）。
+  非 2xx 转 `BizException`：400/409 → BAD_REQUEST、404 → NOT_FOUND、其余 INTERNAL_ERROR。
+- DTO 在 `dto/knowledgegap/`：列表项、周报、草稿请求/响应、状态请求/响应、发布请求/响应。
+  草稿与发布请求用 Bean Validation（缺口数、标题长度、状态枚举、草稿非空）。
+
+**前端**：
+- `/admin/knowledge-gaps` 页面：统计区间（7/14/30 天）与最小频次过滤、多选；
+  表格列：问题 / 产品 / 频次 / 本地与联网条数 / 最近出现 / 状态；
+  操作：单行或批量「生成草稿」「标记已补」「不处理」，以及「生成周报」弹层。
+- 草稿弹窗：标题 + 可编辑 Markdown + 红色提示「必须人工核实」；
+  「核实完毕，发布入库」后展示 taskId，并提示到「知识库」页看导入进度。
+- 菜单新增「知识缺口」（路由 `/admin/knowledge-gaps`）；侧栏高亮改为**最长前缀匹配**，
+  否则 `/admin/knowledge-gaps` 会被高亮成「知识库」。
+
+**验证**：`AdminKnowledgeGapControllerTest` 4 条（管理员列表/周报/草稿/状态、
+发布返回 taskId 且空 Markdown 被拒、非法参数不触达 agent、顾客 403）；
+`./mvnw -q -DskipTests test-compile` 通过、前端 `npm run type-check` 通过。
+**未跑全量测试**：本机 MySQL / Docker 未启动，Spring 上下文起不来（与本次改动无关），
+需在有依赖的机器上补跑 `./mvnw test` 与真实联调。
+
 ---
 
 ## 4. 前端（`frontend/`）

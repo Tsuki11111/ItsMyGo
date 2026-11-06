@@ -104,8 +104,8 @@ export function get<T>(
   return request<T>({ url, method: 'GET', params, timeout })
 }
 
-export function post<T>(url: string, data?: unknown): Promise<T> {
-  return request<T>({ url, method: 'POST', data })
+export function post<T>(url: string, data?: unknown, timeout = 15000): Promise<T> {
+  return request<T>({ url, method: 'POST', data, timeout })
 }
 
 /**
