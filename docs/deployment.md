@@ -163,7 +163,7 @@ agent 通过 `its-my-go-backend:8080` 回调 Java。停止两套：`./deploy.sh 
 - 联合部署的 agent 地址用 `RAG_*` 前缀变量（`RAG_AGENT_GRPC_TARGET=rag-agent:8003`、
   `RAG_AGENT_IMPORT_URL=http://rag-import:8001`、`RAG_AGENT_EVAL_URL=http://rag-chat:8002`），
   本地调试用的 `AGENT_GRPC_TARGET=127.0.0.1:8003` 不会进容器。
-- 数据库 schema 由 Flyway 在启动时迁到最新（当前 v31）；数据在命名卷
+- 数据库 schema 由 Flyway 在启动时迁到最新（当前 v32）；数据在命名卷
   `its-my-go-mysql-data` 里，**`./deploy.sh reset` 会删卷**，在 VM 上别随手跑。
 - **发版流程**（VM 拉不到 Hub，镜像必须在开发机打好再传）：
   1. 开发机：`docker compose build backend frontend`（或本地离线打包 jar 后构建运行时镜像），

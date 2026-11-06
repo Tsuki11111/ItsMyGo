@@ -59,7 +59,7 @@ CI 跑 270 条（跳过 4 条依赖 MinIO 的用例）。数据库 schema 到 **
 - **部署**：`./deploy.sh` 一键全栈；`rag_helper/deploy.sh joint` 联合部署；
   生产是**内网 VM**（静态 IP、离线镜像包、图片同源），缺口见
   [docs/deployment.md](docs/deployment.md)。**2026-11-05 晚已重建镜像并上线 M30**；
-  **2026-11-06 M31 已实现**（后端 + 前端），待后续发版上线（VM 仍是上一版镜像）。
+  **2026-11-06 M31 已上线生产**（重建镜像 + Flyway 已迁到 v32 + 真实 MQ 链路验收通过）。
 - **体验与合规**：品牌专区 / 缩略图、四份平台政策（协议 / 隐私 / 售后 / 商家规范）、
   2026-11-02 首次压测（读接口 2600–3500 QPS、并发不超卖、支付幂等）、
   2026-11-05 图片地址同源化（换 IP 不再裂图）。
@@ -1434,6 +1434,28 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 以后遇到“本地明明有镜像但 compose 还要拉”，先用 `docker images | grep <name>` 看 tag 前缀。
 
 ## 6. 历史记录
+
+### 2026-11-06 · 生产上线 M31（下单异步补账）
+
+**操作**：本地重建 `its-my-go-backend:local` / `frontend:local`（M31 代码）→ `docker save`
+205.9MB → scp 到 VM → 删旧镜像后 `docker load` → 在 `~/itsmygo-offline/ItsMyGo` 用
+`docker compose -f docker-compose.yml -f docker-compose.offline.yml up -d --no-build --pull never`
+启动 ItsMyGo 全栈，再启动 rag_helper 全栈；`.env` 补 `ORDER_CREATE_ASYNC=true` /
+`ORDER_CREATE_SCAN_ENABLED=true`（不补也会走默认值）。
+
+**生产验收（VM 上实测）**：
+
+- Flyway 最新 `32 order async creation`（success=1），`31 after sale` 等历史正常；
+- RabbitMQ 三组队列就位：`order-created` / `order-timeout-delay` / `order-timeout-work`；
+- 健康检查：`8088` 200、`8080/api/health` 200、`8002/health` 200；
+- **真实下单链路（async=true）**：`POST /api/orders` 返回 `CREATING`（创建中）→ 轮询约 1s
+  变 `PENDING_PAYMENT`；库存 38→37；取消订单后状态 `CANCELLED`、库存回补 37→38；
+- 取消后 `order-timeout-delay-queue` 仍保留 1 条延迟消息（下单时补账后发出，属预期）；
+  `order-created-queue` 0 ready / 0 unacked（已消费）。
+- 全部容器 healthy，VM 磁盘 2.8G 可用。
+
+**说明**：验收用 `testuser` 创建了 1 个地址和 1 张已取消订单（订单 791），库存已回补；
+生产数据卷未清空。发版过程用 RAG helper 原有镜像，未重建 agent。
 
 ### 2026-11-06 · 下单异步补账（M31 / D1：半同步占位 + MQ 补账）
 
