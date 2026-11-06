@@ -139,7 +139,7 @@ cd ../rag_helper && ./deploy.sh joint
 
 **平台政策**：用户协议、隐私政策、退换货与售后政策、商家入驻与经营规范；正式文本在 [docs/policies/](docs/policies/)，顾客端页脚与注册页可直达，内容与代码实际行为一致（模拟支付、不支持换货、无自助注销等）。
 
-**测试**：本地 265 条；CI 跳过 4 条依赖 MinIO 的用例，跑 261 条；测试库 / Redis db 与开发隔离。
+**测试**：本地 265 条（`npm test` 或 `./mvnw test`）；CI 跳过 4 条依赖 MinIO 的用例，跑 261 条；测试库 / Redis db 与开发隔离。
 
 **压力测试**（2026-11-02，本机同机）：商品列表 / 详情 2600–3500 QPS，分类 / 令牌 / 布隆过滤器 7000+ QPS，全程零失败、Full GC 0 次；10 并发抢 5 件库存恰好 5 单成功（不超卖）；同一订单 5 并发支付只产生 1 条支付记录。基线与复现方法见 [HANDOFF §4.8](HANDOFF.md)。
 
@@ -155,8 +155,19 @@ cd ../rag_helper && ./deploy.sh joint
 cd frontend && npm run dev     # 另开终端
 ```
 
+也可以在**仓库根**用 npm 转发（零依赖，脚本会自动选平台对应的命令）：
+
+```bash
+npm run dev:api                # = ./mvnw spring-boot:run（Windows 自动用 mvnw.cmd）
+npm run dev                    # 另开终端，= cd frontend && npm run dev
+npm run build                  # 前端生产构建 + 后端 jar（跳过测试）
+npm run type-check             # 前端 vue-tsc
+npm test                       # = ./mvnw test（后端全量）
+```
+
 打开 `http://localhost:5173`，演示账号 `testuser` / `123456`。
 中间件、RabbitMQ、客服智能体、管理员开通等完整清单见 [start.txt](start.txt)。
+根目录 npm 脚本只是转发，真正的命令仍在 `mvnw` / `frontend/package.json` / `deploy.sh`。
 
 ## 文档
 

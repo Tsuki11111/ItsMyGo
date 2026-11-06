@@ -228,7 +228,7 @@ frontend/
 **启动**（后端要同时跑着）：
 
 ```bash
-npm run dev          # → http://localhost:5173
+npm run dev          # → http://localhost:5173（在 frontend/ 下；仓库根也有同名转发脚本）
 ```
 
 **演示账号**：`testuser` / `123456`（顾客）
@@ -1418,6 +1418,27 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 用 Node 读写才安全。
 
 ## 6. 历史记录
+
+### 2026-11-05 晚 · 补齐根目录 npm 常用脚本（dev / build / test / type-check）
+
+**背景**：上一轮只加了 `npm run deploy`，用户追问其他 npm 脚本。
+
+**改动**（仍然零 npm 依赖，只做转发）：
+
+- `package.json` 新增：`dev`（= `npm --prefix frontend run dev`）、`dev:api`
+  （= `./mvnw spring-boot:run`）、`build`（= `build:web` + `build:api` 串行）、
+  `build:web`、`build:api`（= `mvnw -Dmaven.test.skip=true package`）、`type-check`、
+  `preview`、`test`（= `./mvnw test`）；
+- 新增 `scripts/mvn.mjs`：跨平台 Maven 转发——Windows 用 `cmd /c mvnw.cmd`，
+  Linux/macOS 用 `./mvnw`，参数与退出码原样透传（`-Dmaven.test.skip=true` 这类参数不会被
+  shell 吃掉）；
+- README「本地开发」补根目录命令块、测试口径加 `npm test`；deployment.md 命令表补一句
+  指路；HANDOFF 前端「启动」注明根目录有同名转发脚本。
+
+**验证**：`node scripts/mvn.mjs -v` exit 0 且输出版本；错误参数 exit 1；
+`npm run build:web` exit 0；`npm run type-check` exit 0；`npm run deploy:help` exit 0。
+`npm test` 未实跑（Docker 已全部关闭，后端测试需要 MySQL/Redis/MinIO），
+但转发链路与 Maven 包装器已单独验证；`npm run dev` 是长驻进程，未做端到端启动验证。
 
 ### 2026-11-05 晚 · 增加 npm 部署入口（仓库根 `package.json`）
 

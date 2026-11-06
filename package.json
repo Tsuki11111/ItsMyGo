@@ -2,11 +2,19 @@
   "name": "its-my-go",
   "version": "0.1.0",
   "private": true,
-  "description": "ItsMyGo 根目录入口：npm 只做部署转发，实际逻辑在 deploy.sh / deploy.ps1",
+  "description": "ItsMyGo 仓库根入口：npm 只做转发（部署走 deploy.sh / deploy.ps1，构建测试走 Maven 与 frontend）",
   "engines": {
     "node": ">=18"
   },
   "scripts": {
+    "dev": "npm --prefix frontend run dev",
+    "dev:api": "node scripts/mvn.mjs spring-boot:run",
+    "build": "npm run build:web && npm run build:api",
+    "build:web": "npm --prefix frontend run build",
+    "build:api": "node scripts/mvn.mjs -Dmaven.test.skip=true package",
+    "type-check": "npm --prefix frontend run type-check",
+    "preview": "npm --prefix frontend run preview",
+    "test": "node scripts/mvn.mjs test",
     "deploy": "node scripts/npm-deploy.mjs",
     "deploy:up": "node scripts/npm-deploy.mjs up",
     "deploy:down": "node scripts/npm-deploy.mjs down",

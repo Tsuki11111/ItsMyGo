@@ -61,6 +61,9 @@ PowerShell 用 `./deploy.ps1`，参数相同；跳过演示数据用 `./deploy.p
 依赖只有 Node 本身，没有 npm 依赖（`npm install` 都不需要）；退出码与底层脚本一致，
 `status` / `logs` 在 Docker 没启动时会明确报错（bash 与 PowerShell 行为已对齐）。
 
+> 根目录 npm 还提供了开发/构建/测试转发：`npm run dev`、`dev:api`、`build`（=前端+后端 jar）、
+> `type-check`、`test`（=`./mvnw test`）。它们不涉及 Docker，详见 README「本地开发」。
+
 ## 端口
 
 | 服务 | 默认端口 | `.env` 变量 |
