@@ -94,6 +94,16 @@ class AdminKnowledgeGapControllerTest extends ApiTestBase {
                 new KnowledgeGapPublishView("task-1", "产品使用 FAQ", true, "已进入导入流程"));
         String admin = adminToken("adm" + System.nanoTime());
 
+        // 先测非法请求：空 Markdown 在 Java 侧就被挡，不该触达 agent
+        mockMvc.perform(post("/api/admin/knowledge-gaps/publish")
+                        .header("Authorization", bearer(admin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"title":"产品使用 FAQ","markdown":""}
+                                """))
+                .andExpect(jsonPath("$.code").value(400));
+        verifyNoInteractions(gapClient);
+
         mockMvc.perform(post("/api/admin/knowledge-gaps/publish")
                         .header("Authorization", bearer(admin))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -105,15 +115,6 @@ class AdminKnowledgeGapControllerTest extends ApiTestBase {
                 .andExpect(jsonPath("$.data.taskId").value("task-1"))
                 .andExpect(jsonPath("$.data.statusUpdated").value(true));
         verify(gapClient).publish(any(KnowledgeGapPublishRequest.class));
-
-        mockMvc.perform(post("/api/admin/knowledge-gaps/publish")
-                        .header("Authorization", bearer(admin))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"title":"产品使用 FAQ","markdown":""}
-                                """))
-                .andExpect(jsonPath("$.code").value(400));
-        verifyNoInteractions(gapClient);
     }
 
     @Test

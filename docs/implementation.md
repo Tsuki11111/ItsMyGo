@@ -1971,9 +1971,10 @@ PENDING_PAYMENT 出现；CREATE_FAILED 显示 `createError` 并提示重新下�
 
 **验证**：`AdminKnowledgeGapControllerTest` 4 条（管理员列表/周报/草稿/状态、
 发布返回 taskId 且空 Markdown 被拒、非法参数不触达 agent、顾客 403）；
-`./mvnw -q -DskipTests test-compile` 通过、前端 `npm run type-check` 通过。
-**未跑全量测试**：本机 MySQL / Docker 未启动，Spring 上下文起不来（与本次改动无关），
-需在有依赖的机器上补跑 `./mvnw test` 与真实联调。
+**全量测试 278 条通过**（`./mvnw test`，2026-11-06 本机 MySQL / Redis / MinIO / RabbitMQ 起来后）；
+`./mvnw -q -DskipTests test-compile` 通过、前端 `npm run type-check` 与 `npm run build` 通过。
+rag_helper 8001 侧已单独验证「列表 → 周报 → 草稿 → 状态 → 发布 → 导入完成」全链路，
+平台页面的真实点击联调仍待在有联合栈的环境里补一次。
 
 ---
 

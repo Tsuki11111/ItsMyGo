@@ -1453,12 +1453,13 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 - 侧栏高亮改成**最长前缀匹配**：`/admin/knowledge-gaps` 也以 `/admin/knowledge` 开头，
   原实现会把「知识缺口」高亮成「知识库」。
 
-**验证**：后端 `-DskipTests compile` / `test-compile` 通过；前端 `npm run type-check` 通过。
+**验证**：后端 `-DskipTests compile` / `test-compile` 通过；前端 `npm run type-check`、`npm run build` 通过。
 `AdminKnowledgeGapControllerTest` 新增 4 条（管理员列表/周报/草稿/状态、发布返回 taskId 且空
 Markdown 被拒、非法参数不触达 agent、顾客 403）。
-**本机没跑全量测试**：MySQL / Docker 未启动，Spring 上下文起不来（与本次改动无关）——
-需要在有依赖的机器上补跑 `./mvnw test` 与真实联调（起 rag_helper 8001 后点一轮
-「生成草稿 → 发布 → 知识库看 taskId 进度」）。
+**全量测试 278 条通过**（2026-11-06 本机 Docker 起 MySQL / Redis / MinIO / RabbitMQ 后跑
+`./mvnw test`，首次跑时新用例里 `verifyNoInteractions` 用错顺序已修）。
+rag_helper 8001 侧已单独验证「列表 → 周报 → 草稿 → 状态 → 发布 → 导入完成」；平台页面
+真实点击联调仍待有联合栈时补一次。
 
 **契约**：不涉及 gRPC；`proto/agent.proto` 未改。文档同步见
 `docs/api.md` §17.12.1 / §20、`docs/architecture.md` §9、`docs/implementation.md` §3.37、
