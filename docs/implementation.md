@@ -1939,6 +1939,10 @@ PENDING_PAYMENT 出现；CREATE_FAILED 显示 `createError` 并提示重新下�
 不可取消、失败置 CREATE_FAILED 且不可支付）；`OrderCreatedConsumerTest` 3 条（正常消费、
 失败补偿后 reject、坏消息忽略）。全量 **274 条**通过。
 
+**真实联调（2026-11-06）**：本机 RabbitMQ 上以 `async=true` 下单，响应 `CREATING` →
+~1s 内 `PENDING_PAYMENT`，库存正确扣减，订单创建队列消费干净，延迟关单队列收到消息，
+随后支付成功。队列 / 绑定见 HANDOFF §6 M31 条目。
+
 > 已知边界：事件至少一次、非严格一次；无 Outbox；最坏补账延迟 = 扫描间隔；
 > `async=false` 与异步是两条路径，都需要覆盖（见 architecture §7）。
 

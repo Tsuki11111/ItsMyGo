@@ -1418,7 +1418,20 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 `fs.writeFileSync(p, '\uFEFF' + s.replace(/^\uFEFF/, ''), 'utf8')`。
 同理，别用 PowerShell 5.1 的 `Get-Content`/`Set-Content -Encoding UTF8` 直接读写
 含中文的 UTF-8 文件（会读成 ANSI 再写回，整片乱码）—— 2026-11-05 改 App.vue 时踩过一次，
-用 Node 读写才安全。
+用 Node 读写才安全。**同样适用于临时 `.ps1` 脚本**：用 write 工具生成的无 BOM 脚本交给
+`powershell -File` 跑，中文会乱码甚至报语法错误；测试脚本要么写成纯 ASCII，要么自己补 BOM。
+
+### 5.41 ★ RabbitMQ 镜像被打了镜像站前缀，compose 以为本地没有（2026-11-06 踩到）
+
+**现象**：`docker compose up -d rabbitmq` 去 Docker Hub 拉 `rabbitmq:4-management`，
+遇到 `EOF` 失败，一度误判为“本机没有 RabbitMQ、无法真实联调”。
+
+**实际原因**：本地早就有镜像，但 tag 是 `hub.rat.dev/library/rabbitmq:4-management`
+（当初通过镜像站拉的），compose 里写的是 `rabbitmq:4-management`，tag 不匹配 → 触发拉取。
+
+**修复**：`docker tag hub.rat.dev/library/rabbitmq:4-management rabbitmq:4-management`，
+再 `docker start mysql redis minio its-my-go-rabbitmq` 即可（容器与命名卷本来就还在）。
+以后遇到“本地明明有镜像但 compose 还要拉”，先用 `docker images | grep <name>` 看 tag 前缀。
 
 ## 6. 历史记录
 
@@ -1453,9 +1466,19 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
    AgentAction 下单测试拿到错误状态；已在同步分支同步占位实体状态。
 
 **验证**：全量 **274 条**测试通过（`OrderAsyncCreationTest` 6 条 + `OrderCreatedConsumerTest`
-3 条）；前端 `npm run build` 通过。**未连真实 RabbitMQ 跑端到端**（本机 RabbitMQ 镜像拉取失败；
-异步链路用消费端单测 + 补偿单测覆盖，扫描/发送在 `async=false` 下不进链路）。上线前需在
-VM 上重建镜像并做一次真实 MQ 联调（含 Flyway V32 迁移）。
+3 条）；前端 `npm run build` 通过。
+
+**真实 RabbitMQ 端到端（2026-11-06 补测）**：本机 `its-my-go-rabbitmq` 启动后以 `async=true`
+跑真实链路，结果：
+- 下单响应 `status=CREATING / statusLabel=创建中`；
+- 轮询 ~1s 内变 `PENDING_PAYMENT`，库存 38→37；
+- 队列 `its-my-go-order-created-queue` 消费干净（0 ready / 0 unacked），
+  `its-my-go-order-created-exchange → order-created` 绑定正确；
+- 补账提交后 `its-my-go-order-timeout-delay-queue` 出现 1 条延迟消息（证明“先补账、再发关单”）；
+- 随后支付成功，状态 `PAID`。
+
+> 排障插曲：最初以为本机没有 RabbitMQ 镜像，实际是镜像 tag 带了镜像站前缀
+> （见 §5.41）；补 tag 后即可联调。上线前仍需在 VM 上重建镜像并跑一次同样的链路。
 
 ### 2026-11-05 晚 · 补齐根目录 npm 常用脚本（dev / build / test / type-check）
 
