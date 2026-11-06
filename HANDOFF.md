@@ -1458,8 +1458,12 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 Markdown 被拒、非法参数不触达 agent、顾客 403）。
 **全量测试 278 条通过**（2026-11-06 本机 Docker 起 MySQL / Redis / MinIO / RabbitMQ 后跑
 `./mvnw test`，首次跑时新用例里 `verifyNoInteractions` 用错顺序已修）。
-rag_helper 8001 侧已单独验证「列表 → 周报 → 草稿 → 状态 → 发布 → 导入完成」；平台页面
-真实点击联调仍待有联合栈时补一次。
+rag_helper 8001 侧已单独验证「列表 → 周报 → 草稿 → 状态 → 发布 → 导入完成」。
+**平台页面真实点击联调（2026-11-06）**：本地起 MySQL/Redis/MinIO/RabbitMQ + rag_helper 8001
++ 本仓库后端 8080 + 前端 5173，用 Edge headless + CDP 真实点击：
+登录 → `/admin/knowledge-gaps` 列出缺口 → 行内「草稿」（真实模型，返回带「待人工核实」）→
+「发布入库」→ 到「知识库」页刷新确认文档已入库。5 项断言 4 通过；唯一未匹配的是
+页面上 taskId 提示文案被截断的断言（接口与落库均已验证，非功能问题）。测试数据已撤回/清理。
 
 **契约**：不涉及 gRPC；`proto/agent.proto` 未改。文档同步见
 `docs/api.md` §17.12.1 / §20、`docs/architecture.md` §9、`docs/implementation.md` §3.37、

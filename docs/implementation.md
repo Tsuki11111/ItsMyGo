@@ -1973,8 +1973,9 @@ PENDING_PAYMENT 出现；CREATE_FAILED 显示 `createError` 并提示重新下�
 发布返回 taskId 且空 Markdown 被拒、非法参数不触达 agent、顾客 403）；
 **全量测试 278 条通过**（`./mvnw test`，2026-11-06 本机 MySQL / Redis / MinIO / RabbitMQ 起来后）；
 `./mvnw -q -DskipTests test-compile` 通过、前端 `npm run type-check` 与 `npm run build` 通过。
-rag_helper 8001 侧已单独验证「列表 → 周报 → 草稿 → 状态 → 发布 → 导入完成」全链路，
-平台页面的真实点击联调仍待在有联合栈的环境里补一次。
+rag_helper 8001 侧已单独验证「列表 → 周报 → 草稿 → 状态 → 发布 → 导入完成」全链路。
+**页面联调（2026-11-06）**：本地起依赖 + 后端 8080 + 前端 5173，用 Edge headless + CDP
+真实点击 `/admin/knowledge-gaps` 完成「生成草稿 → 发布 → 知识库页确认入库」；测试数据已撤回。
 
 ---
 
