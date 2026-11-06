@@ -92,6 +92,8 @@ onBeforeUnmount(() => badgeStore.stopPolling())
           v-if="userStore.isLoggedIn"
           :to="userStore.isAdmin ? '/admin/messages' : '/user/messages'"
           class="link badge-link"
+          target="_blank"
+          rel="noopener"
         >
           <el-icon><ChatDotRound /></el-icon>
           <el-badge
@@ -158,6 +160,8 @@ onBeforeUnmount(() => badgeStore.stopPolling())
                 <RouterLink
                   :to="userStore.isAdmin ? '/admin/messages' : '/user/messages'"
                   class="panel-item"
+                  target="_blank"
+                  rel="noopener"
                   @click="panelOpen = false"
                 >
                   <el-icon><ChatDotRound /></el-icon>
@@ -203,6 +207,8 @@ onBeforeUnmount(() => badgeStore.stopPolling())
                   <RouterLink
                     to="/admin"
                     class="panel-item"
+                    target="_blank"
+                    rel="noopener"
                     @click="panelOpen = false"
                   >
                     <el-icon><Setting /></el-icon>管理后台
@@ -212,6 +218,8 @@ onBeforeUnmount(() => badgeStore.stopPolling())
                   <RouterLink
                     to="/merchant/profile"
                     class="panel-item"
+                    target="_blank"
+                    rel="noopener"
                     @click="panelOpen = false"
                   >
                     <el-icon><Shop /></el-icon>商家后台
@@ -221,6 +229,8 @@ onBeforeUnmount(() => badgeStore.stopPolling())
                   <RouterLink
                     to="/merchant/apply"
                     class="panel-item"
+                    target="_blank"
+                    rel="noopener"
                     @click="panelOpen = false"
                   >
                     <el-icon><Shop /></el-icon>商家入驻
