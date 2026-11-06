@@ -107,6 +107,7 @@ npm 入口的完整命令见 [docs/deployment.md](docs/deployment.md#命令)。
 
 ```bash
 cd ../rag_helper && ./deploy.sh joint
+# 或在 rag_helper 根用 npm（零依赖转发）：npm run deploy:joint
 ```
 
 端口、环境变量、手工 Compose、镜像源等问题见 [docs/deployment.md](docs/deployment.md)。
