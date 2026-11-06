@@ -104,21 +104,34 @@ MyBatis-Plus 分页插件拆包、`spring-boot-starter-aspectj` 改名。详见 
 | RabbitMQ | 5672 / 15672 | 本项目自有（`its-my-go-rabbitmq`） |
 | agent（rag_helper） | 8001 / 8002 / 8003 | 导入 / HTTP·评测 / gRPC；联合部署时走 `rag-*` 别名 |
 
-### 3.2 一次下单的数据流
+### 3.2 一次下单的数据流（M31 起目标形态：D1 半同步占位 + 异步补账）
+
+> M31 之前是单事务同步链路（Redis 预扣 + DB 扣库存 + 订单/明细/券落库一起提交）。
+> 下面的两段式是 M31 的目标设计，实现进度见 [HANDOFF.md](../HANDOFF.md) §6；
+> `itsmygo.order-create.async=false` 时退回同步补账，行为与旧链路一致。
 
 ```
 浏览器 → POST /api/orders（带提交令牌）
+  ── 同步段（一个事务）──
   → Security：JWT → AuthIdentityService 推导 role/merchantId
-  → OrderService：校验令牌（原子消费）→ 校验商品/库存/券 → 按 store 分组拆单
+  → OrderService：校验令牌 → 校验商品/SKU/店铺/券 → 按 store 分组拆单
       → StockService：Redis Lua 预扣（挡流量）
-      → DB：UPDATE product_skus SET stock = stock - ? WHERE stock >= ?（最终真相）
-      → 写 orders / order_items（快照）/ payments 的起点
-      → 事务提交后：发送 RabbitMQ 延迟消息（30 分钟）；Redis 回补/令牌归还挂事务回调
-  → 返回 CheckoutView（orders 数组 + 兼容字段）
+      → 写 orders（status=CREATING，金额/收货快照）+ order_items（快照）
+  → 事务提交后发 MQ「订单已创建」事件（事件含订单 id、下单行快照、购物车行 id）
+  → 返回 CheckoutView（订单状态「创建中」）
+
+  ── 异步段（MQ 消费，一个事务）──
+  → DB：UPDATE product_skus SET stock = stock - ? WHERE stock >= ?（最终真相）+ 商品汇总
+  → DB：优惠券条件占用（markUsed）
+  → DB：按快照 id 清空本次下单的购物车行
+  → DB：orders CAS CREATING → PENDING_PAYMENT
+  → 提交后：为每张订单发 RabbitMQ 延迟消息（30 分钟超时关单）
+  → 任一步失败：回滚 + Redis 预扣回补 + 券回滚 + 订单置 CREATE_FAILED（写原因）
 ```
 
-超时未支付：RabbitMQ 延迟队列到期 → `cancelIfExpired`（状态 + 数据库 `NOW()` 幂等判断）→
-回滚库存与券；MQ 不可用时 `OrderTimeoutScanJob` 兜底。
+超时未支付：延迟队列到期 → `cancelIfExpired`（状态 + `NOW()` 幂等）→ 回滚库存与券；
+MQ 不可用时 `OrderTimeoutScanJob` 兜底。`CREATING` 超时由新的扫描任务兜底（重投事件，
+仍失败则失败补偿）。
 
 ### 3.3 一次客服问答的数据流
 
@@ -171,6 +184,42 @@ PENDING_REVIEW ─同意(REFUND_ONLY)──────────> REFUNDED
 
 **与旧整单退款的关系**：旧接口/旧状态（`REFUNDING`/`REFUNDED`）保留不动，新售后单独立推进；
 两者都调用同一套补偿（库存/券/支付流水），补偿逻辑抽成按订单项的方法，避免两套实现。
+
+### 3.6 下单异步补账的模型、状态机与 MQ 拓扑（M31 / D1）
+
+**状态机**（`orders.status` 增加两个值，其余状态机不动）：
+
+```
+CREATING ──异步补账成功──> PENDING_PAYMENT ──支付──> PAID → SHIPPED → COMPLETED
+    │                                              └─取消/超时→ CANCELLED（回滚库存与券）
+    ├──补账失败 / CREATING 超时──> CREATE_FAILED（终态；买家常“重新下单”）
+    └──CREATING 期间：不能支付、不能取消、不能退款
+```
+
+`OrderStatus` 需要同步新增 `CREATING` / `CREATE_FAILED`，并明确：
+`payable()` 只含 `PENDING_PAYMENT`；`cancellable()` 不含 `CREATING`；
+超时关单（`cancelIfExpired`）只处理 `PENDING_PAYMENT`。
+
+**数据模型（V32 迁移）**：
+- `orders.create_error`（varchar 200）：补账失败原因，仅 `CREATE_FAILED` 时有值；
+- 不新增占位明细表：同步段已写 `orders` + `order_items` 快照，异步段只做“可重试的补账动作”；
+- **不新增 Outbox 表**（见 D22）：用 `CREATING` 超时扫描重投兜底，保持表结构简单。
+
+**MQ 拓扑**（新增，与 D11 超时关单并列）：
+
+| 元素 | 名称 | 说明 |
+|---|---|---|
+| Exchange | `its-my-go-order-created-exchange`（direct, durable） | 订单创建事件 |
+| Queue | `its-my-go-order-created-queue`（durable） | 补账消费队列 |
+| Routing key | `order-created` | — |
+| 事件体 | `{ requestId, orderIds:[...], cartItemIds:[...], lines:[{skuId, productId, quantity}], coupon: {orderId,userCouponId} }` | 消费端**不信任事件数据**，以 DB 中 `CREATING` 订单/明细为准做幂等 |
+| 失败处理 | 消费异常：业务失败走失败补偿并 ack；不可恢复异常 reject 不重投（进日志/人工） | 与现有超时消费者风格一致，避免无限重投 |
+
+**消费语义**：至少一次投递 + 按状态 CAS 幂等（非 `CREATING` 的订单直接跳过）；
+补账事务提交后才发超时关单消息，保证“关单消息不会早于订单可用”。
+
+**降级模式**：`itsmygo.order-create.async=false` 时，同步段提交后直接在当前线程执行同一套
+补账逻辑（等价旧链路行为），供测试与无 MQ 环境使用；`async=true` 才真正发 MQ。
 
 ---
 
@@ -253,6 +302,20 @@ agent 工具 prepare（只生成草稿）→ Java 落 agent_actions（PENDING_CO
 **幂等与并发**：审核类操作全部 CAS（`WHERE id=? AND status='PENDING_REVIEW'`），
 重复点确认只会成功一次；申请时对订单行 `SELECT ... FOR UPDATE`，防止同一订单项并发超量申请。
 
+### 4.7 下单接口的变化（M31）
+
+对外 REST 形状**保持不变**：`POST /api/orders` 仍返回 `CheckoutView`，只是返回时订单状态为
+`CREATING`（`statusLabel` 为「创建中」）。前端需要轮询订单详情/创建状态，直到
+`PENDING_PAYMENT`（可支付）或 `CREATE_FAILED`（提示原因）。
+
+| 接口 | 变化 |
+|---|---|
+| `POST /api/orders` | 同步段缩短：只落占位订单 + 明细；返回 `CREATING`；`async=false` 时退化为旧同步行为 |
+| `GET /api/orders/{id}` / 列表 | 新增 `CREATING` / `CREATE_FAILED` 状态与中文名；`createError` 随订单返回 |
+| `POST /api/orders/{id}/pay` | 仅 `PENDING_PAYMENT` 可支付；`CREATING` 返回业务错误「订单创建中，请稍后」 |
+| `POST /api/orders/{id}/cancel` | 仅 `PENDING_PAYMENT` / `PAID` 可取消；`CREATING` 不可取消（由扫描兜底） |
+| MQ 事件 | 内部契约，不对外暴露；rag_helper 无需改动 |
+
 ---
 
 ## 5. 关键设计取舍汇总
@@ -271,11 +334,13 @@ agent 工具 prepare（只生成草稿）→ Java 落 agent_actions（PENDING_CO
 | 售后单独立模型 | 一个订单可有多条售后 / 支持按项部分退款 / 保留处理时间线 | 多两张表 + 状态机；与旧整单退款并存一段时间 |
 | 部分退款优惠等比分摊、整单退完才退券 | 金额可解释、避免券重复使用 | 尾差要靠「最后一次退款」兜住；用户看到的退款额可能不是整项原价 |
 | 售后超时用 `@Scheduled` 扫描 + Redis 锁 | 规则可频繁调、无需引入新 MQ 拓扑 | 单实例假设；处理延迟上限 = 扫描间隔 |
+| 下单改为 D1 半同步占位 + 异步补账 | 缩短响应、保留订单立即可查（读己所写）；MQ 可重试 | 多两个订单状态、消费幂等与补偿、失败后置；`async=false` 可退回同步链路 |
+| 变量：不用事务 Outbox，用 CREATING 扫描重投兜底 | 不新增 outbox 表与 relay，改动面小 | 事件非严格一次；依赖扫描兜底窗口（默认 2 分钟） |
 | 文档分四层（requirements / architecture / implementation / HANDOFF） | 每份文档读者明确，减少互相漂移 | 改动要按分类落到对的文档（见 §6 维护规矩） |
 
 ---
 
-## 6. 决策记录（D1–D20）
+## 6. 决策记录（D1–D23）
 
 | # | 决策 | 理由 | 现状 |
 |---|---|---|---|
@@ -299,6 +364,9 @@ agent 工具 prepare（只生成草稿）→ Java 落 agent_actions（PENDING_CO
 | D18 | 商家超时用 `@Scheduled` 扫描 + Redis 锁（48h 自动同意 / 7 天自动确认收货） | 售后量小、规则可能频繁调；不引入新 MQ 拓扑 | 已落地，参数可配 |
 | D19 | 退货物流走演示单号手填 + 商家确认收货 | 与现有虚拟物流一致，不接真实快递 | 已落地 |
 | D20 | 旧整单退款接口保留、新售后单并存 | 历史数据、既有测试与 AI「催退款」依赖 `REFUNDING`；一次性切换风险大 | 并存期；后续统一下线（技术债 §7） |
+| D21 | 下单采用 **D1 半同步占位 + 异步补账**，不采用纯异步落库 | 纯异步会让“读己所写”消失、支付门槛与失败不可见；占位订单同步落库保住可查性，把可重试写移出响应路径 | M31 实现中；`async=false` 可退回同步链路 |
+| D22 | 异步补账的可靠消息**不用事务 Outbox**，用「MQ 至少一次 + 消费幂等 + `CREATING` 超时扫描重投」 | 不引入 outbox 表、relay 与清理任务，复杂度可控；扫描本身兼具对账作用 | M31 实现中；代价是事件非严格一次、最坏延迟 = 扫描间隔 |
+| D23 | 新增 `CREATING` / `CREATE_FAILED` 两个订单状态，支付 / 取消 / 退款只对既有可操作状态开放 | 状态机显式化，避免“异步中间态”被误当成可支付订单；失败终态可带原因让用户重下 | M31 实现中 |
 
 **三条业务红线**（做任何功能都成立）：
 
@@ -334,6 +402,9 @@ agent 工具 prepare（只生成草稿）→ Java 落 agent_actions（PENDING_CO
 | 售后退款无真实资金流水表 | 部分退款只累计 `orders.refunded_amount` + 售后单记录 | 演示环境可接受；接真实支付时需补退款流水表 |
 | 售后无站内通知 | 用户只能看页面状态 | 列在 P3 / requirements §6 按需区 |
 | 售后超时靠扫描 | 处理延迟上限 = 扫描间隔；单实例假设 | 参数可配；多实例时需分布式锁（现有 Redis 锁可复用） |
+| 下单异步补账无 Outbox | MQ 发送失败/消息丢失时，靠 `CREATING` 超时扫描重投兜底，非严格一次 | 最坏延迟 = 扫描间隔（默认 2 分钟内重投）；接受“至少一次”语义 |
+| `CREATING` 期间体验 | 订单可查但不可支付/取消，前端需轮询 | 正常窗口毫秒~秒级；补账失败会转 `CREATE_FAILED` 并显示原因 |
+| async=false 降级模式 | 与异步模式是两条代码路径，测试需覆盖两者 | 默认测试用降级模式保持旧行为；异步路径单独测消费逻辑 |
 
 ---
 
