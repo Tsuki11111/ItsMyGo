@@ -143,8 +143,8 @@ switch ($Command.ToLower()) {
         docker compose down
         Write-Host "已停止（数据保留）。"
     }
-    "logs" { docker compose logs -f backend }
-    "status" { docker compose ps }
+    "logs" { Test-Docker; docker compose logs -f backend }
+    "status" { Test-Docker; docker compose ps }
     "seed" {
         Test-Docker
         Ensure-Env

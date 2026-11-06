@@ -93,13 +93,15 @@ Spring Boot 单体 + Vue 3 前后端分离，经 **gRPC 接入 RAG 客服智能�
 前置：Docker Desktop。
 
 ```bash
-./deploy.sh
+./deploy.sh          # macOS / Linux / Git Bash
+./deploy.ps1         # Windows PowerShell
+npm run deploy       # 任意平台（需要 Node ≥18；只是转发到上面两个脚本）
 ```
 
-Windows PowerShell 用 `./deploy.ps1`，参数相同。
-
 打开 `http://localhost:8088`。首次会自动生成 `.env`、管理员密码，并导入 44 个演示商品。
-停止用 `./deploy.sh down`；想跳过演示数据用 `./deploy.sh up --no-seed`。
+停止用 `./deploy.sh down`（或 `npm run deploy -- down`）；想跳过演示数据用
+`./deploy.sh up --no-seed`（或 `npm run deploy -- up --no-seed`）。
+npm 入口的完整命令见 [docs/deployment.md](docs/deployment.md#命令)。
 
 联合客服智能体（两个仓库同级）：
 

@@ -1402,7 +1402,45 @@ Compose 全栈要先把 `MYSQL_PORT` / `REDIS_PORT` / `MINIO_PORT` 等改成空�
 **另外**：商品详情有 Redis 缓存（`its-my-go:product:*`），迁移数据后必须清缓存，
 否则接口会继续返回旧 URL 直到 TTL 到期。
 
+### 5.40 ★ 用编辑工具改 `deploy.ps1` 会丢 UTF-8 BOM，PowerShell 5.1 直接解析失败（2026-11-05 踩到）
+
+**现象**：给 `deploy.ps1` 改了两行后，`powershell -File deploy.ps1 help` 报
+`Missing property name after reference operator`，中文全部乱码。
+
+**原因**：`deploy.ps1` 原本是 **UTF-8 with BOM**；某些编辑/写入工具会写成无 BOM 的 UTF-8，
+Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字符串里的字节被误读，
+连引号/括号都跟着错位。`pwsh`（7+）默认 UTF-8 所以看不出问题。
+
+**规矩**：改 `.ps1` 后确认前 3 字节是 `EF BB BF`；丢了就用 Node 补回来：
+`fs.writeFileSync(p, '\uFEFF' + s.replace(/^\uFEFF/, ''), 'utf8')`。
+同理，别用 PowerShell 5.1 的 `Get-Content`/`Set-Content -Encoding UTF8` 直接读写
+含中文的 UTF-8 文件（会读成 ANSI 再写回，整片乱码）—— 2026-11-05 改 App.vue 时踩过一次，
+用 Node 读写才安全。
+
 ## 6. 历史记录
+
+### 2026-11-05 晚 · 增加 npm 部署入口（仓库根 `package.json`）
+
+**背景**：部署入口原本只有 `deploy.sh` / `deploy.ps1`，用户希望也能从仓库根用 npm 脚本部署。
+
+**改动**：
+
+- 新增根 `package.json`（**零 npm 依赖**，不需要 `npm install`）+ `scripts/npm-deploy.mjs`：
+  - `npm run deploy` → 启动；`npm run deploy -- down|logs|status|seed|reset`；
+    `npm run deploy -- up --no-seed`；另有 `deploy:up/down/logs/status/seed/reset/help` 快捷脚本；
+  - 按平台转发：Windows 走 `powershell -File deploy.ps1`（`--no-seed` 映射为 `-NoSeed`），
+    其他平台走 `bash deploy.sh`；退出码原样透传，**不重复实现任何部署逻辑**；
+- `.gitignore` 补 `node_modules/`；
+- `deploy.ps1` 的 `logs` / `status` 分支补 `Test-Docker`（此前 Docker 没启动时仍 exit 0，
+  和 bash 版不一致；npm 入口依赖退出码，必须对齐）；
+- README / deployment.md 命令表补充 npm 入口（注明只转发、需 Node ≥18）。
+
+**验证**：`npm run deploy:help` exit 0；Docker 已停止时 `npm run deploy -- status` exit 1
+且明确提示 Docker 未启动；非法命令 exit 1；`deploy.ps1` 中文帮助正常（修 BOM 后）。
+
+**没做**：生产离线打包（`docker save` 那套）没有 npm 化——它依赖「开发机构建 → scp → VM 侧
+`docker load`」的完整流程，目前写在 deployment.md 的「发版流程」里；要做成 `npm run deploy:offline`
+需要单独设计参数与产物路径。
 
 ### 2026-11-05 晚 · 前端站内导航不再新开标签页
 

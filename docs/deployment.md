@@ -10,6 +10,13 @@
 ./deploy.sh
 ```
 
+Windows 用 `./deploy.ps1`；也可以统一用 npm（需要 Node ≥18，脚本会自动按平台转发到
+`deploy.ps1` / `deploy.sh`，逻辑仍只有一份）：
+
+```bash
+npm run deploy
+```
+
 打开 `http://localhost:8088`。
 
 首次启动会自动做四件事：
@@ -37,6 +44,22 @@
 | `./deploy.sh reset` | 停止并删除所有数据卷（需输入 `yes`） |
 
 PowerShell 用 `./deploy.ps1`，参数相同；跳过演示数据用 `./deploy.ps1 up -NoSeed`。
+
+**npm 入口**（`package.json` 在仓库根，`scripts/npm-deploy.mjs` 只做跨平台转发，
+真正的逻辑仍在 `deploy.sh` / `deploy.ps1`，不重复实现）：
+
+| npm 命令 | 等价 |
+|---|---|
+| `npm run deploy` | `./deploy.sh`（Windows 下走 `deploy.ps1`） |
+| `npm run deploy -- down` / `npm run deploy:down` | `./deploy.sh down` |
+| `npm run deploy -- logs` / `npm run deploy:logs` | `./deploy.sh logs` |
+| `npm run deploy -- status` / `npm run deploy:status` | `./deploy.sh status` |
+| `npm run deploy -- seed` / `npm run deploy:seed` | `./deploy.sh seed` |
+| `npm run deploy -- reset` / `npm run deploy:reset` | `./deploy.sh reset` |
+| `npm run deploy -- up --no-seed` | `./deploy.sh up --no-seed` |
+
+依赖只有 Node 本身，没有 npm 依赖（`npm install` 都不需要）；退出码与底层脚本一致，
+`status` / `logs` 在 Docker 没启动时会明确报错（bash 与 PowerShell 行为已对齐）。
 
 ## 端口
 

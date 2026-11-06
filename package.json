@@ -1,0 +1,19 @@
+{
+  "name": "its-my-go",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ItsMyGo 根目录入口：npm 只做部署转发，实际逻辑在 deploy.sh / deploy.ps1",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "deploy": "node scripts/npm-deploy.mjs",
+    "deploy:up": "node scripts/npm-deploy.mjs up",
+    "deploy:down": "node scripts/npm-deploy.mjs down",
+    "deploy:logs": "node scripts/npm-deploy.mjs logs",
+    "deploy:status": "node scripts/npm-deploy.mjs status",
+    "deploy:seed": "node scripts/npm-deploy.mjs seed",
+    "deploy:reset": "node scripts/npm-deploy.mjs reset",
+    "deploy:help": "node scripts/npm-deploy.mjs help"
+  }
+}
