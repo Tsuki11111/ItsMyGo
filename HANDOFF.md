@@ -436,7 +436,7 @@ Conventional Commits，**描述用中文**（与 `rag_helper` 保持一致）：
 |---|---|---|
 | 开发 | 日常改代码 | `cd dev-infra && docker compose --env-file .env up -d` 起中间件，再本机跑应用（§4.0 / start.txt） |
 | 演示（本地全栈） | 新克隆、演示 | `./deploy.sh`（根 `docker-compose.yml`，8088） |
-| 生产（内网 VM） | 离线包部署 | 同款根 compose + `docker-compose.offline.yml`，见 [docs/deployment.md](docs/deployment.md) |
+| 生产（内网 VM） | 离线包部署 | `~/itsmygo-offline/start.sh`（=`install.sh`，幂等拉起两套栈）；`status.sh` / `stop.sh`；发版换镜像仍按 [docs/deployment.md](docs/deployment.md) 流程 |
 
 **`deploy.sh` 做了什么**（`deploy.ps1` 等价）：复制 `.env.example` 为 `.env` →
 补齐 JWT / DB / RabbitMQ / MinIO 随机密码 → 生成 `admin` 初始密码并打印一次 →

@@ -175,6 +175,17 @@ agent 通过 `its-my-go-backend:8080` 回调 Java。停止两套：`./deploy.sh 
   本地调试用的 `AGENT_GRPC_TARGET=127.0.0.1:8003` 不会进容器。
 - 数据库 schema 由 Flyway 在启动时迁到最新（当前 v32）；数据在命名卷
   `its-my-go-mysql-data` 里，**`./deploy.sh reset` 会删卷**，在 VM 上别随手跑。
+- **一键启停 / 状态**（VM 的 `~/itsmygo-offline/` 下，都是离线包自带脚本）：
+
+  | 脚本 | 作用 |
+  |---|---|
+  | `./start.sh` | **启动生产全栈**（实际是 `exec install.sh`）：导入离线镜像 → 两套 compose `up -d` → 等 health → 库为空时恢复数据；**幂等**，VM 重启 / 整包重启后用它 |
+  | `./status.sh` | 查看容器（`docker ps` 排序输出） |
+  | `./stop.sh` | 停止两套栈（保留数据卷），并清理构建缓存 / 悬空镜像 / 临时构建文件 |
+  | `./install.sh` | `start.sh` 调用的实际脚本；首次部署与重装也用它 |
+
+  > `start.sh` = `install.sh` 的包装，只负责“启动/恢复”，**不负责更新镜像**；
+  > 换版本仍按下面的发版流程替换 `images/zz-*.tar` 后再 `docker load`。
 - **发版流程**（VM 拉不到 Hub，镜像必须在开发机打好再传）：
   1. 开发机：`docker compose build backend frontend`（或本地离线打包 jar 后构建运行时镜像），
      产物 tag 固定为 `its-my-go-backend:local` / `its-my-go-frontend:local`；
@@ -184,8 +195,9 @@ agent 通过 `its-my-go-backend:8080` 回调 Java。停止两套：`./deploy.sh 
   4. VM：`./stop.sh` → `docker rmi` 旧 `its-my-go-*` → `docker load -i images/zz-itsmygo.tar`
      → 在 `ItsMyGo/` 里 `docker compose -f docker-compose.yml -f docker-compose.offline.yml up -d --no-build --pull never`；
   5. 验收：`/api/health`、`flyway_schema_history` 最新版本、容器 healthy。
-  - ⚠️ **不要直接跑 `install.sh` 做发版**：它会无条件恢复 `data/product-images.sql`，
-    那脚本写的是 `http://__VM_IP__:9000/...` 绝对地址，会把同源化改回去
+  - ⚠️ **不要用 `start.sh` / `install.sh` 做发版**：它们只“启动/恢复”，不会替换镜像；
+    且 `install.sh` 会恢复 `data/product-images.sql`（脚本里写的是
+    `http://__VM_IP__:9000/...` 绝对地址，会把同源化改回去）
     （2026-11-05 已把该脚本的 sed 改成去掉主机名、只留相对路径；以后更新离线包别忘了带上）。
 - **prod profile**：`docker-compose.yml` 的 backend 已透传 `SPRING_PROFILES_ACTIVE`
   （默认空 = 开发行为），VM 的 `ItsMyGo/.env` 里设 `SPRING_PROFILES_ACTIVE=prod`。
