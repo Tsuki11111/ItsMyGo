@@ -313,6 +313,20 @@ docker exec -i mysql sh -c 'mysql --default-character-set=utf8mb4 -utsuk1 -p"$MY
 
 ## 4. 环境与约定（已就绪，勿重复劳动）
 
+### 4.0.0 ⛔ 铁律：开发 / 演示 / 生产环境只能同时启动一个（2026-11-07 用户定）
+
+三个环境**不允许并行运行**，切换前必须先停掉当前环境：
+
+| 环境 | 启动方式 | 停止方式 |
+|---|---|---|
+| **开发** | `npm run dev:joint`（dev-infra 中间件 + 本机 ItsMyGo 前后端 + rag_helper venv） | `npm run dev:joint:stop`；需要连中间件一起停：`cd dev-infra && docker compose --env-file .env down` |
+| **演示** | `./deploy.sh joint`（本机 Docker 全栈，8088） | `./deploy.sh joint-down`（或 `./deploy.sh down`） |
+| **生产** | VM 离线包 `~/itsmygo-offline/start.sh` | VM 上 `~/itsmygo-offline/stop.sh` |
+
+原因：开发与演示抢 3306/6379/9000/5672，并行会端口冲突、连错库、出现“两套数据”的假故障
+（2026-11-07 已因并行排查浪费两次）；生产虽在独立 VM，切换环境时也按同一规矩串行操作，
+避免“本机在跑一套、VM 又改一套”造成的状态混乱与误发版。
+
 ### 4.0 ⚡ 动手前先确认这些在不在跑
 
 上一次会话结束时**后台跑着这些进程**，但它们随会话结束就可能没了 ——
@@ -429,6 +443,8 @@ Conventional Commits，**描述用中文**（与 `rag_helper` 保持一致）：
 `build` / `ci` / `chore` / `revert`；`scope` 用短词（如 `order` / `product` / `auth`）。
 
 ### 4.7 Docker 部署（2026-10-25 新增，2026-11-07 更新环境分层）
+
+> ⚠️ **三个环境只能同时启动一个**，见 §4.0.0；切换前先停当前环境。
 
 **三种环境并存**：
 
