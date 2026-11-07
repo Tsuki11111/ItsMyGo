@@ -1433,6 +1433,16 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 再 `docker start mysql redis minio its-my-go-rabbitmq` 即可（容器与命名卷本来就还在）。
 以后遇到“本地明明有镜像但 compose 还要拉”，先用 `docker images | grep <name>` 看 tag 前缀。
 
+**同类还会命中 minio / 后端前端镜像（2026-11-07 又踩到）**：
+- compose 要 `minio/minio:latest`，本地只有 `docker.m.daocloud.io/minio/minio:latest` →
+  `docker tag docker.m.daocloud.io/minio/minio:latest minio/minio:latest`；
+- compose 的后端 / 前端镜像名是 `its-my-go-backend:latest` / `its-my-go-frontend:latest`，
+  本地构建产物是 `:local` → `docker tag its-my-go-backend:local its-my-go-backend:latest`
+  （`docker tag` **没有 `-f`**，同名会直接覆盖，别加参数）；
+- 若旧容器占名（`its-my-go-rabbitmq ... already in use`），先 `docker rm -f` 旧容器
+  （命名卷保留），再 `docker compose up -d --no-build`；
+- 最后用 `docker compose config --images` 看 compose 到底期望哪些 tag。
+
 ## 6. 历史记录
 
 ### 2026-11-06 · 知识缺口管理端接入（代理 rag_helper）
