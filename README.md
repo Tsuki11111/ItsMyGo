@@ -150,18 +150,20 @@ cd ../rag_helper && ./deploy.sh joint
 
 ## 本地开发
 
-⚠️ **本地开发只用“共享中间件”这一套**（容器名就是 `mysql` / `redis` / `minio`，
-数据卷是 `docker_mysql_data` 等老卷）：
+本地基础设施（ItsMyGo + rag_helper 共用）统一收在 **`D:\PycharmProjects\dev-infra`** 这一个
+compose 项目里，Docker Desktop 只显示一个 `dev-infra` 分组；容器名、端口、数据卷与以前一致：
 
 ```bash
-docker start mysql redis minio
-docker compose up -d rabbitmq   # M31 起下单异步补账需要；只起这一个服务
+cd D:\PycharmProjects\dev-infra
+docker compose --env-file .env up -d      # mysql/redis/minio/mongo/milvus/neo4j/rabbitmq/...
+docker compose --env-file .env ps        # 查看状态
+docker compose --env-file .env down      # 停止（external 数据卷不会删）
 ```
 
-**不要**在本地开发时跑 `docker compose up` 全量：那会再起一套
-`its-my-go-mysql` / `its-my-go-redis` / `its-my-go-minio`（独立数据卷、抢同样端口），
-既会端口冲突，也会造成“两套数据”的错觉（2026-11-07 踩过，见 HANDOFF §5.41）。
-全量 `./deploy.sh` 只在“不用本机开发库”的全栈演示场景使用。
+> 不要在 ItsMyGo 仓库里跑全量 `docker compose up`：那会再起一套
+> `its-my-go-mysql` / `its-my-go-redis` / `its-my-go-minio`（独立数据卷、抢同样端口），
+> 造成“两套数据”的错觉（2026-11-07 踩过，见 HANDOFF §5.41/§5.42）。
+> 全量 `./deploy.sh` 只在“不用本机开发库”的全栈演示场景使用。
 
 然后起应用：
 

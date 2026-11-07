@@ -1453,13 +1453,18 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 两套并存 → 看起来像“多了一套、数据没了”，实际旧数据一直在共享卷里。
 
 **规矩**：
-1. 本地开发只 `docker start mysql redis minio` + `docker compose up -d rabbitmq`
-   （M31 需要 MQ 时），**不要** `docker compose up` 全量；
-2. 全量 `./deploy.sh` 只在不用本机开发库的演示 / 生产场景用，切换前先停共享中间件；
+1. 本地基础设施已统一到 **`D:\PycharmProjects\dev-infra`**（一个 compose 项目，
+   Docker Desktop 只显示 `dev-infra` 分组）：`docker compose --env-file .env up -d`；
+   容器名 / 端口 / 数据卷都与以前一致，两个项目的 `.env` 不用改；
+2. 全量 `./deploy.sh` 只在不用本机开发库的演示 / 生产场景用，切换前先停 dev-infra；
 3. 判断数据在哪：`docker inspect mysql` 看挂载卷；共享 MySQL 里 `its_mygo`
-   （2026-11-07 实测 7 用户 / 44 商品 / 35 订单，最新订单 11-06 21:43 仍在）；
-4. 误建的空卷（`its-my-go-mysql-data` 等，创建时间就是当天）删掉即可，
-   删前用 `docker ps -a --filter volume=<卷名>` 确认无容器使用；**永远不要 `down -v`**。
+   （2026-11-07 迁移后实测 7 用户 / 44 商品 / 35 订单，数据完整）；
+4. dev-infra 的卷全部声明为 `external`，`docker compose down` **不会删数据**
+   （也永远不要对 dev-infra 用 `down -v`）；
+5. 迁移前的 MySQL 备份在 `D:\PycharmProjects\dev-infra\backup\`，确认无误后可删；
+6. 迁移时踩到 RabbitMQ 节点名/用户问题：容器重建后 Erlang 节点名会变，
+   已在 compose 里固定 `hostname: its-my-go-rabbitmq`，并补建 `itsmygo` 用户；
+   以后重建 RabbitMQ 若后端报 `ACCESS_REFUSED`，先 `rabbitmqctl list_users` 核对。
 
 ## 6. 历史记录
 
