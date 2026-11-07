@@ -150,7 +150,20 @@ cd ../rag_helper && ./deploy.sh joint
 
 ## 本地开发
 
-复用本机已有的 `mysql` / `redis` / `minio`：
+⚠️ **本地开发只用“共享中间件”这一套**（容器名就是 `mysql` / `redis` / `minio`，
+数据卷是 `docker_mysql_data` 等老卷）：
+
+```bash
+docker start mysql redis minio
+docker compose up -d rabbitmq   # M31 起下单异步补账需要；只起这一个服务
+```
+
+**不要**在本地开发时跑 `docker compose up` 全量：那会再起一套
+`its-my-go-mysql` / `its-my-go-redis` / `its-my-go-minio`（独立数据卷、抢同样端口），
+既会端口冲突，也会造成“两套数据”的错觉（2026-11-07 踩过，见 HANDOFF §5.41）。
+全量 `./deploy.sh` 只在“不用本机开发库”的全栈演示场景使用。
+
+然后起应用：
 
 ```bash
 ./mvnw spring-boot:run

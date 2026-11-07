@@ -1434,14 +1434,32 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 以后遇到“本地明明有镜像但 compose 还要拉”，先用 `docker images | grep <name>` 看 tag 前缀。
 
 **同类还会命中 minio / 后端前端镜像（2026-11-07 又踩到）**：
-- compose 要 `minio/minio:latest`，本地只有 `docker.m.daocloud.io/minio/minio:latest` →
-  `docker tag docker.m.daocloud.io/minio/minio:latest minio/minio:latest`；
+- compose 要 `minio/minio:latest`，本地只有 `docker.m.daocloud.io/minio/minio:latest` →  `docker tag docker.m.daocloud.io/minio/minio:latest minio/minio:latest`；
 - compose 的后端 / 前端镜像名是 `its-my-go-backend:latest` / `its-my-go-frontend:latest`，
   本地构建产物是 `:local` → `docker tag its-my-go-backend:local its-my-go-backend:latest`
   （`docker tag` **没有 `-f`**，同名会直接覆盖，别加参数）；
 - 若旧容器占名（`its-my-go-rabbitmq ... already in use`），先 `docker rm -f` 旧容器
   （命名卷保留），再 `docker compose up -d --no-build`；
 - 最后用 `docker compose config --images` 看 compose 到底期望哪些 tag。
+
+### 5.42 ★ 本地开发别跑全量 `docker compose up`：会多出第二套中间件（2026-11-07 踩到）
+
+**现象**：用户担心“一直用的同一套容器被换成新的一套、开发数据全丢了”。
+
+**实际原因**：本地开发规范是**只用共享中间件**（容器名 `mysql` / `redis` / `minio`，
+数据卷 `docker_mysql_data` 等 7 月建的老卷）；`docker compose up` 会把项目自带的
+`its-my-go-mysql` / `its-my-go-redis` / `its-my-go-minio` 也拉起来，那是**另一套独立容器 +
+独立数据卷**（`its-my-go-mysql-data` 等），端口还和共享那套冲突。
+两套并存 → 看起来像“多了一套、数据没了”，实际旧数据一直在共享卷里。
+
+**规矩**：
+1. 本地开发只 `docker start mysql redis minio` + `docker compose up -d rabbitmq`
+   （M31 需要 MQ 时），**不要** `docker compose up` 全量；
+2. 全量 `./deploy.sh` 只在不用本机开发库的演示 / 生产场景用，切换前先停共享中间件；
+3. 判断数据在哪：`docker inspect mysql` 看挂载卷；共享 MySQL 里 `its_mygo`
+   （2026-11-07 实测 7 用户 / 44 商品 / 35 订单，最新订单 11-06 21:43 仍在）；
+4. 误建的空卷（`its-my-go-mysql-data` 等，创建时间就是当天）删掉即可，
+   删前用 `docker ps -a --filter volume=<卷名>` 确认无容器使用；**永远不要 `down -v`**。
 
 ## 6. 历史记录
 
