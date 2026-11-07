@@ -82,7 +82,8 @@ class CacheAsideTest {
                 new ProductServiceImpl(countingMapper,
                         Mockito.mock(com.tsuk1.itsmygo.mapper.ProductSkuMapper.class), bloomFilter,
                         cacheHelper, stockService, productSkuService, merchantMapper,
-                        Mockito.mock(com.tsuk1.itsmygo.service.StorageService.class));
+                        Mockito.mock(com.tsuk1.itsmygo.service.StorageService.class),
+                        Mockito.mock(com.tsuk1.itsmygo.service.ProductPriceHistoryService.class));
 
         countingService.detailForCustomer(createdProductId);
         countingService.detailForCustomer(createdProductId);

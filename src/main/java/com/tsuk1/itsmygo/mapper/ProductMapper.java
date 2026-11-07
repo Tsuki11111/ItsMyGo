@@ -23,6 +23,18 @@ public interface ProductMapper extends BaseMapper<Product> {
     List<BrandView> selectBrandCounts();
 
     /**
+     * 智能推广候选：上架、有库存、店铺 ACTIVE。
+     * 打分与「排除最近 30 天买过」在服务层做；这里只负责把可推的商品捞全。
+     */
+    @Select("""
+            SELECT p.* FROM products p
+            JOIN merchants m ON m.id = p.merchant_id
+            WHERE p.status = 1 AND p.stock > 0 AND m.status = 'ACTIVE'
+            ORDER BY p.id
+            """)
+    List<Product> selectPromotionCandidates();
+
+    /**
      * 商品**汇总字段**的增量更新（下单扣减时）。
      *
      * ⚠️ 它**不是**防超卖的防线 —— 真正带 {@code WHERE stock >= ?} 的条件更新在

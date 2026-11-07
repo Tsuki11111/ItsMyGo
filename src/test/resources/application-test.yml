@@ -39,3 +39,6 @@ itsmygo:
   agent:
     grpc:
       key: ""
+  # 定时推广不在单测里跑；需要验证批量路径时直接调 PromotionService.runDaily()
+  promotion:
+    enabled: false

@@ -17,6 +17,7 @@ import com.tsuk1.itsmygo.entity.Merchant;
 import com.tsuk1.itsmygo.mapper.MerchantMapper;
 import com.tsuk1.itsmygo.mapper.ProductMapper;
 import com.tsuk1.itsmygo.mapper.ProductSkuMapper;
+import com.tsuk1.itsmygo.service.ProductPriceHistoryService;
 import com.tsuk1.itsmygo.service.ProductService;
 import com.tsuk1.itsmygo.service.ProductSkuService;
 import com.tsuk1.itsmygo.service.StockService;
@@ -25,6 +26,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -56,11 +58,13 @@ public class ProductServiceImpl implements ProductService {
     private final ProductSkuService productSkuService;
     private final MerchantMapper merchantMapper;
     private final StorageService storageService;
+    private final ProductPriceHistoryService priceHistoryService;
 
     public ProductServiceImpl(ProductMapper productMapper, ProductSkuMapper productSkuMapper,
                               ProductBloomFilter bloomFilter, RedisCacheHelper cacheHelper,
                               StockService stockService, ProductSkuService productSkuService,
-                              MerchantMapper merchantMapper, StorageService storageService) {
+                              MerchantMapper merchantMapper, StorageService storageService,
+                              ProductPriceHistoryService priceHistoryService) {
         this.productMapper = productMapper;
         this.productSkuMapper = productSkuMapper;
         this.bloomFilter = bloomFilter;
@@ -69,6 +73,7 @@ public class ProductServiceImpl implements ProductService {
         this.productSkuService = productSkuService;
         this.merchantMapper = merchantMapper;
         this.storageService = storageService;
+        this.priceHistoryService = priceHistoryService;
     }
 
     @Override
@@ -265,6 +270,8 @@ public class ProductServiceImpl implements ProductService {
         // ⚠️ 每个商品都必须有 SKU —— 没有的话详情页会显示总库存 0、
         //    下单永远报「库存不足」，看着像库存 bug，其实是数据没铺开
         productSkuService.createDefaultSku(product);
+        // 价格历史的起点；之后只在价格真的变化时追加 update（智能推广的降价信号）
+        priceHistoryService.recordBaseline(product.getId(), null, product.getPrice());
         // 新商品立刻进过滤器，否则它自己的详情页会被判成「不存在」
         bloomFilter.add(product.getId());
         return product;
@@ -275,6 +282,7 @@ public class ProductServiceImpl implements ProductService {
     public Product update(Long id, ProductRequest request, Long merchantId) {
         Product product = requireOwned(id, merchantId);
         String previousMainImage = product.getMainImage();
+        BigDecimal previousPrice = product.getPrice();
         apply(product, request);
         if (!Objects.equals(previousMainImage, product.getMainImage())
                 || !StringUtils.hasText(product.getThumbImage())) {
@@ -284,6 +292,8 @@ public class ProductServiceImpl implements ProductService {
         // 单规格商品的价与库存也挂在它那条默认 SKU 上，得跟着改（里面会一并刷库存计数器）。
         // 配了多规格的商品这里什么都不做 —— 那种要走管理端的分规格接口
         productSkuService.syncDefaultSku(product);
+        // 商品级改价（单规格商品的新价同时会同步到默认 SKU，这里只记一条，避免重复）
+        priceHistoryService.recordIfChanged(id, null, previousPrice, product.getPrice());
         // Cache-Aside：先更新库，再删缓存。删失败也不要紧，TTL 会兜底
         cacheHelper.evict(cacheKey(id));
         return product;

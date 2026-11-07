@@ -99,6 +99,11 @@ itsmygo:
     scan-interval-ms: ${ORDER_CREATE_SCAN_INTERVAL_MS:60000}
     scan-lock-ttl-seconds: ${ORDER_CREATE_SCAN_LOCK_TTL_SECONDS:240}
     max-republish: ${ORDER_CREATE_MAX_REPUBLISH:3}
+  # 智能推广：每天 10:00 给开启推广的顾客推 1 条商品；批量上限防一次扫太多人
+  promotion:
+    enabled: ${PROMOTION_ENABLED:true}
+    cron: ${PROMOTION_CRON:0 0 10 * * *}
+    batch-size: ${PROMOTION_BATCH_SIZE:200}
   # 售后（M30）：商家审核超时自动同意、退货超时自动确认收货；扫描式，无需 MQ
   after-sale:
     enabled: ${AFTER_SALE_SCAN_ENABLED:true}

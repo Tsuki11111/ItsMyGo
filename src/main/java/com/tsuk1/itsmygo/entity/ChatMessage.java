@@ -25,6 +25,8 @@ public class ChatMessage {
     public static final String TYPE_ORDER = "ORDER";
     /** 商家自动发起的“请核对订单”卡片；发货前可改收货地址 */
     public static final String TYPE_ORDER_CONFIRM = "ORDER_CONFIRM";
+    /** 智能推广：商家身份发的商品推荐卡，content 是推广理由 */
+    public static final String TYPE_PROMOTION = "PROMOTION";
 
     @TableId(type = IdType.AUTO)
     private Long id;

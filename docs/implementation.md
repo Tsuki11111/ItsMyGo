@@ -2759,3 +2759,65 @@ orderId）、顾客未读 +1；发货前改地址成功且商家收到 SYSTEM �
 （联网 false / 流式 true）。全量 `./mvnw test` **303 条全绿**（基线 297 + 6）。
 前端 `npm run build` 通过。透传断言落在 `AgentGateway` 边界（mock 网关捕获两个 boolean），
 没有另起 fake gRPC server 去断言 `ConverseRequest` 的 optional 字段。
+
+### 3.42 智能推广（价格历史 + 推荐打分 + 每日定时）（2026-11-07）
+
+**需求**：顾客在客服设置里打开「智能推广」后，每天最多收 1 条「可能感兴趣的商品」
+到站内聊天；商品卡可点进详情，消息复用现有会话 / 未读 / SSE，不新建通知表。
+
+**价格历史（V34）**：
+
+- 新表 `product_price_history`：`product_id`、可空 `sku_id`、`price`、`reason`
+  （`baseline` / `update`）、`changed_at`，索引 `(product_id, changed_at)`。
+- 迁移末尾 `INSERT ... SELECT` 给存量商品各补一条 `baseline`，否则「降价」永远没有历史可算。
+- 记录入口只认「价格真的变了」：
+  - `ProductServiceImpl.create` 商品建成后记 `baseline`（`sku_id` 为 NULL）；
+  - `ProductServiceImpl.update` 比较更新前后商品价，变了记 `update`（商品级，`sku_id` NULL；
+    单规格商品同步到默认 SKU 的那次不重复记）；
+  - `ProductSkuServiceImpl.save` 按规格组合命中已有 SKU 时，比较该 SKU 旧价与新价，
+    变了记 `update`（`sku_id` 与 `product_id` 都填）；新建 SKU 不另记，避免同一商品多条重复基线。
+- 批量查窗口内最高价用 `ProductPriceHistoryMapper.selectMaxPricesSince`，避免逐商品 N+1。
+
+**消息类型与发送**：
+
+- `ChatMessage.TYPE_PROMOTION = "PROMOTION"`；`cardData` 复用 `ChatCard.Product` 快照，
+  `content` 放推广理由；会话列表预览为 `[推荐] …`。
+- `ChatService.sendPromotionMessage(userId, merchantId, productId, reasonText)`：
+  校验店铺 `ACTIVE`、商品属于该店且 `status=1`、`stock>0`、理由非空；
+  `insertIgnore` 顾客—店铺会话后以 `sender_type=MERCHANT` 插入消息。
+  `sender_user_id` 店主优先，平台自营店取启用中的 ADMIN 兜底（与订单确认卡共用
+  `merchantSenderId`）。`appendMessage` 自动让顾客未读 +1，并在事务提交后推 SSE。
+
+**推荐打分（`PromotionService` / `PromotionServiceImpl`）**：
+
+- 候选：`products.status=1`、`stock>0`、所属 `merchants.status='ACTIVE'`；
+  排除用户最近 30 天已支付订单里买过的同一 `product_id`
+  （`order_items` join `orders`，状态 `PAID/SHIPPED/COMPLETED`，按 `paid_at` 兜底 `created_at`）。
+- 信号归一化到 0..1：
+  - **降价 0.45**：`(窗口内最高价 - 当前商品价) / 窗口内最高价`，窗口 30 天；
+    没有历史或最高价 ≤0 记 0 分；
+  - **相似 0.25**：用户最近 5 笔已支付订单的商品 `categoryId` / `brand`，命中候选各加 0.5；
+  - **销量 0.20**：`sales / 候选集最高 sales`；
+  - **评分 0.10**：`可见评价均分 / 5`，无评价按 0（批量走 `ReviewMapper.statsByProductIds`）。
+- 取总分最高（同分比销量）且大于 0 的商品；文案只拼真实信号，例如
+  「最近 30 天降价约 90%，评分 5.0 分，已售 1000 件，要不要看看？」，
+  百分比由降价比例四舍五入一位、销量/评分直接来自库，不编数字。
+- 发前再查偏好：`promotion_enabled=1` 且 `last_promotion_date != 今天`；发送成功后写
+  `last_promotion_date`，保证同一用户每天最多 1 条。用户/店铺/商品异常只记日志跳过。
+
+**定时任务**：
+
+- `common/promotion/PromotionScheduler`：`@Scheduled(cron = "${itsmygo.promotion.cron:0 0 10 * * *}", zone="Asia/Shanghai")`；
+- 开关 `itsmygo.promotion.enabled`（默认 true，`@ConditionalOnProperty(matchIfMissing = true)`）；
+- `PromotionService.runDaily()` 从 `user_agent_preferences` join `users` 取开启推广的启用用户，
+  `LIMIT itsmygo.promotion.batch-size`（默认 200），逐个通过代理调 `notifyForUser`，
+  单用户异常捕获后继续；返回成功发送人数。
+
+**前端**：`ChatContentType` 增加 `PROMOTION`；`MessageBubble` 对 `PROMOTION` 复用商品卡渲染，
+卡片上方显示「为你推荐」与推广理由，样式只做小改。
+
+**测试**：新增 5 条——`ProductPriceHistoryTest` 2 条（商品新建/改价/同价不重复、
+规格改价带 `sku_id`）；`PromotionServiceTest` 3 条（发送 1 条且标记今天、同日不再发、
+偏好关闭不发、`runDaily` 批量只处理开启用户）。全量 `./mvnw.cmd test` **308 条全绿**
+（基线 303 + 5）；`cd frontend && npm run build` EXITCODE=0。
+

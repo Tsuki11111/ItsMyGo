@@ -38,6 +38,17 @@ public interface OrderMapper extends BaseMapper<Order> {
             """)
     int addRefundedAmount(@Param("id") Long id, @Param("amount") java.math.BigDecimal amount);
 
+    /** 智能推广的「相似」信号：用户最近若干笔已支付订单（按支付/下单时间倒序）。 */
+    @Select("""
+            SELECT id FROM orders
+            WHERE user_id = #{userId}
+              AND status IN ('PAID', 'SHIPPED', 'COMPLETED')
+            ORDER BY COALESCE(paid_at, created_at) DESC, id DESC
+            LIMIT #{limit}
+            """)
+    java.util.List<Long> selectRecentPaidOrderIds(@Param("userId") Long userId,
+                                                  @Param("limit") int limit);
+
     /** CREATING 超时扫描：找出超过指定秒数还没补账完成的占位订单。 */
     @Select("""
             SELECT * FROM orders

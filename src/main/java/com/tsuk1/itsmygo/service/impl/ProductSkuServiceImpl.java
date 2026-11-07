@@ -15,6 +15,7 @@ import com.tsuk1.itsmygo.mapper.ProductSkuMapper;
 import com.tsuk1.itsmygo.mapper.ProductSpecMapper;
 import com.tsuk1.itsmygo.mapper.ProductSpecValueMapper;
 import com.tsuk1.itsmygo.service.ProductSkuService;
+import com.tsuk1.itsmygo.service.ProductPriceHistoryService;
 import com.tsuk1.itsmygo.service.StockService;
 import com.tsuk1.itsmygo.service.StorageService;
 import lombok.extern.slf4j.Slf4j;
@@ -22,6 +23,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -58,11 +60,13 @@ public class ProductSkuServiceImpl implements ProductSkuService {
     private final RedisCacheHelper cacheHelper;
     private final StockService stockService;
     private final StorageService storageService;
+    private final ProductPriceHistoryService priceHistoryService;
 
     public ProductSkuServiceImpl(ProductMapper productMapper, ProductSpecMapper specMapper,
                                  ProductSpecValueMapper valueMapper, ProductSkuMapper skuMapper,
                                  RedisCacheHelper cacheHelper, StockService stockService,
-                                 StorageService storageService) {
+                                 StorageService storageService,
+                                 ProductPriceHistoryService priceHistoryService) {
         this.productMapper = productMapper;
         this.specMapper = specMapper;
         this.valueMapper = valueMapper;
@@ -70,6 +74,7 @@ public class ProductSkuServiceImpl implements ProductSkuService {
         this.cacheHelper = cacheHelper;
         this.stockService = stockService;
         this.storageService = storageService;
+        this.priceHistoryService = priceHistoryService;
     }
 
     // ── 读 ──
@@ -303,6 +308,7 @@ public class ProductSkuServiceImpl implements ProductSkuService {
             SkuSaveRequest.SkuPayload payload = entry.getValue();
             ProductSku existing = existingByKey.get(key);
             ProductSku sku = existing != null ? existing : new ProductSku();
+            BigDecimal previousPrice = existing == null ? null : existing.getPrice();
 
             sku.setProductId(productId);
             sku.setSpecValueIds(key);
@@ -327,6 +333,9 @@ public class ProductSkuServiceImpl implements ProductSkuService {
                 //    库存是下单和取消改的，商户改个价格不该把它冲掉
                 skuMapper.updateById(sku);
             }
+            // 规格价格真的变了才记历史（sku_id 有值，product_id 也填）——
+            // 智能推广的「降价」信号需要它
+            priceHistoryService.recordIfChanged(productId, sku.getId(), previousPrice, sku.getPrice());
         }
         return removed;
     }

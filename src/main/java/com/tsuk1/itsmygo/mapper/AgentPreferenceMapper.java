@@ -4,6 +4,10 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.tsuk1.itsmygo.entity.AgentPreference;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
+
+import java.time.LocalDate;
 
 public interface AgentPreferenceMapper extends BaseMapper<AgentPreference> {
 
@@ -24,4 +28,23 @@ public interface AgentPreferenceMapper extends BaseMapper<AgentPreference> {
                @Param("promotionEnabled") Boolean promotionEnabled,
                @Param("webSearchEnabled") Boolean webSearchEnabled,
                @Param("streamEnabled") Boolean streamEnabled);
+
+    /** 每日推广批量的用户：开了推广且账号启用，按用户 id 顺序取一批 */
+    @Select("""
+            SELECT p.user_id
+            FROM user_agent_preferences p
+            JOIN users u ON u.id = p.user_id
+            WHERE p.promotion_enabled = 1 AND u.status = 1
+            ORDER BY p.user_id
+            LIMIT #{limit}
+            """)
+    java.util.List<Long> selectPromotionUserIds(@Param("limit") int limit);
+
+    /** 发送成功后标记今天已推；每天最多 1 条的最终落点 */
+    @Update("""
+            UPDATE user_agent_preferences
+            SET last_promotion_date = #{date}
+            WHERE user_id = #{userId}
+            """)
+    int markPromotionSent(@Param("userId") Long userId, @Param("date") LocalDate date);
 }
