@@ -1,6 +1,7 @@
 package com.tsuk1.itsmygo.service.impl;
 
 import agent.v1.Event;
+import agent.v1.FormResult;
 import agent.v1.HistoryMessage;
 import agent.v1.SessionInfo;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -31,6 +32,7 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.time.Duration;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -131,8 +133,9 @@ public class AgentChatServiceImpl implements AgentChatService {
 
         sink.start();
         try {
-            agentExecutor.execute(() -> stream(user, fixedSessionId, message, toolTicket, sink, context,
-                    runIdRef, finalSeen, errorSeen, cleanup));
+            FormResult formResult = toFormResult(request.formResult());
+            agentExecutor.execute(() -> stream(user, fixedSessionId, message, formResult, toolTicket,
+                    sink, context, runIdRef, finalSeen, errorSeen, cleanup));
         } catch (RejectedExecutionException e) {
             cleanup.run();
             throw new BizException(ResultCode.TOO_MANY_REQUESTS, "客服繁忙，请稍后再试");
@@ -140,13 +143,29 @@ public class AgentChatServiceImpl implements AgentChatService {
         return emitter;
     }
 
-    private void stream(CurrentUser user, String sessionId, String message, String toolTicket,
-                        AgentSseSink sink, Context.CancellableContext context,
+    /** 前端表单回传 → gRPC 消息；空/缺失一律视为普通文本对话（兼容老客户端）。 */
+    private FormResult toFormResult(AgentConverseRequest.FormResult source) {
+        if (source == null || !StringUtils.hasText(source.formId())) {
+            return null;
+        }
+        FormResult.Builder builder = FormResult.newBuilder().setFormId(source.formId().trim());
+        if (source.values() != null) {
+            source.values().forEach((name, value) -> {
+                if (StringUtils.hasText(name) && value != null) {
+                    builder.putValues(name, value);
+                }
+            });
+        }
+        return builder.build();
+    }
+
+    private void stream(CurrentUser user, String sessionId, String message, FormResult formResult,
+                        String toolTicket, AgentSseSink sink, Context.CancellableContext context,
                         AtomicReference<String> runIdRef,
                         AtomicBoolean finalSeen, AtomicBoolean errorSeen, Runnable cleanup) {
         try {
             Iterator<Event> events = context.call(() -> gateway.converse(
-                    user.id(), sessionId, message,
+                    user.id(), sessionId, message, formResult,
                     Duration.ofSeconds(properties.deadlineSeconds()), toolTicket));
 
             while (!sink.isClosed() && events.hasNext()) {
@@ -230,6 +249,26 @@ public class AgentChatServiceImpl implements AgentChatService {
                                             product.getStock(), product.getSales(),
                                             product.getRating(), product.getMerchantName(),
                                             product.getSpecText(), product.getCategoryName()))
+                                    .toList(),
+                            item.getFormsList().stream()
+                                    .map(form -> new AgentHistoryMessage.AgentFormRequest(
+                                            form.getFormId(), form.getFormType(), form.getTitle(),
+                                            form.getDescription(),
+                                            form.getFieldsList().stream()
+                                                    .map(field -> new AgentHistoryMessage.AgentFormField(
+                                                            field.getName(), field.getLabel(),
+                                                            field.getType(), field.getRequired(),
+                                                            field.getPlaceholder(),
+                                                            field.getDefaultValue(),
+                                                            field.getOptionsList().stream()
+                                                                    .map(option ->
+                                                                            new AgentHistoryMessage.AgentFormOption(
+                                                                                    option.getValue(),
+                                                                                    option.getLabel()))
+                                                                    .toList()))
+                                                    .toList(),
+                                            form.getSubmitLabel(), form.getExpiresInSeconds(),
+                                            new LinkedHashMap<>(form.getMetaMap())))
                                     .toList()))
                     .toList();
             sessionMapper.touch(sessionId, user.id());

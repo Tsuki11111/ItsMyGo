@@ -1,6 +1,7 @@
 package com.tsuk1.itsmygo.dto.agent;
 
 import java.util.List;
+import java.util.Map;
 
 public record AgentHistoryMessage(
         String role,
@@ -8,7 +9,8 @@ public record AgentHistoryMessage(
         List<AgentImage> images,
         String ts,
         List<AgentTrace> traces,
-        List<AgentProductCard> products) {
+        List<AgentProductCard> products,
+        List<AgentFormRequest> forms) {
 
     public record AgentImage(String url, String caption) {
     }
@@ -21,5 +23,20 @@ public record AgentHistoryMessage(
     public record AgentProductCard(String productId, String name, String image, String price,
                                    String stock, String sales, String rating,
                                    String merchantName, String specText, String categoryName) {
+    }
+
+    /** 历史里的会话内表单；老消息没有 forms，返回空列表。前端只读展示，不可再提交。 */
+    public record AgentFormOption(String value, String label) {
+    }
+
+    public record AgentFormField(String name, String label, String type, boolean required,
+                                 String placeholder, String defaultValue,
+                                 List<AgentFormOption> options) {
+    }
+
+    public record AgentFormRequest(String formId, String formType, String title,
+                                   String description, List<AgentFormField> fields,
+                                   String submitLabel, int expiresInSeconds,
+                                   Map<String, String> meta) {
     }
 }

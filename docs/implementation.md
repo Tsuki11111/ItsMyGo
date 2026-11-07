@@ -1977,6 +1977,53 @@ rag_helper 8001 侧已单独验证「列表 → 周报 → 草稿 → 状态 →
 **页面联调（2026-11-06）**：本地起依赖 + 后端 8080 + 前端 5173，用 Edge headless + CDP
 真实点击 `/admin/knowledge-gaps` 完成「生成草稿 → 发布 → 知识库页确认入库」；测试数据已撤回。
 
+### 3.38 会话内表单协议（refund_reason，2026-11-07）
+
+**契约**：`proto/agent.proto` 从 rag_helper **原样复制**（SHA256 一致），新增
+`ConverseRequest.form_result`、`FinalEvent.forms`、`HistoryMessage.forms` 与
+`FormOption / FormField / FormRequest / FormResult`。Java 侧由 protobuf-maven-plugin
+生成 `agent.v1.*`，**不手写镜像类**。
+
+**后端映射**：
+- `AgentEventMapper.finalEvent`：`final.forms[]` 转成 camelCase JSON
+  （`formId / formType / title / description / fields / submitLabel /
+  expiresInSeconds / meta`）；field 为 `name / label / type / required /
+  placeholder / defaultValue / options[{value,label}]`。`meta` 是
+  `map<string,string>`，前端不渲染。
+- `AgentChatServiceImpl.history`：`HistoryMessage.forms` 映射成
+  `AgentHistoryMessage.AgentFormRequest`，与 final 同结构；老消息为空列表。
+- `AgentConverseRequest` 新增可选 `FormResult(formId, values)`；
+  `AgentChatServiceImpl` 组装 gRPC 时转成 `agent.v1.FormResult`（空 formId 视为 null，
+  老客户端不传不报错），经 `AgentGateway.converse` 透传。
+- **不落库**：历史里的 forms 来自 agent 的 GetHistory，Java 没有表单表，也不新增迁移。
+
+**退款原因**：
+- `AgentRefundDraftRequest` 新增 `reason`（`@Size(max=200)`），
+  `/internal/agent/actions/refund` 加 `@Valid`。
+- `AgentActionServiceImpl.prepareRefund`：reason 写入草稿
+  `payload_json.reason` 与 `summary.refundReason`（空则「未填写」）；同一订单已有
+  未过期待确认草稿时复用，若本次带新 reason 则更新草稿快照（`updateRefundReason`）。
+- `confirm` 的 `APPLY_REFUND` 分支：`executeRefund` 从 payload 读 reason 传给
+  `OrderService.applyRefund`（最终落订单 `refund_reason`）；老草稿无 reason 时回退
+  「通过买小购申请退款」。
+
+**前端**：
+- `api/types.ts`：`AgentFormRequest / AgentFormField / AgentFormOption /
+  AgentFormResult`，并给 `AgentHistoryMessage`、`AgentFinalEvent` 加 `forms`，
+  `AgentConversePayload` 加 `formResult`。
+- 新组件 `components/chat/AgentFormCard.vue`：按 `type` 渲染 el-select /
+  el-date-picker / el-input-number / el-input；必填校验；提交按钮把 values 交回父组件。
+- `AgentChatPanel.vue`：流式 `final.forms` 进入消息状态；`GetHistory` 的 forms 标记
+  `formsReadonly`，禁用输入与提交并提示「仅展示」。提交时按 formId 置灰，
+  以「已提交：<标题>」作为本轮 message（Java 侧 message 必填），并带 `formResult`
+  发起下一轮 Converse。
+- 退款动作卡片补「退款原因」一行（`AgentRefundSummary.refundReason`）。
+
+**验证**：`AgentEventMapperTest` 断言 final.forms 映射；`AgentControllerTest` 断言
+formResult 透传（含老客户端 null）与 history.forms 映射；`AgentActionControllerTest`
+断言 reason 落草稿、重复提交以最新为准、确认后写入订单 `refund_reason`。
+前端 `npm run build`（vue-tsc + vite）通过。
+
 ---
 
 ## 4. 前端（`frontend/`）

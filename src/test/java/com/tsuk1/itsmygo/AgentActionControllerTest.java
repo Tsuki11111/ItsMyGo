@@ -217,13 +217,26 @@ class AgentActionControllerTest extends ApiTestBase {
                         .header("X-Agent-Ticket", ticket(uid))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"orderNo":"%s"}
+                                {"orderNo":"%s","reason":"商品质量问题"}
                                 """.formatted(orderNo)))
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.status").value("PENDING_CONFIRM"))
                 .andExpect(jsonPath("$.data.summary.orderNo").value(orderNo))
+                .andExpect(jsonPath("$.data.summary.refundReason").value("商品质量问题"))
                 .andReturn().getResponse().getContentAsString();
         String refundNo = objectMapper.readTree(refundAction).path("data").path("actionNo").asText();
+
+        // 待确认草稿复用：再次提交新原因时以最新一次为准，不新建动作
+        mockMvc.perform(post("/internal/agent/actions/refund")
+                        .header("X-Agent-Ticket", ticket(uid))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"orderNo":"%s","reason":"商品质量问题，屏幕有划痕"}
+                                """.formatted(orderNo)))
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.actionNo").value(refundNo))
+                .andExpect(jsonPath("$.data.summary.refundReason")
+                        .value("商品质量问题，屏幕有划痕"));
 
         mockMvc.perform(post("/api/agent/actions/" + refundNo + "/confirm")
                         .header("Authorization", bearer(token)))
@@ -233,7 +246,9 @@ class AgentActionControllerTest extends ApiTestBase {
 
         mockMvc.perform(get("/api/orders/" + orderId)
                         .header("Authorization", bearer(token)))
-                .andExpect(jsonPath("$.data.order.status").value("REFUNDING"));
+                .andExpect(jsonPath("$.data.order.status").value("REFUNDING"))
+                .andExpect(jsonPath("$.data.order.refundReason")
+                        .value("商品质量问题，屏幕有划痕"));
     }
 
     @Test

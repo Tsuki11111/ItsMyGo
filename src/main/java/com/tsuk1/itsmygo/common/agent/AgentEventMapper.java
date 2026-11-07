@@ -2,6 +2,9 @@ package com.tsuk1.itsmygo.common.agent;
 
 import agent.v1.Event;
 import agent.v1.FinalEvent;
+import agent.v1.FormField;
+import agent.v1.FormOption;
+import agent.v1.FormRequest;
 import agent.v1.Image;
 import agent.v1.ProductCard;
 import agent.v1.Trace;
@@ -102,6 +105,47 @@ public final class AgentEventMapper {
             products.add(item);
         }
         data.put("products", products);
+        List<Map<String, Object>> forms = new ArrayList<>();
+        for (FormRequest form : finalEvent.getFormsList()) {
+            forms.add(formMap(form));
+        }
+        data.put("forms", forms);
         return data;
+    }
+
+    /**
+     * 会话内表单（final 可交互，历史只读展示）：字段名统一 camelCase，
+     * meta 是 agent 侧上下文（例如订单号），前端不渲染、回传时原样带回。
+     */
+    private static Map<String, Object> formMap(FormRequest form) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("formId", form.getFormId());
+        item.put("formType", form.getFormType());
+        item.put("title", form.getTitle());
+        item.put("description", form.getDescription());
+        List<Map<String, Object>> fields = new ArrayList<>();
+        for (FormField field : form.getFieldsList()) {
+            Map<String, Object> fieldItem = new LinkedHashMap<>();
+            fieldItem.put("name", field.getName());
+            fieldItem.put("label", field.getLabel());
+            fieldItem.put("type", field.getType());
+            fieldItem.put("required", field.getRequired());
+            fieldItem.put("placeholder", field.getPlaceholder());
+            fieldItem.put("defaultValue", field.getDefaultValue());
+            List<Map<String, Object>> options = new ArrayList<>();
+            for (FormOption option : field.getOptionsList()) {
+                Map<String, Object> optionItem = new LinkedHashMap<>();
+                optionItem.put("value", option.getValue());
+                optionItem.put("label", option.getLabel());
+                options.add(optionItem);
+            }
+            fieldItem.put("options", options);
+            fields.add(fieldItem);
+        }
+        item.put("fields", fields);
+        item.put("submitLabel", form.getSubmitLabel());
+        item.put("expiresInSeconds", form.getExpiresInSeconds());
+        item.put("meta", new LinkedHashMap<>(form.getMetaMap()));
+        return item;
     }
 }

@@ -39,8 +39,9 @@
 ## 1. 当前状态一句话
 
 **交易闭环、多商户、AI 客服、运营后台、平台政策、压测、售后、下单异步补账、Docker 部署均已完成（2026-11-06）。**
-后端自动化测试 **274 条**（M31 新增 9 条；此前售后 11 条、智能体评测 2 条、商品问答 1 条），
-CI 跑 270 条（跳过 4 条依赖 MinIO 的用例）。数据库 schema 到 **v32**。
+后端自动化测试 **279 条**（M31 新增 9 条；此后知识缺口 4 条、本次会话内表单 1 条；
+此前售后 11 条、智能体评测 2 条、商品问答 1 条），
+CI 跑 275 条（跳过 4 条依赖 MinIO 的用例）。数据库 schema 到 **v32**。
 
 - **交易**：商品 / SKU、购物车、按店拆单、支付、发货、收货、取消、超时关单、退款；
   库存与优惠券回滚。
@@ -308,6 +309,41 @@ docker exec -i mysql sh -c 'mysql --default-character-set=utf8mb4 -utsuk1 -p"$MY
 `meta.requiresAuth` 拦，未登录跳登录并带 `redirect`。
 订单页六个 Tab 其实是一个列表按状态筛（状态映射见 implementation §4.10）；
 地址表单已抽成 `components/AddressFormDialog.vue`，结算页共用同一份。
+
+### 3.5 会话内表单协议（refund_reason，2026-11-07）
+
+**改了什么**：
+- `src/main/proto/agent.proto` 从 `rag_helper` **原样复制**（SHA256 一致），生成
+  `FormRequest / FormField / FormOption / FormResult`；不改字段、不改 rag_helper。
+- 后端：`AgentEventMapper` 的 `final` 增加 `forms[]`（camelCase）；`GetHistory` 映射
+  `forms`；`AgentConverseRequest.formResult` 经 `AgentChatServiceImpl` 组装成 gRPC
+  `ConverseRequest.form_result` 透传（老客户端不传为 null）。
+- 退款原因：`AgentRefundDraftRequest` 加 `reason`（≤200 字），
+  `/internal/agent/actions/refund` 透传；草稿 `summary.refundReason`；
+  确认退款时用草稿 reason 构造 `RefundRequest`，落订单 `refund_reason`。
+  同一订单待确认草稿复用；本次带新 reason 时以最新一次为准。
+- 前端：`AgentFormCard.vue`（select / text / number / date + 必填校验），
+  流式 `final.forms` 可提交（带 `formResult` 发起下一轮，本轮置灰）；
+  `GetHistory` 的 forms 只读并提示「仅展示」；退款动作卡片显示退款原因。
+- **无数据库迁移**：历史 forms 只是 gRPC 透传，不落 Java 表。
+
+**验证**：
+- `.\mvnw.cmd test` 全量 279 条：278 通过、1 条失败 ——
+  `AdminUserControllerTest.cannotDisableLastActiveAdmin`，原因是测试库 `its_mygo_test`
+  启动时已有 1 个活跃 ADMIN（日志「库中已有 1 个活跃管理员，跳过 bootstrap」），
+  该用例假设库里没有其他活跃管理员，**与本次改动无关**；单独重跑同样失败，
+  清理测试库多余管理员后可恢复。
+- `AgentEventMapperTest`（final.forms 映射）、`AgentControllerTest`（formResult 透传、
+  老客户端 null、history.forms 映射）、`AgentActionControllerTest`（reason 落草稿 /
+  最新值覆盖 / 确认后写订单）覆盖新增链路；
+- 前端 `npm run build`（vue-tsc + vite）通过。
+
+**遗留**：
+- 与真实 rag_helper 8003 的表单联调未在本仓库内做（单测 mock gRPC）；依赖那边
+  `final.forms` / `form_result` 已上线。
+- 历史表单只读是前端约定（GetHistory 不带「是否已提交」状态），因此统一提示「仅展示」。
+- 表单 `meta` 前端不渲染；回传只带 `formId + values`，由 agent 侧按 `form_type + meta`
+  拼工具参数。
 
 ---
 

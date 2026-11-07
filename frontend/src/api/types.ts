@@ -877,11 +877,48 @@ export interface AgentProductCard {
   categoryName: string
 }
 
+export interface AgentFormOption {
+  value: string
+  label: string
+}
+
+/** 会话内表单字段；type 取 text / number / select / date */
+export interface AgentFormField {
+  name: string
+  label: string
+  type: string
+  required: boolean
+  placeholder: string
+  defaultValue: string
+  /** type=select 时有值 */
+  options: AgentFormOption[]
+}
+
+/** 会话内表单（协议见 rag_helper/proto/agent.proto）；meta 是 agent 上下文，前端不渲染 */
+export interface AgentFormRequest {
+  formId: string
+  formType: string
+  title: string
+  description: string
+  fields: AgentFormField[]
+  submitLabel: string
+  expiresInSeconds: number
+  meta: Record<string, string>
+}
+
+/** 表单回传：作为下一轮 Converse 的 formResult */
+export interface AgentFormResult {
+  formId: string
+  values: Record<string, string>
+}
+
 export interface AgentHistoryMessage {
   role: string
   text: string
   images: AgentImage[]
   products: AgentProductCard[]
+  /** 历史里的表单只读展示，不可再提交 */
+  forms: AgentFormRequest[]
   ts: string
   traces: AgentTraceEvent[]
 }
@@ -900,6 +937,8 @@ export interface AgentSessionView {
 export interface AgentConversePayload {
   sessionId?: string | null
   message: string
+  /** 表单回传；普通文本对话不传 */
+  formResult?: AgentFormResult | null
 }
 
 export interface AgentStartEvent {
@@ -926,6 +965,8 @@ export interface AgentFinalEvent {
   answer: string
   images: AgentImage[]
   products: AgentProductCard[]
+  /** 本轮下发的表单（最多 1 张）；无表单时为空数组 */
+  forms: AgentFormRequest[]
   webOnly: boolean
 }
 
@@ -998,6 +1039,8 @@ export interface AgentRefundSummary {
   status: string
   statusLabel: string
   totalAmount: string
+  /** 会话内表单收集的退款原因；老草稿为「未填写」 */
+  refundReason: string
   items: AgentActionItem[]
   note: string
 }

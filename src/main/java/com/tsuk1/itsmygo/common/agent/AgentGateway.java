@@ -1,6 +1,7 @@
 package com.tsuk1.itsmygo.common.agent;
 
 import agent.v1.Event;
+import agent.v1.FormResult;
 import agent.v1.HistoryMessage;
 import agent.v1.SessionInfo;
 
@@ -17,11 +18,12 @@ public interface AgentGateway {
     boolean configured();
 
     /**
+     * @param formResult 会话内表单回传；null 表示普通文本对话（老客户端）。
      * @param toolTicket 本轮工具调用票据（由 Java 签发，经 metadata 下发给 agent；
      *                   agent 回调 /internal/agent/** 时带回，见 AgentToolTicketService）
      */
-    Iterator<Event> converse(long userId, String sessionId, String message, Duration deadline,
-                             String toolTicket);
+    Iterator<Event> converse(long userId, String sessionId, String message, FormResult formResult,
+                             Duration deadline, String toolTicket);
 
     /**
      * Java 动作完成后的内部事件（不来自浏览器）。agent 侧不跑主模型，只执行对应完成图。

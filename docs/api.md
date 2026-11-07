@@ -1161,13 +1161,17 @@ data: {"userId":1,"customerUnread":0,"merchantUnread":0}
 
 | 方法 | 路径 | 权限 | 请求/参数 | 返回 |
 |---|---|---|---|---|
-| POST | `/api/agent/converse` | 登录 | `{sessionId?, message}` | `text/event-stream` |
+| POST | `/api/agent/converse` | 登录 | `{sessionId?, message, formResult?}` | `text/event-stream` |
 | POST | `/api/agent/stop` | 登录 | `{sessionId, runId}` | `boolean` |
 | GET | `/api/agent/history` | 登录 | `sessionId, limit=20` | `AgentHistoryView` |
 | GET | `/api/agent/sessions` | 登录 | `limit=20` | `AgentSessionView[]` |
 
 - `sessionId` 为空表示新会话；Java 生成 UUID 并记录归属，在 `start` 事件里返回。
 - `message` 去空白后非空、≤2000 字。
+- `formResult` 可选，会话内表单回传（方案 A），形如
+  `{"formId":"form-xxx","values":{"reason":"quality"}}`；普通文本对话不传。
+  老客户端不传等价于 `null`，Java 不会报错。Java 只把它原样转成 gRPC
+  `ConverseRequest.form_result`，**不落库**；一次性 / 过期由 agent 服务端校验。
 - 会话归属在 Java 侧校验：Stop / History / 带 sessionId 的 Converse，
   只要 `session_id + user_id` 不匹配就返回 404。
 - `/api/agent/sessions` 返回当前用户的历史会话（跨设备可用），按最近活跃倒序；
@@ -1219,6 +1223,42 @@ data: {"userId":1,"customerUnread":0,"merchantUnread":0}
 - `traces` 是该轮执行流；老消息没有 trace，返回空数组。
 - `products` 是该轮导购推荐的商品卡；老消息没有 products，返回空数组。
   前端历史消息默认折叠成一行「执行过程 · N 步」，点击展开全部步骤。
+- `forms` 是该轮下发的会话内表单；老消息没有 forms，返回空数组。
+  历史里的表单是**只读回放**：前端禁用输入与提交，提示「仅展示」。
+
+**FormRequest**（`final.forms[]` / `history.messages[].forms[]`）
+
+```json
+{
+  "formId": "form-20261107-abc123",
+  "formType": "refund_reason",
+  "title": "请选择退款原因",
+  "description": "提交后买小购会为你发起退款申请",
+  "fields": [
+    {
+      "name": "reason",
+      "label": "退款原因",
+      "type": "select",
+      "required": true,
+      "placeholder": "请选择",
+      "defaultValue": "quality",
+      "options": [
+        { "value": "quality", "label": "商品质量问题" },
+        { "value": "no_need", "label": "不想要了" }
+      ]
+    }
+  ],
+  "submitLabel": "提交",
+  "expiresInSeconds": 600,
+  "meta": { "orderNo": "20261107171247343993" }
+}
+```
+
+- `type` 取 `text` / `number` / `select` / `date`；`select` 必有 `options`。
+- `meta` 是 agent 侧上下文（例如订单号），**前端不渲染**，回传时不需要带上 ——
+  服务端按 `form_type` + 自己保存的 `meta` 拼工具参数。
+- 流式 `final.forms` 可交互；`GetHistory` 的 `forms` 只读。
+- 首批 `form_type` 只有 `refund_reason`，字段 `reason`（select，必填）。
 
 ### 19.2 Converse SSE 事件
 
@@ -1235,7 +1275,7 @@ data: {"kind":"delegate","agent":"product-kb","detail":"检索产品手册"}
 | `trace` | `{kind, agent, detail}`（`kind`：delegate/tool/result/reply/node） |
 | `delta` | `{delta}`（一期通常不出现，前端仍兼容） |
 | `usage` | `{calls, failed, totalTokens, cost, elapsedMs, unpricedCalls}` |
-| `final` | `{answer, images:[{url,caption}], products:[ProductCard], webOnly}` |
+| `final` | `{answer, images:[{url,caption}], products:[ProductCard], forms:[FormRequest], webOnly}` |
 | `error` | `{code, message, retryable}` |
 | `done` | `{reason: "final" / "stopped" / "error"}` |
 
@@ -1257,6 +1297,12 @@ data: {"kind":"delegate","agent":"product-kb","detail":"检索产品手册"}
 - 该流**不自动重连、不自动重试**；失败由用户重新发送。
 - 反代（Nginx）需 `proxy_buffering off; proxy_read_timeout 300s;`。
 
+**会话内表单的提交**：`final.forms` 渲染成卡片；用户填完点提交后，前端只带
+`{formId, values}` 作为**下一轮** `POST /api/agent/converse` 的 `formResult`，本轮卡片
+立即置灰。Java 的 `message` 仍必填，前端会用「已提交：<表单标题>」作为本轮消息。
+服务端校验通过后直接调对应工具（首批为退款原因 → `/internal/agent/actions/refund`），
+并产生下一轮回复。
+
 ### 19.3 内部工具接口（agent 专用，非浏览器接口）
 
 agent 服务在对话过程中需要实时数据时，会反向回调 Java 的内部接口。
@@ -1271,7 +1317,7 @@ agent 服务在对话过程中需要实时数据时，会反向回调 Java 的�
 | GET | `/internal/agent/catalog/categories` | `X-Agent-Ticket` | — | `CategoryNode[]` |
 | GET | `/internal/agent/catalog/addresses` | `X-Agent-Ticket` | — | `AgentAddressView[]` |
 | POST | `/internal/agent/actions/order` | `X-Agent-Ticket` | `{addressId?, items:[{productId,skuId,quantity}]}` | `AgentActionView` |
-| POST | `/internal/agent/actions/refund` | `X-Agent-Ticket` | `{orderNo}` | `AgentActionView` |
+| POST | `/internal/agent/actions/refund` | `X-Agent-Ticket` | `{orderNo, reason?}` | `AgentActionView` |
 | POST | `/internal/agent/actions/urge-shipment` | `X-Agent-Ticket` | `{orderNo}` | `AgentActionView` |
 | POST | `/internal/agent/actions/urge-shipment/send` | `X-Agent-Ticket` | `{actionNo}` | `AgentActionView` |
 | POST | `/internal/agent/actions/urge-refund` | `X-Agent-Ticket` | `{orderNo}` | `AgentActionView` |
@@ -1285,6 +1331,11 @@ agent 服务在对话过程中需要实时数据时，会反向回调 Java 的�
 
 - 商品搜索返回商品与 SKU（skuId / specText / price / stock），供 agent 落到具体规格。
 - 地址只返回当前票据用户自己的；动作准备接口只落 `PENDING_CONFIRM` 草稿，**不执行**。
+- **退款原因**：`/actions/refund` 的 `reason`（≤200 字）来自会话内表单，Java 把它写进
+  草稿 `payload_json` 与 `summary.refundReason`；确认退款时以草稿里的 reason 构造
+  `RefundRequest`，最终写入订单 `refund_reason`（参与商家确认与催退款文案）。
+  老草稿没有 reason 时回退为「通过买小购申请退款」。同一订单已有未过期的待确认草稿时
+  返回原卡片；若本次带新 reason，则更新草稿并以最新一次为准。
 - 确认必须走 §19.4 的浏览器接口，agent 不能确认。
 - 催发货确认后，Java 用内部事件触发 agent；agent 用本轮票据回调
   `/actions/urge-shipment/send`，Java 校验动作归属 / `EXECUTING` 状态 / 订单后，

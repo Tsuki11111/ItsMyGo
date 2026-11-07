@@ -21,10 +21,13 @@ import {
   streamAgentMessage,
 } from '@/api/agent'
 import AgentActionCard from './AgentActionCard.vue'
+import AgentFormCard from './AgentFormCard.vue'
 import AgentProductCardView from './AgentProductCard.vue'
 import { useUserStore } from '@/stores/user'
 import type {
   AgentActionView,
+  AgentFormRequest,
+  AgentFormResult,
   AgentImage,
   AgentOrderResult,
   AgentProductCard,
@@ -41,6 +44,9 @@ interface UiMessage {
   text: string
   images: AgentImage[]
   products: AgentProductCard[]
+  forms: AgentFormRequest[]
+  /** 历史回放的表单只读；流式下发的可交互 */
+  formsReadonly: boolean
   traces: AgentTraceEvent[]
   usage: AgentUsageEvent | null
   webOnly: boolean
@@ -65,6 +71,8 @@ const scrollEl = ref<HTMLElement>()
 /** 执行流默认折叠；按消息 id 记录展开状态 */
 const expandedTraces = ref<Record<string, boolean>>({})
 const activeAssistantId = ref<string | null>(null)
+/** 已提交的表单（按 formId）：本轮置灰，等下一轮回复 */
+const submittedForms = ref<Record<string, boolean>>({})
 
 let abortController: AbortController | null = null
 let assistantSeq = 0
@@ -243,6 +251,9 @@ async function loadHistory(savedSessionId: string) {
       text: item.text,
       images: item.images || [],
       products: item.products || [],
+      // GetHistory 里的表单是历史回放：只读展示，不可再提交
+      forms: item.forms || [],
+      formsReadonly: true,
       traces: item.traces || [],
       usage: null,
       webOnly: false,
@@ -282,7 +293,7 @@ async function selectSession(command: unknown) {
   await loadHistory(id)
 }
 
-async function sendMessage(preset?: string) {
+async function sendMessage(preset?: string, formResult?: AgentFormResult) {
   const content = (preset ?? input.value).trim()
   if (!content || streaming.value) return
 
@@ -295,6 +306,8 @@ async function sendMessage(preset?: string) {
     text: content,
     images: [],
     products: [],
+    forms: [],
+    formsReadonly: false,
     traces: [],
     usage: null,
     webOnly: false,
@@ -307,6 +320,8 @@ async function sendMessage(preset?: string) {
     text: '',
     images: [],
     products: [],
+    forms: [],
+    formsReadonly: false,
     traces: [],
     usage: null,
     webOnly: false,
@@ -343,6 +358,7 @@ async function sendMessage(preset?: string) {
         assistant.text = event.answer || assistant.text
         assistant.images = event.images || []
         assistant.products = event.products || []
+        assistant.forms = event.forms || []
         assistant.webOnly = event.webOnly
         break
       case 'usage':
@@ -371,13 +387,18 @@ async function sendMessage(preset?: string) {
 
   try {
     await streamAgentMessage(
-      { sessionId: sessionId.value, message: content },
+      {
+        sessionId: sessionId.value,
+        message: content,
+        ...(formResult ? { formResult } : {}),
+      },
       handleEvent,
       abortController.signal,
     )
     const assistant = findMessage(assistantId)
     if (assistant && !assistant.text && !assistant.error
-        && !assistant.stopped && assistant.images.length === 0) {
+        && !assistant.stopped && assistant.images.length === 0
+        && assistant.forms.length === 0) {
       assistant.error = '客服没有返回内容，请重试'
     }
   } catch (error) {
@@ -394,6 +415,19 @@ async function sendMessage(preset?: string) {
     runId.value = ''
     await scrollToBottom()
   }
+}
+
+/**
+ * 表单提交：把 formResult 带回下一轮 Converse，并立即置灰本轮卡片。
+ * Java 侧 message 必填，这里用一句用户可读的摘要充当本轮消息。
+ */
+function onFormSubmit(form: AgentFormRequest, values: Record<string, string>) {
+  if (streaming.value || submittedForms.value[form.formId]) return
+  submittedForms.value = { ...submittedForms.value, [form.formId]: true }
+  void sendMessage(`已提交：${form.title || form.formType}`, {
+    formId: form.formId,
+    values,
+  })
 }
 
 async function stop() {
@@ -425,6 +459,7 @@ function newSession() {
   persistSession(null)
   messages.value = []
   actions.value = []
+  submittedForms.value = {}
 }
 
 function onEnter(event: KeyboardEvent) {
@@ -584,6 +619,17 @@ onBeforeUnmount(() => {
                 :key="product.productId"
                 :product="product"
                 @buy="buyProduct"
+              />
+            </div>
+
+            <div v-if="message.forms.length" class="form-list">
+              <AgentFormCard
+                v-for="form in message.forms"
+                :key="form.formId"
+                :form="form"
+                :readonly="message.formsReadonly"
+                :submitted="!!submittedForms[form.formId]"
+                @submit="(values) => onFormSubmit(form, values)"
               />
             </div>
 

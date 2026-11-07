@@ -247,6 +247,7 @@ public class AgentActionServiceImpl implements AgentActionService {
             throw new BizException(ResultCode.BAD_REQUEST, "请指定要退款的订单号");
         }
         String orderNo = request.orderNo().trim();
+        String reason = request.reason() == null ? "" : request.reason().trim();
         List<OrderView> found = orderService.findForAgent(userId, orderNo, null, 1);
         if (found.isEmpty()) {
             throw new BizException(ResultCode.NOT_FOUND, "订单不存在");
@@ -259,7 +260,8 @@ public class AgentActionServiceImpl implements AgentActionService {
                     "当前订单状态（" + view.statusLabel() + "）不可申请退款");
         }
 
-        // 幂等：同一订单已有未过期的待确认退款草稿时，直接返回那一张卡
+        // 幂等：同一订单已有未过期的待确认退款草稿时，直接返回那一张卡；
+        // 本次表单带了新原因则更新草稿，确认时以最新原因为准。
         AgentAction existing = actionMapper.selectOne(Wrappers.<AgentAction>lambdaQuery()
                 .eq(AgentAction::getUserId, userId)
                 .eq(AgentAction::getType, AgentActionType.APPLY_REFUND.name())
@@ -268,6 +270,9 @@ public class AgentActionServiceImpl implements AgentActionService {
                 .orderByDesc(AgentAction::getId)
                 .last("LIMIT 1"));
         if (existing != null && existing.getExpiresAt().isAfter(LocalDateTime.now())) {
+            if (StringUtils.hasText(reason)) {
+                updateRefundReason(existing, reason);
+            }
             return toView(existing);
         }
 
@@ -277,12 +282,14 @@ public class AgentActionServiceImpl implements AgentActionService {
         summary.put("status", order.getStatus());
         summary.put("statusLabel", view.statusLabel());
         summary.put("totalAmount", money(order.getTotalAmount()));
+        summary.put("refundReason", StringUtils.hasText(reason) ? reason : "未填写");
         summary.put("items", view.items() == null ? List.of()
                 : view.items().stream().map(this::itemView).toList());
         summary.put("note", "确认后提交退款申请，等待商家处理；库存与优惠券在商家同意退款后回滚。");
 
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("orderId", order.getId());
+        payload.put("reason", reason);
 
         AgentAction action = newAction(userId, sessionId, AgentActionType.APPLY_REFUND,
                 payload, summary, order.getId());
@@ -583,7 +590,10 @@ public class AgentActionServiceImpl implements AgentActionService {
     private Object executeRefund(long userId, AgentAction action) {
         JsonNode payload = readTree(action.getPayloadJson());
         long orderId = payload.path("orderId").asLong();
-        OrderView view = orderService.applyRefund(userId, orderId, "通过买小购申请退款");
+        String reason = payload.path("reason").asText("");
+        // 老草稿没有 reason（协议上线前生成），保持原来的通用文案
+        OrderView view = orderService.applyRefund(userId, orderId,
+                StringUtils.hasText(reason) ? reason : "通过买小购申请退款");
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("orderId", view.order().getId());
         result.put("orderNo", view.order().getOrderNo());
@@ -803,6 +813,23 @@ public class AgentActionServiceImpl implements AgentActionService {
     }
 
     // ── 辅助 ──
+
+    /** 待确认退款草稿已经存在时，用本次表单提交的原因覆盖旧快照。 */
+    private void updateRefundReason(AgentAction action, String reason) {
+        if (readJson(action.getPayloadJson()) instanceof Map<?, ?> rawPayload) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> payload = (Map<String, Object>) rawPayload;
+            payload.put("reason", reason);
+            action.setPayloadJson(json(payload));
+        }
+        if (readJson(action.getSummaryJson()) instanceof Map<?, ?> rawSummary) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> summary = (Map<String, Object>) rawSummary;
+            summary.put("refundReason", reason);
+            action.setSummaryJson(json(summary));
+        }
+        actionMapper.updateById(action);
+    }
 
     private AgentAction newAction(long userId, String sessionId, AgentActionType type,
                                   Map<String, Object> payload, Map<String, Object> summary,

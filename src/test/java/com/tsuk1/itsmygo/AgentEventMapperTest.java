@@ -4,6 +4,9 @@ import agent.v1.Delta;
 import agent.v1.ErrorEvent;
 import agent.v1.Event;
 import agent.v1.FinalEvent;
+import agent.v1.FormField;
+import agent.v1.FormOption;
+import agent.v1.FormRequest;
 import agent.v1.Image;
 import agent.v1.SessionStart;
 import agent.v1.Trace;
@@ -38,13 +41,58 @@ class AgentEventMapperTest {
                 .setFinal(FinalEvent.newBuilder()
                         .setAnswer("答案")
                         .setWebOnly(true)
-                        .addImages(Image.newBuilder().setUrl("u").setCaption("图注"))).build());
+                        .addImages(Image.newBuilder().setUrl("u").setCaption("图注"))
+                        .addForms(FormRequest.newBuilder()
+                                .setFormId("f1")
+                                .setFormType("refund_reason")
+                                .setTitle("退款原因")
+                                .setDescription("请选择")
+                                .addFields(FormField.newBuilder()
+                                        .setName("reason")
+                                        .setLabel("原因")
+                                        .setType("select")
+                                        .setRequired(true)
+                                        .setPlaceholder("请选择原因")
+                                        .setDefaultValue("quality")
+                                        .addOptions(FormOption.newBuilder()
+                                                .setValue("quality")
+                                                .setLabel("商品质量问题")))
+                                .setSubmitLabel("提交")
+                                .setExpiresInSeconds(600)
+                                .putMeta("orderNo", "NO1"))).build());
         assertThat(fin.event()).isEqualTo("final");
         assertThat(fin.data()).containsEntry("answer", "答案").containsEntry("webOnly", true);
         @SuppressWarnings("unchecked")
         var images = (java.util.List<java.util.Map<String, Object>>) fin.data().get("images");
         assertThat(images).hasSize(1);
         assertThat(images.get(0)).containsEntry("url", "u").containsEntry("caption", "图注");
+
+        @SuppressWarnings("unchecked")
+        var forms = (java.util.List<java.util.Map<String, Object>>) fin.data().get("forms");
+        assertThat(forms).hasSize(1);
+        assertThat(forms.get(0))
+                .containsEntry("formId", "f1")
+                .containsEntry("formType", "refund_reason")
+                .containsEntry("title", "退款原因")
+                .containsEntry("description", "请选择")
+                .containsEntry("submitLabel", "提交")
+                .containsEntry("expiresInSeconds", 600);
+        assertThat(forms.get(0).get("meta")).isEqualTo(java.util.Map.of("orderNo", "NO1"));
+        @SuppressWarnings("unchecked")
+        var fields = (java.util.List<java.util.Map<String, Object>>) forms.get(0).get("fields");
+        assertThat(fields).hasSize(1);
+        assertThat(fields.get(0))
+                .containsEntry("name", "reason")
+                .containsEntry("label", "原因")
+                .containsEntry("type", "select")
+                .containsEntry("required", true)
+                .containsEntry("placeholder", "请选择原因")
+                .containsEntry("defaultValue", "quality");
+        @SuppressWarnings("unchecked")
+        var options = (java.util.List<java.util.Map<String, Object>>) fields.get(0).get("options");
+        assertThat(options).hasSize(1);
+        assertThat(options.get(0)).containsEntry("value", "quality")
+                .containsEntry("label", "商品质量问题");
     }
 
     @Test

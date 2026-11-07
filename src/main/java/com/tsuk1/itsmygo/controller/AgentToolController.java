@@ -22,6 +22,7 @@ import com.tsuk1.itsmygo.service.AgentActionService;
 import com.tsuk1.itsmygo.service.AgentCatalogService;
 import com.tsuk1.itsmygo.service.OrderService;
 import com.tsuk1.itsmygo.service.ShipmentService;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -125,7 +126,7 @@ public class AgentToolController {
     @PostMapping("/actions/refund")
     public Result<AgentActionView> prepareRefund(
             @RequestHeader(value = "X-Agent-Ticket", required = false) String ticket,
-            @RequestBody(required = false) AgentRefundDraftRequest request) {
+            @Valid @RequestBody(required = false) AgentRefundDraftRequest request) {
         AgentToolTicketService.Identity identity = requireIdentity(ticket);
         return Result.ok(actionService.prepareRefund(
                 identity.userId(), identity.sessionId(), request));

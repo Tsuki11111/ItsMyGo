@@ -3,6 +3,7 @@ package com.tsuk1.itsmygo.common.agent;
 import agent.v1.AgentServiceGrpc;
 import agent.v1.ConverseRequest;
 import agent.v1.Event;
+import agent.v1.FormResult;
 import agent.v1.HistoryMessage;
 import agent.v1.HistoryRequest;
 import agent.v1.ListSessionsRequest;
@@ -63,15 +64,19 @@ public class AgentGrpcClient implements AgentGateway {
     }
 
     @Override
-    public Iterator<Event> converse(long userId, String sessionId, String message, Duration deadline,
+    public Iterator<Event> converse(long userId, String sessionId, String message,
+                                    FormResult formResult, Duration deadline,
                                     String toolTicket) {
         AgentServiceGrpc.AgentServiceBlockingStub stub = stub(userId, toolTicket)
                 .withDeadlineAfter(deadline.toMillis(), TimeUnit.MILLISECONDS);
-        ConverseRequest request = ConverseRequest.newBuilder()
+        ConverseRequest.Builder request = ConverseRequest.newBuilder()
                 .setSessionId(sessionId == null ? "" : sessionId)
-                .setMessage(message)
-                .build();
-        return stub.converse(request);
+                .setMessage(message);
+        // 旧客户端不带表单回传：保持不设置（proto3 message 字段默认即空）
+        if (formResult != null) {
+            request.setFormResult(formResult);
+        }
+        return stub.converse(request.build());
     }
 
     @Override

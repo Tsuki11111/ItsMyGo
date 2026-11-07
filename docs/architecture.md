@@ -253,6 +253,10 @@ CREATING ──异步补账成功──> PENDING_PAYMENT ──支付──> PAI
 - **票据**：Java 每轮签发（Redis 10 分钟，必须 ≥ `AGENT_GRPC_DEADLINE_SECONDS=240`）；
   回调时经 `X-Agent-Ticket` 带回，Java 只认票据里的 userId。
 - **run_id**：由 agent 生成；Java 存映射，**不透传当 thread_id**。
+- **会话内表单（2026-11-07，方案 A）**：`FinalEvent.forms` 是流式下发的**可交互**表单，
+  `HistoryMessage.forms` 是**只读**回放；用户提交走下一轮 `ConverseRequest.form_result`
+  （Java 只透传、不落库），服务端按 `form_id` 校验一次性 / 过期后直接调工具。
+  首批 `form_type=refund_reason`；退款原因随草稿落 `agent_actions`，确认时传入 `RefundRequest`。
 - **契约铁律**：**只加字段不删改**（老消息返回空列表）；改 proto 必须双端同步；
   Java 侧由 proto 生成 stub。
 

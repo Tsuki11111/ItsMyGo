@@ -2,6 +2,10 @@ package com.tsuk1.itsmygo;
 
 import agent.v1.Event;
 import agent.v1.FinalEvent;
+import agent.v1.FormField;
+import agent.v1.FormOption;
+import agent.v1.FormRequest;
+import agent.v1.FormResult;
 import agent.v1.HistoryMessage;
 import agent.v1.SessionInfo;
 import agent.v1.SessionStart;
@@ -60,9 +64,12 @@ class AgentControllerTest extends ApiTestBase {
     @Test
     void converseStreamsSseAndRecordsSessionOwnership() throws Exception {
         when(agentGateway.configured()).thenReturn(true);
-        when(agentGateway.converse(anyLong(), anyString(), anyString(), any(), anyString()))
+        java.util.concurrent.atomic.AtomicReference<FormResult> oldClientForm =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        when(agentGateway.converse(anyLong(), anyString(), anyString(), any(), any(), anyString()))
                 .thenAnswer(invocation -> {
                     String sessionId = invocation.getArgument(1);
+                    oldClientForm.set(invocation.getArgument(3));
                     return List.of(
                             Event.newBuilder().setStart(SessionStart.newBuilder()
                                     .setSessionId(sessionId).setRunId("run-1")).build(),
@@ -98,6 +105,63 @@ class AgentControllerTest extends ApiTestBase {
                         .eq(AgentSession::getUserId, userId(username)));
         assertThat(sessions).hasSize(1);
         assertThat(sessions.get(0).getSessionId()).isNotBlank();
+        // 老客户端不带 formResult：透传 null，不能报错
+        assertThat(oldClientForm.get()).isNull();
+    }
+
+    @Test
+    void conversePassesFormResultAndReturnsFormsInFinalEvent() throws Exception {
+        when(agentGateway.configured()).thenReturn(true);
+        java.util.concurrent.atomic.AtomicReference<FormResult> capturedForm =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        when(agentGateway.converse(anyLong(), anyString(), anyString(), any(), any(), anyString()))
+                .thenAnswer(invocation -> {
+                    capturedForm.set(invocation.getArgument(3));
+                    return List.of(Event.newBuilder()
+                            .setFinal(FinalEvent.newBuilder()
+                                    .setAnswer("ok")
+                                    .addForms(FormRequest.newBuilder()
+                                            .setFormId("f1")
+                                            .setFormType("refund_reason")
+                                            .setTitle("退款原因")
+                                            .setDescription("请选择退款原因")
+                                            .addFields(FormField.newBuilder()
+                                                    .setName("reason")
+                                                    .setLabel("退款原因")
+                                                    .setType("select")
+                                                    .setRequired(true)
+                                                    .setDefaultValue("quality")
+                                                    .addOptions(FormOption.newBuilder()
+                                                            .setValue("quality")
+                                                            .setLabel("商品质量问题")))
+                                            .setSubmitLabel("提交")
+                                            .setExpiresInSeconds(600)
+                                            .putMeta("orderNo", "NO1")))
+                            .build()).iterator();
+                });
+
+        String token = customerToken("fm" + System.nanoTime());
+        MvcResult result = mockMvc.perform(post("/api/agent/converse")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"message":"已提交","formResult":{"formId":"f1","values":{"reason":"quality"}}}
+                                """))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        mockMvc.perform(asyncDispatch(result))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("\"forms\":[")))
+                .andExpect(content().string(containsString("\"formId\":\"f1\"")))
+                .andExpect(content().string(containsString("\"formType\":\"refund_reason\"")))
+                .andExpect(content().string(containsString("\"defaultValue\":\"quality\"")))
+                .andExpect(content().string(containsString("\"expiresInSeconds\":600")))
+                .andExpect(content().string(containsString("\"orderNo\":\"NO1\"")));
+
+        assertThat(capturedForm.get()).isNotNull();
+        assertThat(capturedForm.get().getFormId()).isEqualTo("f1");
+        assertThat(capturedForm.get().getValuesMap()).containsEntry("reason", "quality");
     }
 
     @Test
@@ -137,6 +201,22 @@ class AgentControllerTest extends ApiTestBase {
                         .setRole("user").setText("hello").setTs("2026-10-20")
                         .addTrace(Trace.newBuilder().setKind("delegate")
                                 .setAgent("product-kb").setDetail("检索"))
+                        .addForms(FormRequest.newBuilder()
+                                .setFormId("hf1")
+                                .setFormType("refund_reason")
+                                .setTitle("退款原因")
+                                .addFields(FormField.newBuilder()
+                                        .setName("reason")
+                                        .setLabel("退款原因")
+                                        .setType("select")
+                                        .setRequired(true)
+                                        .setDefaultValue("quality")
+                                        .addOptions(FormOption.newBuilder()
+                                                .setValue("quality")
+                                                .setLabel("商品质量问题")))
+                                .setSubmitLabel("提交")
+                                .setExpiresInSeconds(600)
+                                .putMeta("orderNo", "NO1"))
                         .build()));
 
         mockMvc.perform(get("/api/agent/history")
@@ -144,7 +224,20 @@ class AgentControllerTest extends ApiTestBase {
                         .param("sessionId", sessionId))
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.messages[0].text").value("hello"))
-                .andExpect(jsonPath("$.data.messages[0].traces[0].detail").value("检索"));
+                .andExpect(jsonPath("$.data.messages[0].traces[0].detail").value("检索"))
+                .andExpect(jsonPath("$.data.messages[0].forms[0].formId").value("hf1"))
+                .andExpect(jsonPath("$.data.messages[0].forms[0].formType")
+                        .value("refund_reason"))
+                .andExpect(jsonPath("$.data.messages[0].forms[0].fields[0].name").value("reason"))
+                .andExpect(jsonPath("$.data.messages[0].forms[0].fields[0].required").value(true))
+                .andExpect(jsonPath("$.data.messages[0].forms[0].fields[0].defaultValue")
+                        .value("quality"))
+                .andExpect(jsonPath("$.data.messages[0].forms[0].fields[0].options[0].value")
+                        .value("quality"))
+                .andExpect(jsonPath("$.data.messages[0].forms[0].fields[0].options[0].label")
+                        .value("商品质量问题"))
+                .andExpect(jsonPath("$.data.messages[0].forms[0].expiresInSeconds").value(600))
+                .andExpect(jsonPath("$.data.messages[0].forms[0].meta.orderNo").value("NO1"));
     }
 
     @Test
@@ -234,9 +327,9 @@ class AgentControllerTest extends ApiTestBase {
     void converseIssuesToolTicketBoundToUser() throws Exception {
         when(agentGateway.configured()).thenReturn(true);
         capturedTicket.set(null);
-        when(agentGateway.converse(anyLong(), anyString(), anyString(), any(), anyString()))
+        when(agentGateway.converse(anyLong(), anyString(), anyString(), any(), any(), anyString()))
                 .thenAnswer(invocation -> {
-                    capturedTicket.set(invocation.getArgument(4));
+                    capturedTicket.set(invocation.getArgument(5));
                     return List.of(Event.newBuilder()
                             .setFinal(FinalEvent.newBuilder().setAnswer("ok").setWebOnly(false)).build())
                             .iterator();

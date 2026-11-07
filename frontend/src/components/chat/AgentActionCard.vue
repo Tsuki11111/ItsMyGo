@@ -287,6 +287,7 @@ async function cancel() {
         <span>退款金额</span>
         <strong class="total">¥{{ refundSummary.totalAmount }}</strong>
       </div>
+      <p class="note">退款原因：{{ refundSummary.refundReason || '未填写' }}</p>
       <p v-if="pending" class="note">{{ refundSummary.note }}</p>
     </template>
 
