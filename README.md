@@ -150,11 +150,11 @@ cd ../rag_helper && ./deploy.sh joint
 
 ## 本地开发
 
-本地基础设施（ItsMyGo + rag_helper 共用）统一收在 **`D:\PycharmProjects\dev-infra`** 这一个
-compose 项目里，Docker Desktop 只显示一个 `dev-infra` 分组；容器名、端口、数据卷与以前一致：
+本地基础设施（ItsMyGo + rag_helper 共用）统一收在仓库内的 **`dev-infra/`** 目录
+（一个 compose 项目，Docker Desktop 只显示一个 `dev-infra` 分组）；容器名、端口、数据卷与以前一致：
 
 ```bash
-cd D:\PycharmProjects\dev-infra
+cd dev-infra
 docker compose --env-file .env up -d      # mysql/redis/minio/mongo/milvus/neo4j/rabbitmq/...
 docker compose --env-file .env ps        # 查看状态
 docker compose --env-file .env down      # 停止（external 数据卷不会删）

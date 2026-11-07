@@ -1,0 +1,270 @@
+# 本地开发统一基础设施（ItsMyGo + rag_helper 共用）
+#
+# 目的：把原先散在多个 compose 项目/手动 docker run 里的容器，收进一个 compose 项目，
+# Docker Desktop 的 Containers 页面只显示一个 "dev-infra" 分组。
+#
+# 关键约束：
+#   1. 所有数据卷都用 external: true 指向**现有已存在的卷**，不动数据；
+#   2. 容器名保持原样（mysql/redis/minio/...），项目里的脚本和 .env 不用改；
+#   3. 端口保持不变，两个项目的本机进程仍连 localhost。
+#
+# 启动：docker compose --env-file .env up -d
+# 停止：docker compose --env-file .env down        # 不会删除 external 数据卷
+# 查看：docker compose --env-file .env ps
+
+name: dev-infra
+
+services:
+
+  mysql:
+    image: mysql:8.0
+    container_name: mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    command:
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_general_ci
+    ports:
+      - "3306:3306"
+    volumes:
+      - docker_mysql_data:/var/lib/mysql
+      # 仅初始化空卷时执行；已有数据卷不受影响
+      - "D:/PycharmProjects/data-agent/docker/mysql:/docker-entrypoint-initdb.d:ro"
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb",
+              "--maxmemory-policy", "volatile-lru"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - rag_helper_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - rag_helper_minio_data:/data
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    container_name: its-my-go-rabbitmq
+    # 固定 hostname = 固定 Erlang 节点名，重建容器后仍能复用旧数据卷里的用户/队列
+    hostname: its-my-go-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - its_my_go_rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+  mongo:
+    image: mongo:8
+    container_name: mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - rag_helper_mongo_data:/data/db
+      - rag_helper_mongo_configdb:/data/configdb
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+  mongo-express:
+    image: mongo-express:1.0.2
+    container_name: mongo-express
+    restart: unless-stopped
+    environment:
+      ME_CONFIG_MONGODB_URL: ${ME_CONFIG_MONGODB_URL}
+      ME_CONFIG_BASICAUTH: ${ME_CONFIG_BASICAUTH}
+      ME_CONFIG_MONGODB_ENABLE_ADMIN: ${ME_CONFIG_MONGODB_ENABLE_ADMIN}
+      ME_CONFIG_SITE_SESSIONSECRET: ${ME_CONFIG_SITE_SESSIONSECRET}
+    ports:
+      - "8081:8081"
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.18
+    container_name: milvus-etcd
+    restart: unless-stopped
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: "1000"
+      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
+      ETCD_SNAPSHOT_COUNT: "50000"
+    command: etcd -advertise-client-urls=http://etcd:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    volumes:
+      - rag_helper_milvus_etcd_data:/etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+
+  milvus:
+    image: milvusdb/milvus:v2.5.4
+    container_name: milvus-standalone
+    restart: unless-stopped
+    command: ["milvus", "run", "standalone"]
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+      MINIO_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      MINIO_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET_NAME: rag-helper-milvus-binlog
+    volumes:
+      - rag_helper_milvus_data:/var/lib/milvus
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_started
+
+  attu:
+    image: zilliz/attu:v2.5
+    container_name: attu
+    restart: unless-stopped
+    environment:
+      MILVUS_URL: milvus:19530
+    ports:
+      - "8000:3000"
+    depends_on:
+      milvus:
+        condition: service_started
+
+  neo4j:
+    image: neo4j:5.26
+    container_name: neo4j
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: ${NEO4J_AUTH}
+      NEO4J_server_memory_heap_initial__size: 512m
+      NEO4J_server_memory_heap_max__size: 1G
+      NEO4J_server_memory_pagecache_size: 512m
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - rag_helper_neo4j_data:/data
+      - rag_helper_neo4j_logs:/logs
+
+  # ── 以下属于 data-agent 的旧设施，当前两个项目都不依赖，默认不启动 ──
+  # 需要时：docker compose --env-file .env --profile legacy up -d
+  elasticsearch:
+    image: docker-elasticsearch
+    container_name: elasticsearch
+    restart: unless-stopped
+    profiles: ["legacy"]
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+    ports:
+      - "9200:9200"
+    volumes:
+      - docker_es_data:/usr/share/elasticsearch/data
+
+  kibana:
+    image: kibana:8.19.10
+    container_name: kibana
+    restart: unless-stopped
+    profiles: ["legacy"]
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+
+  qdrant:
+    image: qdrant/qdrant:v1.16
+    container_name: qdrant
+    restart: unless-stopped
+    profiles: ["legacy"]
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - docker_qdrant_data:/qdrant/storage
+
+volumes:
+  docker_mysql_data:
+    external: true
+    name: docker_mysql_data
+  rag_helper_redis_data:
+    external: true
+    name: rag_helper-redis-data
+  rag_helper_minio_data:
+    external: true
+    name: rag_helper-minio-data
+  rag_helper_mongo_data:
+    external: true
+    name: rag_helper-mongo-data
+  rag_helper_mongo_configdb:
+    external: true
+    name: rag_helper-mongo-configdb
+  rag_helper_milvus_data:
+    external: true
+    name: rag_helper-milvus-data
+  rag_helper_milvus_etcd_data:
+    external: true
+    name: rag_helper-milvus-etcd-data
+  rag_helper_neo4j_data:
+    external: true
+    name: rag_helper-neo4j-data
+  rag_helper_neo4j_logs:
+    external: true
+    name: rag_helper-neo4j-logs
+  its_my_go_rabbitmq_data:
+    external: true
+    name: its-my-go-rabbitmq-data
+  docker_es_data:
+    external: true
+    name: docker_es_data
+  docker_qdrant_data:
+    external: true
+    name: docker_qdrant_data

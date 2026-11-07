@@ -40,3 +40,7 @@ build/
 .vscode/
 # 联调临时日志（2026-11-06）
 frontend/e2e-*.log
+
+### 本地开发基础设施（dev-infra）：凭据与数据库备份不入库 ###
+/dev-infra/.env
+/dev-infra/backup/
