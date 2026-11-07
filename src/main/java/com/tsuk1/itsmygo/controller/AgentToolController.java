@@ -19,8 +19,10 @@ import com.tsuk1.itsmygo.dto.agent.AgentUrgeRefundExecuteRequest;
 import com.tsuk1.itsmygo.dto.agent.AgentUrgeRefundRequest;
 import com.tsuk1.itsmygo.dto.agent.AgentUrgeShipmentExecuteRequest;
 import com.tsuk1.itsmygo.dto.agent.AgentUrgeShipmentRequest;
+import com.tsuk1.itsmygo.dto.report.ConsumptionReportView;
 import com.tsuk1.itsmygo.service.AgentActionService;
 import com.tsuk1.itsmygo.service.AgentCatalogService;
+import com.tsuk1.itsmygo.service.ConsumptionReportService;
 import com.tsuk1.itsmygo.service.OrderService;
 import com.tsuk1.itsmygo.service.ShipmentService;
 import jakarta.validation.Valid;
@@ -51,17 +53,20 @@ public class AgentToolController {
     private final AgentCatalogService catalogService;
     private final AgentActionService actionService;
     private final ShipmentService shipmentService;
+    private final ConsumptionReportService reportService;
 
     public AgentToolController(AgentToolTicketService ticketService,
                                OrderService orderService,
                                AgentCatalogService catalogService,
                                AgentActionService actionService,
-                               ShipmentService shipmentService) {
+                               ShipmentService shipmentService,
+                               ConsumptionReportService reportService) {
         this.ticketService = ticketService;
         this.orderService = orderService;
         this.catalogService = catalogService;
         this.actionService = actionService;
         this.shipmentService = shipmentService;
+        this.reportService = reportService;
     }
 
     @PostMapping("/orders/query")
@@ -113,6 +118,16 @@ public class AgentToolController {
             @RequestHeader(value = "X-Agent-Ticket", required = false) String ticket) {
         AgentToolTicketService.Identity identity = requireIdentity(ticket);
         return Result.ok(catalogService.addresses(identity.userId()));
+    }
+
+    /** 消费报告（只读）：用户身份只取票据，模型无法指定查谁。 */
+    @GetMapping("/reports/consumption")
+    public Result<ConsumptionReportView> consumptionReport(
+            @RequestHeader(value = "X-Agent-Ticket", required = false) String ticket,
+            @RequestParam(defaultValue = "month") String period,
+            @RequestParam(required = false) String date) {
+        AgentToolTicketService.Identity identity = requireIdentity(ticket);
+        return Result.ok(reportService.report(identity.userId(), period, date));
     }
 
     /** address_edit 表单提交后，agent 调这里更新当前用户的收货地址（即时生效，无待确认） */

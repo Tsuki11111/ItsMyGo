@@ -2821,3 +2821,57 @@ orderId）、顾客未读 +1；发货前改地址成功且商家收到 SYSTEM �
 偏好关闭不发、`runDaily` 批量只处理开启用户）。全量 `./mvnw.cmd test` **308 条全绿**
 （基线 303 + 5）；`cd frontend && npm run build` EXITCODE=0。
 
+### 3.43 个人消费报告（聚合口径 + 页面 + agent 工具）（2026-11-07）
+
+**需求**：顾客查看自己的消费情况（可按月/按年），并能通过客服对话让 bot 摘要。
+所有数字只来自已有订单 / 退款数据，**不推算、不加表、不迁移、不调模型**。
+
+**聚合（`ReportMapper`，纯注解 SQL）**：
+
+- 口径统一：`orders.paid_at` 落在期间内、状态属于
+  `PAID/SHIPPED/COMPLETED/REFUNDING/REFUNDED` 的订单算「已支付订单」；
+  每条查询都强制带 `user_id`，报告天然按用户隔离。
+- `summarize`：一条 SQL 取订单数、`SUM(total_amount)`、`SUM(refunded_amount)`、
+  `SUM(discount_amount)`；`SUM` 为 NULL 时 `COALESCE` 成 0。
+- `topCategories`：`order_items → products → categories`，按 `SUM(subtotal)` 降序 Top3，
+  `count = SUM(quantity)`；商品被删时 `LEFT JOIN` 归入「未分类」。
+- `topMerchants`：直接按 `orders.merchant_id` 聚合、`LEFT JOIN merchants` 取店名，
+  一单只属于一个商户，不会重复计数。
+- `topProducts`：`order_items` 按下单快照 `product_name` 聚合（商品改名/下架后历史报告仍准确），
+  按 `SUM(subtotal)` 降序 Top3。
+- `monthly`：`DATE_FORMAT(paid_at, '%Y-%m')` 按月 `GROUP BY`，仅按年查询调用；
+  只返回有订单的月份，前端补零到 12 个月。
+
+**期间解析（`ConsumptionReportServiceImpl`）**：
+
+- `period=month`（默认）/ `year`；`date` 按正则严格校验：
+  `YYYY-MM` 用 `YearMonth.parse`（`2026-13`、`2026-1` 均 400），`YYYY` 直接解析；
+  期间按左闭右开 `[start, end)` 计算，月末/年末不重不漏。
+- `label`：`2026年11月` / `2026年`；默认取 `Asia/Shanghai` 的当前月/年。
+- 金额一律 `setScale(2, HALF_UP).toPlainString()` 转字符串；`avgOrderAmount` 用
+  `paidAmount / orderCount` 两位小数，无订单为 `0.00`；`netAmount = paid - refunded`。
+- `ConsumptionReportView` 是 record，嵌套 `RankItem/ShopItem/MonthlyItem`，
+  与 rag_helper `report_tools.py` 期望的字段名逐字一致（未改 rag_helper）。
+
+**接口**：
+
+- 顾客侧：`ReportController`（`/api/reports`）`GET /api/reports/consumption`，
+  登录后只查 `CurrentUser.id()`。
+- agent 侧：`AgentToolController` 新增 `GET /internal/agent/reports/consumption`，
+  复用 `X-Agent-Ticket` 的 `requireIdentity`，身份只来自票据，返回 `Result<ConsumptionReportView>`；
+  无票据/过期 401。两个入口共用同一个 service。
+
+**前端**：
+
+- `frontend/src/api/report.ts`：`ConsumptionReport` 等类型 + `fetchConsumptionReport({period,date})`。
+- 新页面 `views/user/ConsumptionReport.vue`，路由 `/user/report`（沿用 `/user/**` 用户中心风格），
+  用户中心左侧菜单新增「我的消费报告」。
+- 页面：按月/按年切换 + 月份/年份选择器；四张统计卡（实付/净支出/订单数/优惠）；
+  品类、店铺、商品 Top3 用 CSS 宽度做占比条；年度显示 12 个月纯 CSS 柱状趋势与最高月；
+  无订单时保留 0 值卡片并给出空状态提示。未引入图表库。
+
+**测试**：新增 `ConsumptionReportTest` 5 条——月度金额/退款/净支出/均价/三类排行与
+用户隔离；年度月度趋势；空数据 0 与空数组；`date`/`period` 非法 400 与未登录 401；
+内部接口无票据 401、A/B 票据各自只返回本人数据。全量 `./mvnw.cmd test` **313 条全绿**
+（基线 308 + 5）；`cd frontend && npm run build` EXITCODE=0。
+

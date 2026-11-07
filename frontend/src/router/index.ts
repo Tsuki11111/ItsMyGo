@@ -89,6 +89,7 @@ const router = createRouter({
         { path: 'footprints', name: 'user-footprints', component: () => import('@/views/user/Footprints.vue') },
         { path: 'coupons', name: 'user-coupons', component: () => import('@/views/user/Coupons.vue') },
         { path: 'reviews', name: 'user-reviews', component: () => import('@/views/user/Reviews.vue') },
+        { path: 'report', name: 'user-report', component: () => import('@/views/user/ConsumptionReport.vue') },
         { path: 'messages/:conversationId?', name: 'user-messages', component: () => import('@/views/user/Messages.vue') },
         { path: 'addresses', name: 'user-addresses', component: () => import('@/views/user/Addresses.vue') },
         { path: 'profile', name: 'user-profile', component: () => import('@/views/user/Profile.vue') },

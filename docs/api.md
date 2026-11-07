@@ -1708,3 +1708,72 @@ specText, unitPrice, quantity, refundAmount, createdAt`
   **只有整单全部退完才退回优惠券**，部分退款不退券。
 - 商家 48h 未审核自动同意；退货 7 天未确认自动确认收货并退款（`itsmygo.after-sale.*` 可配）。
 - 审核类动作都是 CAS（并发点两次只成功一次）；申请时锁订单行防同一订单项并发超量。
+
+## 24. 个人消费报告
+
+> 数据全部来自 `orders` / `order_items` 现有数据，只读聚合，**不新增表、不调用模型**。
+> 金额统一返回**两位小数字符串**（如 `"358.00"`），避免前端浮点误差。
+
+### 24.1 统计口径
+
+- 期间：`period=month`（默认当月）/ `year`（默认当年）；`date` 可选：
+  - 按月传 `YYYY-MM`（如 `2026-11`），按年传 `YYYY`（如 `2026`）；
+  - 格式不合法返回 `code=400`。
+- 「已支付订单」：`paid_at` 落在期间内，且状态属于
+  `PAID / SHIPPED / COMPLETED / REFUNDING / REFUNDED`。
+- `paidAmount = SUM(total_amount)`；`refundedAmount = SUM(refunded_amount)`；
+  `netAmount = paidAmount - refundedAmount`；`discountAmount = SUM(discount_amount)`；
+  `avgOrderAmount = paidAmount / orderCount`（两位小数）。
+- 排行按金额降序各取 Top3；`monthly` 仅按年查询返回，只含有订单的月份（前端补满 12 个月）。
+
+### 24.2 顾客接口
+
+| 方法 | 路径 | 权限 | 请求/参数 | 返回 |
+|---|---|---|---|---|
+| GET | `/api/reports/consumption` | 登录 | `period=month\|year`、`date?` | `ConsumptionReportView` |
+
+只返回当前登录用户的数据。
+
+### 24.3 agent 内部接口
+
+| 方法 | 路径 | 鉴权 | 请求/参数 | 返回 |
+|---|---|---|---|---|
+| GET | `/internal/agent/reports/consumption` | `X-Agent-Ticket` | `period=month\|year`、`date?` | `Result<ConsumptionReportView>` |
+
+- 票据由 Java 在每轮 Converse 时签发，接口**只返回票据对应用户的数据**，请求里没有 userId。
+- 无票据 / 票据过期返回 `code=401`。
+- rag_helper 的 `get_consumption_report(period, date)` 工具即调用此接口，字段名与本结构一致。
+
+### 24.4 ConsumptionReportView
+
+```json
+{
+  "label": "2026年11月",
+  "orderCount": 3,
+  "paidAmount": "358.00",
+  "refundedAmount": "0.00",
+  "netAmount": "358.00",
+  "discountAmount": "20.00",
+  "avgOrderAmount": "119.33",
+  "categories": [{ "name": "办公设备", "amount": "199.00", "count": 2 }],
+  "merchants": [{ "name": "平台自营", "amount": "358.00" }],
+  "topProducts": [{ "name": "RS-12 数字万用表", "amount": "318.00", "count": 2 }],
+  "monthly": [{ "month": "2026-11", "amount": "358.00" }]
+}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `label` | 期间文案：`2026年11月` / `2026年` |
+| `orderCount` | 已支付订单数 |
+| `paidAmount` | 实付金额合计 |
+| `refundedAmount` | 已退款金额合计 |
+| `netAmount` | 净支出 = 实付 - 已退 |
+| `discountAmount` | 优惠金额合计 |
+| `avgOrderAmount` | 单笔均价；无订单为 `0.00` |
+| `categories` | 品类 Top3，`count` 为件数 |
+| `merchants` | 店铺 Top3 |
+| `topProducts` | 商品 Top3（按下单快照名） |
+| `monthly` | 按月消费；仅 `period=year` 有值 |
+
+空数据返回 `orderCount=0`、金额 `"0.00"`、排行与 `monthly` 空数组。
