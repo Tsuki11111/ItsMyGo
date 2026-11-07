@@ -248,12 +248,20 @@ npm run dev          # → http://localhost:5173（在 frontend/ 下；仓库根
 docker exec -i mysql sh -c 'mysql --default-character-set=utf8mb4 -utsuk1 -p"$MYSQL_PASSWORD" its_mygo' -e "UPDATE users SET role='ADMIN' WHERE username='testuser';"
 ```
 管理端入口：登录后顶栏用户面板里的「管理后台」，或直接访问 `/admin`。
-**种子数据**：[sql/seed-data.sql](sql/seed-data.sql)（**8 个分类、44 个商品**，
-每个型号对应 rag_helper/doc 下的一份产品手册）。导入方式：
+**种子数据**（两条 SQL，按顺序都要导）：
+[sql/seed-data.sql](sql/seed-data.sql)（**8 个分类、44 个商品 + 规格/SKU**）与
+[sql/seed-product-details.sql](sql/seed-product-details.sql)（**44 个商品的 `products.detail`
+商品详情文案**，按商品名 UPDATE；`seed-data.sql` 不带 detail 字段）。导入方式：
 
 ```bash
+# 1) 基础种子（清空重建分类/商品/SKU）
 docker exec -i mysql sh -c 'mysql --default-character-set=utf8mb4 -utsuk1 -p"$MYSQL_PASSWORD" its_mygo' < sql/seed-data.sql
+# 2) 补商品详情（必须在上一步之后，按 name 匹配）
+docker exec -i mysql sh -c 'mysql --default-character-set=utf8mb4 -utsuk1 -p"$MYSQL_PASSWORD" its_mygo' < sql/seed-product-details.sql
 ```
+
+> ⚠️ **只导第一条会出现“商品详情空白”**（2026-11-07 踩过：开发库只导了 seed-data.sql，
+> `products.detail` 全 NULL，详情页没内容）。两条都导完后再清缓存（`its-my-go:product:*`）。
 
 > ⚠️ **导完种子数据要重启后端** —— 布隆过滤器只在启动时预热，
 > 应用运行期间手工插的商品不在过滤器里，点详情会被判"不存在"（见 §5.12 的说明）。
@@ -543,7 +551,8 @@ VM 的 `ItsMyGo/.env` 设了 `prod`（日志级别/关 SQL 明细按 `applicatio
 build args 传入，改运行时环境变量无效。
 
 **命名**：容器/卷/网络全部 `its-my-go-*`；网络 `its-my-go-net` 同时用于联合部署。
-**seed profile**：`docker compose --profile seed run --rm seed`，导入 `sql/seed-data.sql`。
+**seed profile**：`docker compose --profile seed run --rm seed`，依次导入
+`sql/seed-data.sql` + `sql/seed-product-details.sql`（后者补商品详情，缺了详情页会空白）。
 
 **联合部署**：ItsMyGo 的 backend 在 `its-my-go-net` 上有别名 `its-my-go-backend`；
 rag_helper 的 `agent-grpc` / `agent-import` / `agent-http` 分别别名
