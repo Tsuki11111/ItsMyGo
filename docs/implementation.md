@@ -2760,7 +2760,7 @@ orderId）、顾客未读 +1；发货前改地址成功且商家收到 SYSTEM �
 前端 `npm run build` 通过。透传断言落在 `AgentGateway` 边界（mock 网关捕获两个 boolean），
 没有另起 fake gRPC server 去断言 `ConverseRequest` 的 optional 字段。
 
-### 3.42 智能推广（价格历史 + 推荐打分 + 每日定时）（2026-11-07）
+### 3.42 智能推广（价格历史 + 推荐打分 + 登录后随机延迟）（2026-11-07）
 
 **需求**：顾客在客服设置里打开「智能推广」后，每天最多收 1 条「可能感兴趣的商品」
 到站内聊天；商品卡可点进详情，消息复用现有会话 / 未读 / SSE，不新建通知表。
@@ -2805,20 +2805,23 @@ orderId）、顾客未读 +1；发货前改地址成功且商家收到 SYSTEM �
 - 发前再查偏好：`promotion_enabled=1` 且 `last_promotion_date != 今天`；发送成功后写
   `last_promotion_date`，保证同一用户每天最多 1 条。用户/店铺/商品异常只记日志跳过。
 
-**定时任务**：
+**触发：登录后 0~5 分钟随机延迟**（2026-11-07 调整，替代原「每天 10:00 扫全量」）：
 
-- `common/promotion/PromotionScheduler`：`@Scheduled(cron = "${itsmygo.promotion.cron:0 0 10 * * *}", zone="Asia/Shanghai")`；
-- 开关 `itsmygo.promotion.enabled`（默认 true，`@ConditionalOnProperty(matchIfMissing = true)`）；
-- `PromotionService.runDaily()` 从 `user_agent_preferences` join `users` 取开启推广的启用用户，
-  `LIMIT itsmygo.promotion.batch-size`（默认 200），逐个通过代理调 `notifyForUser`，
-  单用户异常捕获后继续；返回成功发送人数。
+- `common/promotion/PromotionLoginTrigger`：登录成功后检查偏好（推广开启、今天未推），
+  在 `0..itsmygo.promotion.login-delay-seconds`（默认 300）秒内**随机延迟**调度
+  `PromotionService.notifyForUser`；流量随用户登录自然摊到全天，不会出现同一时刻全量扫描的尖峰；
+- 三层去重：Redis `SETNX its-my-go:promotion:scheduled:{userId}:{date}`（TTL 26h，故障降级放行）
+  → `notifyForUser` 再查 `promotion_enabled` 与 `last_promotion_date` → 发送成功才写当天日期；
+- 开关 `itsmygo.promotion.enabled`（默认 true）；延迟参数 `PROMOTION_LOGIN_DELAY_SECONDS`；
+- `PromotionService.runDaily()` 保留作手动/测试批量入口（不再被定时器调用），
+  `LIMIT itsmygo.promotion.batch-size`，逐个代理调 `notifyForUser`，单用户异常捕获后继续。
 
 **前端**：`ChatContentType` 增加 `PROMOTION`；`MessageBubble` 对 `PROMOTION` 复用商品卡渲染，
 卡片上方显示「为你推荐」与推广理由，样式只做小改。
 
 **测试**：新增 5 条——`ProductPriceHistoryTest` 2 条（商品新建/改价/同价不重复、
 规格改价带 `sku_id`）；`PromotionServiceTest` 3 条（发送 1 条且标记今天、同日不再发、
-偏好关闭不发、`runDaily` 批量只处理开启用户）。全量 `./mvnw.cmd test` **308 条全绿**
+偏好关闭不发、`runDaily` 批量只处理开启用户、登录触发随机延迟/去重/Redis 降级）。全量 `./mvnw.cmd test` **319 条全绿**
 （基线 303 + 5）；`cd frontend && npm run build` EXITCODE=0。
 
 ### 3.43 个人消费报告（聚合口径 + 页面 + agent 工具）（2026-11-07）

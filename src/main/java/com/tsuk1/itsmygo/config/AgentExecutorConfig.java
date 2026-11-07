@@ -30,6 +30,18 @@ public class AgentExecutorConfig {
                 new ThreadPoolExecutor.AbortPolicy());
     }
 
+    /**
+     * 智能推广的延迟调度池：登录后 0~N 秒随机延迟发送，把流量摊到全天，
+     * 不再用「每天 10:00 一次性扫全量」的固定 cron（避免同一时刻打满 DB/聊天推送）。
+     */
+    @Bean(name = "promotionExecutor", destroyMethod = "shutdown")
+    public ScheduledThreadPoolExecutor promotionExecutor() {
+        ScheduledThreadPoolExecutor executor =
+                new ScheduledThreadPoolExecutor(2, threadFactory("promotion-"));
+        executor.setRemoveOnCancelPolicy(true);
+        return executor;
+    }
+
     @Bean(name = "agentAuxExecutor", destroyMethod = "shutdown")
     public ScheduledThreadPoolExecutor agentAuxExecutor() {
         ScheduledThreadPoolExecutor executor =

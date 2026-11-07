@@ -1599,15 +1599,16 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 
 **验证**：全量 313 条全绿；联合栈实测流式开 111 个 delta 且拼接=final、关 0 delta。
 
-### 2026-11-07 · 智能推广（价格历史 + 推荐打分 + 每日定时）
+### 2026-11-07 · 智能推广（价格历史 + 推荐打分 + 登录后随机延迟）
 
 **需求**：用户开启后每天主动推 1 条可能感兴趣的商品到站内聊天。
 
 **实现**：`V34__product_price_history.sql`（含存量基线）；商品/规格改价写历史；
 `PromotionService` 按降价 0.45 / 相似购买 0.25 / 销量 0.20 / 评分 0.10 打分，
 排除近 30 天买过的商品；`ChatService.sendPromotionMessage` 以商家身份发
-`contentType=PROMOTION` 商品卡（未读 + SSE）；`PromotionScheduler` 每天 10:00
-（`itsmygo.promotion.*` 可配），`last_promotion_date` 保证每人每天最多 1 条。
+`contentType=PROMOTION` 商品卡（未读 + SSE）；**触发改为登录后 0~5 分钟随机抖动**
+（`PromotionLoginTrigger`，Redis 按用户+日期去重，`last_promotion_date` 每天最多 1 条），
+不再用固定 cron 扫全量，避免用户量大时同一时刻的并发尖峰。
 
 **验证**：单测覆盖价格历史/打分/每日一次/偏好关闭；全量 313 条全绿。
 

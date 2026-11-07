@@ -3,6 +3,7 @@ package com.tsuk1.itsmygo.service.impl;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.tsuk1.itsmygo.common.ResultCode;
 import com.tsuk1.itsmygo.common.Roles;
+import com.tsuk1.itsmygo.common.promotion.PromotionLoginTrigger;
 import com.tsuk1.itsmygo.common.exception.BizException;
 import com.tsuk1.itsmygo.dto.LoginRequest;
 import com.tsuk1.itsmygo.dto.LoginResponse;
@@ -24,13 +25,16 @@ public class AuthServiceImpl implements AuthService {
     private final MerchantMapper merchantMapper;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    private final PromotionLoginTrigger promotionLoginTrigger;
 
     public AuthServiceImpl(UserMapper userMapper, MerchantMapper merchantMapper,
-                           PasswordEncoder passwordEncoder, JwtService jwtService) {
+                           PasswordEncoder passwordEncoder, JwtService jwtService,
+                           PromotionLoginTrigger promotionLoginTrigger) {
         this.userMapper = userMapper;
         this.merchantMapper = merchantMapper;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
+        this.promotionLoginTrigger = promotionLoginTrigger;
     }
 
     @Override
@@ -66,6 +70,8 @@ public class AuthServiceImpl implements AuthService {
         if (Integer.valueOf(0).equals(user.getStatus())) {
             throw new BizException(ResultCode.FORBIDDEN, "账号已被禁用");
         }
+        // 登录成功后按需排期「智能推广」（0~5 分钟随机抖动；开关关闭/今天已推/未开启推广都会跳过）
+        promotionLoginTrigger.onLogin(user.getId());
         return toResponse(user);
     }
 
