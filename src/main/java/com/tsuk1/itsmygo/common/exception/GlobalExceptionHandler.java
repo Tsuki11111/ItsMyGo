@@ -7,6 +7,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 
 @Slf4j
 @RestControllerAdvice
@@ -32,5 +33,15 @@ public class GlobalExceptionHandler {
     public Result<Void> handleUnexpected(Exception e) {
         log.error("未预期异常", e);
         return Result.fail(ResultCode.INTERNAL_ERROR);
+    }
+
+    /**
+     * 客户端在 SSE / 异步请求过程中断开（浏览器关页、切网、代理超时）：
+     * 不是服务端故障，**不记 ERROR 堆栈**，也不写响应体（反正也写不出去）。
+     * 常出现在 Chat 的 SseEmitter 推送路径上。
+     */
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    public void handleAsyncRequestNotUsable(AsyncRequestNotUsableException e) {
+        log.debug("客户端已断开，忽略异步响应异常: {}", e.getMessage());
     }
 }

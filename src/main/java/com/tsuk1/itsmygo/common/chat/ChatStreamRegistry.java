@@ -6,7 +6,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.io.IOException;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -28,7 +27,11 @@ public class ChatStreamRegistry {
     private final Map<Long, AtomicInteger> merchantOnline = new ConcurrentHashMap<>();
 
     public SseEmitter register(CurrentUser user) {
-        SseEmitter emitter = new SseEmitter(0L);
+        return register(user, new SseEmitter(0L));
+    }
+
+    /** 可注入 emitter 的重载：生产用上面的版本，测试用它模拟断连/不可用连接 */
+    SseEmitter register(CurrentUser user, SseEmitter emitter) {
         Connection connection = new Connection(user, emitter);
         byUser.computeIfAbsent(user.id(), key -> new CopyOnWriteArraySet<>()).add(connection);
 
@@ -133,14 +136,10 @@ public class ChatStreamRegistry {
             synchronized (writeLock) {
                 try {
                     emitter.send(SseEmitter.event().name(event).data(data));
-                } catch (IOException | IllegalStateException e) {
-                    alive.set(false);
-                    remove(this);
-                    try {
-                        emitter.complete();
-                    } catch (Exception ignored) {
-                        // 连接已经断了，complete 失败无需处理
-                    }
+                } catch (Exception e) {
+                    // 客户端断连（含 Tomcat 异步 error dispatch 抛出的
+                    // AsyncRequestNotUsableException）属于正常现象：静默清理，不记 ERROR 堆栈
+                    fail(e);
                 }
             }
         }
@@ -152,15 +151,22 @@ public class ChatStreamRegistry {
             synchronized (writeLock) {
                 try {
                     emitter.send(SseEmitter.event().comment("ping"));
-                } catch (IOException | IllegalStateException e) {
-                    alive.set(false);
-                    remove(this);
-                    try {
-                        emitter.complete();
-                    } catch (Exception ignored) {
-                        // 同上
-                    }
+                } catch (Exception e) {
+                    fail(e);
                 }
+            }
+        }
+
+        /** 发送失败 = 连接已死：标记、移出注册表、关掉 emitter（不向外抛，避免污染 HTTP 响应） */
+        private void fail(Exception e) {
+            alive.set(false);
+            log.debug("SSE 连接发送失败，按断连清理: userId={}, err={}",
+                    user.id(), e.getMessage());
+            remove(this);
+            try {
+                emitter.complete();
+            } catch (Exception ignored) {
+                // 连接已经断了，complete 失败无需处理
             }
         }
     }

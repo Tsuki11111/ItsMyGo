@@ -1554,6 +1554,29 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
    已在 compose 里固定 `hostname: its-my-go-rabbitmq`，并补建 `itsmygo` 用户；
    以后重建 RabbitMQ 若后端报 `ACCESS_REFUSED`，先 `rabbitmqctl list_users` 核对。
 
+### 5.43 ★ 客户端断开 SSE 连接时，别让 `AsyncRequestNotUsableException` 冒到全局异常处理器（2026-11-07 踩到）
+
+**现象**：日志里出现 `ERROR ... GlobalExceptionHandler - 未预期异常` +
+`AsyncRequestNotUsableException: Servlet container error notification for disconnected client`，
+栈里是 `ChatStreamRegistry.broadcast → Connection.send → SseEmitter.send`（聊天 SSE 推送），
+看起来像服务端故障，实际只是**浏览器关页 / 切网 / 代理断开**。
+
+**原因**：客户端断开后 Tomcat 会做一次异步 error dispatch，Spring 在
+`WebAsyncManager` 的错误回调里抛出 `AsyncRequestNotUsableException`（它虽然是
+`IOException` 子类，但异常发生在 **error dispatch 线程**，不在 `send()` 的 try 块里），
+于是绕过了发送侧的 catch，被 `@ExceptionHandler(Exception.class)` 记成 ERROR 堆栈。
+
+**修复**：
+1. `ChatStreamRegistry.Connection.send/ping` 的 catch 放宽到 `Exception`，发送失败一律按
+   断连清理（标记死亡、移出注册表、complete，DEBUG 日志）；
+2. `GlobalExceptionHandler` 增加 `@ExceptionHandler(AsyncRequestNotUsableException.class)`，
+   只记 DEBUG、不写响应体、不包 500；
+3. 回归用例 `ChatStreamRegistryTest`（断连 emitter 不抛、活连接不受影响）+
+   `GlobalExceptionHandlerTest`（处理器真的注册了）；mutation 2/2 抓住。
+
+**规矩**：所有 `SseEmitter` 发送路径都要兜底「客户端已断」；异步请求的断连异常
+**不算服务端错误**，不要进 ERROR 日志/告警。
+
 ## 6. 历史记录
 
 ### 2026-11-07 · 开发/演示联合启动入口收归 ItsMyGo
