@@ -18,12 +18,16 @@ public interface AgentGateway {
     boolean configured();
 
     /**
-     * @param formResult 会话内表单回传；null 表示普通文本对话（老客户端）。
-     * @param toolTicket 本轮工具调用票据（由 Java 签发，经 metadata 下发给 agent；
-     *                   agent 回调 /internal/agent/** 时带回，见 AgentToolTicketService）
+     * @param formResult     会话内表单回传；null 表示普通文本对话（老客户端）。
+     * @param toolTicket     本轮工具调用票据（由 Java 签发，经 metadata 下发给 agent；
+     *                       agent 回调 /internal/agent/** 时带回，见 AgentToolTicketService）
+     * @param enableWebSearch 顾客的联网搜索偏好（客户设置，默认 true）
+     * @param stream          顾客的流式输出偏好（客户设置，默认 false）；
+     *                        true 时 agent 会额外推 {@code delta} 事件
      */
     Iterator<Event> converse(long userId, String sessionId, String message, FormResult formResult,
-                             Duration deadline, String toolTicket);
+                             Duration deadline, String toolTicket,
+                             boolean enableWebSearch, boolean stream);
 
     /**
      * Java 动作完成后的内部事件（不来自浏览器）。agent 侧不跑主模型，只执行对应完成图。

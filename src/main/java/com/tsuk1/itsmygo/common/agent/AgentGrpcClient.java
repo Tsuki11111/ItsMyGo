@@ -66,12 +66,16 @@ public class AgentGrpcClient implements AgentGateway {
     @Override
     public Iterator<Event> converse(long userId, String sessionId, String message,
                                     FormResult formResult, Duration deadline,
-                                    String toolTicket) {
+                                    String toolTicket, boolean enableWebSearch, boolean stream) {
         AgentServiceGrpc.AgentServiceBlockingStub stub = stub(userId, toolTicket)
                 .withDeadlineAfter(deadline.toMillis(), TimeUnit.MILLISECONDS);
         ConverseRequest.Builder request = ConverseRequest.newBuilder()
                 .setSessionId(sessionId == null ? "" : sessionId)
-                .setMessage(message);
+                .setMessage(message)
+                // 客服设置：显式下发（默认值就是旧行为：联网开、流式关），
+                // optional 字段的 has 语义只用于兼容老客户端，这里不需要区分「未设置」
+                .setEnableWebSearch(enableWebSearch)
+                .setStream(stream);
         // 旧客户端不带表单回传：保持不设置（proto3 message 字段默认即空）
         if (formResult != null) {
             request.setFormResult(formResult);

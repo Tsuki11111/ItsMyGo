@@ -2703,3 +2703,59 @@ mutation 2/2 抓住（不调通知 / 通知不发消息）。通知用真实 SSE
 **测试**：`OrderPaidNotificationTest` 扩到 6 条：支付后生成确认卡（MERCHANT 发、card 含
 orderId）、顾客未读 +1；发货前改地址成功且商家收到 SYSTEM 同步；`SHIPPED` 后改地址被拒；
 用别人的地址被拒。mutation 3/3 抓住（不发确认卡 / 去掉状态守卫 / 改地址不通知商家）。
+
+### 3.41 客服设置（智能推广/联网/流式偏好）（2026-11-07）
+
+**需求**：客服面板里给顾客三个开关——智能推广 / 联网搜索 / 流式输出；设置按用户持久化，
+下一轮对话生效。推广与财报是后续任务，本次只做「持久化 + 设置 UI + 流式渲染」。
+
+**数据（V33）**：
+
+- 新表 `user_agent_preferences`，`user_id` 直接作主键（一人一行）：
+  `promotion_enabled` 默认 0、`web_search_enabled` 默认 1、`stream_enabled` 默认 0；
+  `last_promotion_date DATE NULL` 给后续「智能推广」用，本次只建列；
+  `updated_at` 由 MySQL `ON UPDATE CURRENT_TIMESTAMP` 维护。
+- 迁移版本是 **V33** 而不是需求里写的 V22：仓库里 V22 已被 `logistics` 占用，
+  Flyway 版本号不能重复，按现有最大版本顺延。
+- 读取无行时返回默认值（0/1/0），**不落库**；只有顾客点「保存」才写这一行。
+- 保存是单条 `INSERT ... ON DUPLICATE KEY UPDATE`（`AgentPreferenceMapper.upsert`）：
+  并发保存同一用户不会先查后插撞主键；也**不用 REPLACE**，避免把后续推广要用的
+  `last_promotion_date` 清掉。
+
+**接口与透传**：
+
+- `AgentPreferenceService`（接口 + impl）：`get(userId)` / `save(userId, request)`；
+  `AgentController` 新增 `GET /api/agent/preferences` 与 `PUT /api/agent/preferences`。
+  PUT body 三个 `@NotNull Boolean`，**全量必传**（缺字段 400），返回保存后的值。
+- `AgentChatServiceImpl.converse` 在**请求线程**读取偏好（异步线程之前），
+  随本轮调 `AgentGateway.converse(..., enableWebSearch, stream)`；`AgentGrpcClient` 用
+  proto 生成的 builder 显式 `setEnableWebSearch(...)` / `setStream(...)`。
+  默认值就是旧行为（联网开、流式关），旧客户端不传偏好时结果不变。
+- proto 已与 `rag_helper/proto/agent.proto` **逐字节同步**（SHA256 一致），
+  `ConverseRequest` 的 `optional bool enable_web_search = 4`、`optional bool stream = 5`
+  由 protobuf 插件生成 setter；`has...` 语义只用于兼容「未设置」的旧客户端，Java 侧不区分。
+
+**流式渲染**：
+
+- agent 在 `stream=true` 时推 `Delta{delta}`；`AgentEventMapper` 已有 `DELTA` 分支，
+  映射成 SSE `event: delta` + `data: {"delta":"…"}`，与 final/trace/usage 同一条解析路径。
+- 前端 `AgentStreamEvent` 的 delta 分支是 `{ type:'delta'; delta:string }`（沿用现有事件风格，
+  字段名与服务端 data 一致）；`AgentChatPanel` 收到 delta 追加到本轮助手消息，
+  收到 `final` 时用 `final.answer` **整体替换**占位文本，避免 delta 累加与 final 重复。
+  本轮助手占位消息在发送时就已创建，所以不需要额外新建 streaming 消息。
+- 流式关闭时 agent 不推 delta，逻辑自然只等 final；前端不做额外分支。
+
+**设置 UI**：
+
+- `AgentChatPanel` 标题栏新增齿轮按钮（`Setting` 图标），打开 `el-dialog`；
+  三个 `el-switch` 带说明文案：智能推广「每天为你推荐可能感兴趣的商品」、
+  联网搜索「允许联网查询最新信息」、流式输出「逐字显示回复」。
+- 打开弹窗 GET 偏好，点「保存」PUT 全量覆盖，成功 `ElMessage.success('设置已保存')`
+  并关闭弹窗；失败 `ElMessage.error`。弹窗 `append-to-body`，避免被聊天面板的
+  `overflow: hidden` 裁切。
+
+**测试**：`AgentControllerTest` 新增 6 条——默认值读取、保存后读取且重复保存是覆盖、
+未登录 401、缺字段 400、默认偏好透传（联网 true / 流式 false）、保存后偏好透传
+（联网 false / 流式 true）。全量 `./mvnw test` **303 条全绿**（基线 297 + 6）。
+前端 `npm run build` 通过。透传断言落在 `AgentGateway` 边界（mock 网关捕获两个 boolean），
+没有另起 fake gRPC server 去断言 `ConverseRequest` 的 optional 字段。

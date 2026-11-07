@@ -1,8 +1,9 @@
-import { UNAUTHORIZED_EVENT, clearAuth, get, getToken, post } from './http'
+import { UNAUTHORIZED_EVENT, clearAuth, get, getToken, post, put } from './http'
 import type {
   AgentActionView,
   AgentConversePayload,
   AgentHistoryView,
+  AgentPreferences,
   AgentSessionView,
   AgentStreamEvent,
 } from './types'
@@ -89,6 +90,16 @@ export function fetchAgentSessions(limit = 20): Promise<AgentSessionView[]> {
 /** 某个会话里的待确认 / 已执行动作（刷新页面后卡片也能恢复） */
 export function fetchAgentActions(sessionId: string): Promise<AgentActionView[]> {
   return get<AgentActionView[]>('/agent/actions', { sessionId })
+}
+
+/** 客服设置：没保存过时后端返回默认值（推广关 / 联网开 / 流式关） */
+export function fetchAgentPreferences(): Promise<AgentPreferences> {
+  return get<AgentPreferences>('/agent/preferences')
+}
+
+/** 客服设置：三个开关全量覆盖 */
+export function saveAgentPreferences(prefs: AgentPreferences): Promise<AgentPreferences> {
+  return put<AgentPreferences>('/agent/preferences', prefs)
 }
 
 export function confirmAgentAction(actionNo: string): Promise<AgentActionView> {

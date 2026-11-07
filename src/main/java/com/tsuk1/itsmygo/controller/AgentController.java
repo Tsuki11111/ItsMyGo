@@ -4,16 +4,20 @@ import com.tsuk1.itsmygo.common.Result;
 import com.tsuk1.itsmygo.common.ratelimit.RateLimit;
 import com.tsuk1.itsmygo.dto.agent.AgentConverseRequest;
 import com.tsuk1.itsmygo.dto.agent.AgentHistoryView;
+import com.tsuk1.itsmygo.dto.agent.AgentPreferenceRequest;
+import com.tsuk1.itsmygo.dto.agent.AgentPreferenceView;
 import com.tsuk1.itsmygo.dto.agent.AgentSessionView;
 import com.tsuk1.itsmygo.dto.agent.AgentStopRequest;
 import com.tsuk1.itsmygo.security.CurrentUser;
 import com.tsuk1.itsmygo.service.AgentChatService;
+import com.tsuk1.itsmygo.service.AgentPreferenceService;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -31,9 +35,12 @@ import java.util.List;
 public class AgentController {
 
     private final AgentChatService agentChatService;
+    private final AgentPreferenceService preferenceService;
 
-    public AgentController(AgentChatService agentChatService) {
+    public AgentController(AgentChatService agentChatService,
+                           AgentPreferenceService preferenceService) {
         this.agentChatService = agentChatService;
+        this.preferenceService = preferenceService;
     }
 
     @RateLimit(scene = "agent-converse", limit = 10, windowSeconds = 60, byUser = true)
@@ -57,6 +64,19 @@ public class AgentController {
                                             @RequestParam String sessionId,
                                             @RequestParam(defaultValue = "20") int limit) {
         return Result.ok(agentChatService.history(user, sessionId, limit));
+    }
+
+    /** 客服设置：没保存过时返回默认值（推广关 / 联网开 / 流式关）。 */
+    @GetMapping("/preferences")
+    public Result<AgentPreferenceView> preferences(@AuthenticationPrincipal CurrentUser user) {
+        return Result.ok(preferenceService.get(user.id()));
+    }
+
+    /** 客服设置：三个开关全量覆盖（PUT 语义，缺字段 400）。 */
+    @PutMapping("/preferences")
+    public Result<AgentPreferenceView> savePreferences(@AuthenticationPrincipal CurrentUser user,
+                                                       @Valid @RequestBody AgentPreferenceRequest request) {
+        return Result.ok(preferenceService.save(user.id(), request));
     }
 
     /** 当前用户的历史会话（跨设备可用）；agent 与 Java 双侧都会按用户过滤。 */

@@ -11,12 +11,16 @@ import {
   Plus,
   Promotion,
   Service,
+  Setting,
   VideoPause,
 } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import {
   fetchAgentActions,
   fetchAgentHistory,
+  fetchAgentPreferences,
   fetchAgentSessions,
+  saveAgentPreferences,
   stopAgent,
   streamAgentMessage,
 } from '@/api/agent'
@@ -30,6 +34,7 @@ import type {
   AgentFormResult,
   AgentImage,
   AgentOrderResult,
+  AgentPreferences,
   AgentProductCard,
   AgentSessionView,
   AgentStreamEvent,
@@ -73,6 +78,16 @@ const expandedTraces = ref<Record<string, boolean>>({})
 const activeAssistantId = ref<string | null>(null)
 /** 已提交的表单（按 formId）：本轮置灰，等下一轮回复 */
 const submittedForms = ref<Record<string, boolean>>({})
+
+/** 客服设置弹窗：默认值与后端一致（推广关 / 联网开 / 流式关），打开时再拉真实值 */
+const settingsVisible = ref(false)
+const settingsLoading = ref(false)
+const settingsSaving = ref(false)
+const preferences = ref<AgentPreferences>({
+  promotionEnabled: false,
+  webSearchEnabled: true,
+  streamEnabled: false,
+})
 
 let abortController: AbortController | null = null
 let assistantSeq = 0
@@ -468,6 +483,33 @@ function onEnter(event: KeyboardEvent) {
   void sendMessage()
 }
 
+/** 打开设置：每次都重新拉，避免多端改过之后本地还是旧值 */
+async function openSettings() {
+  settingsVisible.value = true
+  settingsLoading.value = true
+  try {
+    preferences.value = await fetchAgentPreferences()
+  } catch {
+    ElMessage.error('设置加载失败，请稍后再试')
+  } finally {
+    settingsLoading.value = false
+  }
+}
+
+/** 保存设置：三个开关全量覆盖；成功后下一轮对话才生效 */
+async function saveSettings() {
+  settingsSaving.value = true
+  try {
+    preferences.value = await saveAgentPreferences(preferences.value)
+    ElMessage.success('设置已保存')
+    settingsVisible.value = false
+  } catch {
+    ElMessage.error('设置保存失败，请稍后再试')
+  } finally {
+    settingsSaving.value = false
+  }
+}
+
 onMounted(async () => {
   document.addEventListener('visibilitychange', onVisibilityChange)
   await refreshSessions()
@@ -507,6 +549,9 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="head-actions">
+        <el-button link size="small" title="客服设置" @click="openSettings">
+          <el-icon><Setting /></el-icon>
+        </el-button>
         <el-dropdown v-if="sessions.length" trigger="click" @command="selectSession">
           <el-button link size="small">
             <el-icon><Clock /></el-icon>
@@ -687,6 +732,36 @@ onBeforeUnmount(() => {
         <span>发送</span>
       </el-button>
     </div>
+
+    <el-dialog v-model="settingsVisible" title="客服设置" width="420px" append-to-body>
+      <div v-loading="settingsLoading" class="settings-body">
+        <div class="settings-row">
+          <div class="settings-text">
+            <p class="settings-name">智能推广</p>
+            <p class="settings-desc">每天为你推荐可能感兴趣的商品</p>
+          </div>
+          <el-switch v-model="preferences.promotionEnabled" />
+        </div>
+        <div class="settings-row">
+          <div class="settings-text">
+            <p class="settings-name">联网搜索</p>
+            <p class="settings-desc">允许联网查询最新信息</p>
+          </div>
+          <el-switch v-model="preferences.webSearchEnabled" />
+        </div>
+        <div class="settings-row">
+          <div class="settings-text">
+            <p class="settings-name">流式输出</p>
+            <p class="settings-desc">逐字显示回复</p>
+          </div>
+          <el-switch v-model="preferences.streamEnabled" />
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="settingsVisible = false">取消</el-button>
+        <el-button type="primary" :loading="settingsSaving" @click="saveSettings">保存</el-button>
+      </template>
+    </el-dialog>
   </section>
 </template>
 
@@ -1187,6 +1262,33 @@ onBeforeUnmount(() => {
 
 .composer .el-button span {
   margin-left: 4px;
+}
+
+.settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 4px 2px;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.settings-name {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--c-text);
+}
+
+.settings-desc {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--c-text-3);
 }
 
 @media (max-width: 820px) {

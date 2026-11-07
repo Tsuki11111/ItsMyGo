@@ -941,6 +941,16 @@ export interface AgentConversePayload {
   formResult?: AgentFormResult | null
 }
 
+/** 客服设置（顾客级，服务端持久化）；没保存过时返回默认值 */
+export interface AgentPreferences {
+  /** 智能推广：默认 false，用户主动开启 */
+  promotionEnabled: boolean
+  /** 联网搜索：默认 true */
+  webSearchEnabled: boolean
+  /** 流式输出：默认 false；开启后 agent 才会推 delta 事件 */
+  streamEnabled: boolean
+}
+
 export interface AgentStartEvent {
   sessionId: string
   runId: string

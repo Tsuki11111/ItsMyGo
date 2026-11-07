@@ -1178,6 +1178,8 @@ data: {"userId":1,"customerUnread":0,"merchantUnread":0}
 | POST | `/api/agent/stop` | 登录 | `{sessionId, runId}` | `boolean` |
 | GET | `/api/agent/history` | 登录 | `sessionId, limit=20` | `AgentHistoryView` |
 | GET | `/api/agent/sessions` | 登录 | `limit=20` | `AgentSessionView[]` |
+| GET | `/api/agent/preferences` | 登录 | — | `AgentPreferenceView` |
+| PUT | `/api/agent/preferences` | 登录 | `{promotionEnabled, webSearchEnabled, streamEnabled}` | `AgentPreferenceView` |
 
 - `sessionId` 为空表示新会话；Java 生成 UUID 并记录归属，在 `start` 事件里返回。
 - `message` 去空白后非空、≤2000 字。
@@ -1512,6 +1514,31 @@ refundReason, refundAppliedAt, note}`。
 只有退款中（`REFUNDING`）的订单能催；已退款（`REFUNDED`）返回
 「商家已处理退款，无需再催」；确认时重新校验，商家已处理 / 驳回则动作失败且不发送消息。
 成功发送后 10 分钟内不能重复催同一单，agent 随后写一条「催退款已完成 + 代商家致歉」。
+
+### 19.5 客服设置（2026-11-07）
+
+顾客在客服面板标题栏的齿轮按钮里改三个开关，服务端按用户持久化；
+**没保存过时返回默认值，不会给用户预插一行**。
+
+| 开关 | 字段 | 默认 | 说明 |
+|---|---|---|---|
+| 智能推广 | `promotionEnabled` | `false` | 每天为你推荐可能感兴趣的商品；**本次只持久化**，推广能力是后续任务 |
+| 联网搜索 | `webSearchEnabled` | `true` | 允许联网查询最新信息；默认开，与旧行为一致 |
+| 流式输出 | `streamEnabled` | `false` | 逐字显示回复；默认关，关闭时 agent 只推 `final` |
+
+- `GET /api/agent/preferences` → `{promotionEnabled, webSearchEnabled, streamEnabled}`
+- `PUT /api/agent/preferences`：body 同上，**三个字段全量必传**（`@NotNull`，缺任何一个 → 400），
+  返回保存后的值；同一用户重复保存是覆盖（upsert），不会产生第二行。
+- 两个接口都要求顾客登录，未登录 401。
+- 保存在下一轮 `POST /api/agent/converse` 生效：Java 读取当前用户设置，写进 gRPC
+  `ConverseRequest.enable_web_search` / `ConverseRequest.stream`（proto 的 optional 字段）。
+  老客户端 / 未设置时后端仍按默认值下发，行为与旧版一致（联网开、流式关）。
+- `stream=true` 时 agent 会先推若干 `delta` 事件（见 §19.2），前端逐字追加；
+  `final` 到达时用 `final.answer` 覆盖占位文本，避免重复。
+
+```json
+{ "promotionEnabled": false, "webSearchEnabled": true, "streamEnabled": false }
+```
 
 ---
 

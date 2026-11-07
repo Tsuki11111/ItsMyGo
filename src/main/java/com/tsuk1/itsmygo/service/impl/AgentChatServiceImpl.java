@@ -20,6 +20,7 @@ import com.tsuk1.itsmygo.dto.AfterSaleReasonView;
 import com.tsuk1.itsmygo.dto.agent.AgentConverseRequest;
 import com.tsuk1.itsmygo.dto.agent.AgentHistoryMessage;
 import com.tsuk1.itsmygo.dto.agent.AgentHistoryView;
+import com.tsuk1.itsmygo.dto.agent.AgentPreferenceView;
 import com.tsuk1.itsmygo.dto.agent.AgentSessionView;
 import com.tsuk1.itsmygo.dto.agent.AgentStopRequest;
 import com.tsuk1.itsmygo.entity.AgentSession;
@@ -27,6 +28,7 @@ import com.tsuk1.itsmygo.mapper.AgentSessionMapper;
 import com.tsuk1.itsmygo.security.CurrentUser;
 import com.tsuk1.itsmygo.service.AfterSaleService;
 import com.tsuk1.itsmygo.service.AgentChatService;
+import com.tsuk1.itsmygo.service.AgentPreferenceService;
 import io.grpc.Context;
 import io.grpc.StatusRuntimeException;
 import lombok.extern.slf4j.Slf4j;
@@ -66,6 +68,7 @@ public class AgentChatServiceImpl implements AgentChatService {
     private final AgentToolTicketService toolTicketService;
     private final AgentFormGuard formGuard;
     private final AfterSaleService afterSaleService;
+    private final AgentPreferenceService preferenceService;
     private final ExecutorService agentExecutor;
     private final ScheduledExecutorService auxExecutor;
     private final ObjectMapper objectMapper;
@@ -76,6 +79,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                                 AgentToolTicketService toolTicketService,
                                 AgentFormGuard formGuard,
                                 AfterSaleService afterSaleService,
+                                AgentPreferenceService preferenceService,
                                 @Qualifier("agentExecutor") ExecutorService agentExecutor,
                                 @Qualifier("agentAuxExecutor") ScheduledExecutorService auxExecutor,
                                 ObjectMapper objectMapper) {
@@ -85,6 +89,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         this.toolTicketService = toolTicketService;
         this.formGuard = formGuard;
         this.afterSaleService = afterSaleService;
+        this.preferenceService = preferenceService;
         this.agentExecutor = agentExecutor;
         this.auxExecutor = auxExecutor;
         this.objectMapper = objectMapper;
@@ -93,6 +98,8 @@ public class AgentChatServiceImpl implements AgentChatService {
     @Override
     public SseEmitter converse(CurrentUser user, AgentConverseRequest request) {
         requireConfigured();
+        // 客服设置：在请求线程读（无行时是默认值 0/1/0），随本轮 gRPC Converse 一起下发
+        AgentPreferenceView preference = preferenceService.get(user.id());
         String message = request.message().trim();
         String sessionId;
         if (StringUtils.hasText(request.sessionId())) {
@@ -150,6 +157,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         try {
             FormResult formResult = toFormResult(request.formResult());
             agentExecutor.execute(() -> stream(user, fixedSessionId, message, formResult, toolTicket,
+                    preference.webSearchEnabled(), preference.streamEnabled(),
                     sink, context, runIdRef, finalSeen, errorSeen, cleanup));
         } catch (RejectedExecutionException e) {
             cleanup.run();
@@ -265,7 +273,8 @@ public class AgentChatServiceImpl implements AgentChatService {
     }
 
     private void stream(CurrentUser user, String sessionId, String message, FormResult formResult,
-                        String toolTicket, AgentSseSink sink, Context.CancellableContext context,
+                        String toolTicket, boolean enableWebSearch, boolean streamEnabled,
+                        AgentSseSink sink, Context.CancellableContext context,
                         AtomicReference<String> runIdRef,
                         AtomicBoolean finalSeen, AtomicBoolean errorSeen, Runnable cleanup) {
         try {
@@ -292,7 +301,8 @@ public class AgentChatServiceImpl implements AgentChatService {
             FormResult effectiveForm = forwardedForm;
             Iterator<Event> events = context.call(() -> gateway.converse(
                     user.id(), sessionId, message, effectiveForm,
-                    Duration.ofSeconds(properties.deadlineSeconds()), toolTicket));
+                    Duration.ofSeconds(properties.deadlineSeconds()), toolTicket,
+                    enableWebSearch, streamEnabled));
 
             while (!sink.isClosed() && events.hasNext()) {
                 Event event = events.next();

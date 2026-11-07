@@ -27,6 +27,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -38,6 +39,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
@@ -68,7 +70,8 @@ class AgentControllerTest extends ApiTestBase {
         when(agentGateway.configured()).thenReturn(true);
         java.util.concurrent.atomic.AtomicReference<FormResult> oldClientForm =
                 new java.util.concurrent.atomic.AtomicReference<>();
-        when(agentGateway.converse(anyLong(), anyString(), anyString(), any(), any(), anyString()))
+        when(agentGateway.converse(anyLong(), anyString(), anyString(), any(), any(), anyString(),
+                anyBoolean(), anyBoolean()))
                 .thenAnswer(invocation -> {
                     String sessionId = invocation.getArgument(1);
                     oldClientForm.set(invocation.getArgument(3));
@@ -116,7 +119,8 @@ class AgentControllerTest extends ApiTestBase {
         when(agentGateway.configured()).thenReturn(true);
         java.util.concurrent.atomic.AtomicReference<FormResult> capturedForm =
                 new java.util.concurrent.atomic.AtomicReference<>();
-        when(agentGateway.converse(anyLong(), anyString(), anyString(), any(), any(), anyString()))
+        when(agentGateway.converse(anyLong(), anyString(), anyString(), any(), any(), anyString(),
+                anyBoolean(), anyBoolean()))
                 .thenAnswer(invocation -> {
                     capturedForm.set(invocation.getArgument(3));
                     return List.of(Event.newBuilder()
@@ -170,7 +174,8 @@ class AgentControllerTest extends ApiTestBase {
     @Test
     void finalFillsRefundReasonOptionsFromAfterSaleDictionary() throws Exception {
         when(agentGateway.configured()).thenReturn(true);
-        when(agentGateway.converse(anyLong(), anyString(), anyString(), any(), any(), anyString()))
+        when(agentGateway.converse(anyLong(), anyString(), anyString(), any(), any(), anyString(),
+                anyBoolean(), anyBoolean()))
                 .thenAnswer(invocation -> List.of(Event.newBuilder()
                         .setFinal(FinalEvent.newBuilder()
                                 .setAnswer("请选择退款原因")
@@ -208,7 +213,8 @@ class AgentControllerTest extends ApiTestBase {
     @Test
     void duplicateFormSubmissionIsRejectedWithoutCallingAgent() throws Exception {
         when(agentGateway.configured()).thenReturn(true);
-        when(agentGateway.converse(anyLong(), anyString(), anyString(), any(), any(), anyString()))
+        when(agentGateway.converse(anyLong(), anyString(), anyString(), any(), any(), anyString(),
+                anyBoolean(), anyBoolean()))
                 .thenAnswer(invocation -> List.of(Event.newBuilder()
                         .setFinal(FinalEvent.newBuilder().setAnswer("ok").setWebOnly(false)).build())
                         .iterator());
@@ -241,7 +247,8 @@ class AgentControllerTest extends ApiTestBase {
                 .andExpect(content().string(containsString("FORM_ALREADY_SUBMITTED")));
 
         verify(agentGateway, times(1))
-                .converse(anyLong(), anyString(), anyString(), any(), any(), anyString());
+                .converse(anyLong(), anyString(), anyString(), any(), any(), anyString(),
+                        anyBoolean(), anyBoolean());
     }
 
     @Test
@@ -264,7 +271,8 @@ class AgentControllerTest extends ApiTestBase {
                 .andExpect(content().string(containsString("FORM_INVALID")));
 
         verify(agentGateway, never())
-                .converse(anyLong(), anyString(), anyString(), any(), any(), anyString());
+                .converse(anyLong(), anyString(), anyString(), any(), any(), anyString(),
+                        anyBoolean(), anyBoolean());
     }
 
     @Test
@@ -430,7 +438,8 @@ class AgentControllerTest extends ApiTestBase {
     void converseIssuesToolTicketBoundToUser() throws Exception {
         when(agentGateway.configured()).thenReturn(true);
         capturedTicket.set(null);
-        when(agentGateway.converse(anyLong(), anyString(), anyString(), any(), any(), anyString()))
+        when(agentGateway.converse(anyLong(), anyString(), anyString(), any(), any(), anyString(),
+                anyBoolean(), anyBoolean()))
                 .thenAnswer(invocation -> {
                     capturedTicket.set(invocation.getArgument(5));
                     return List.of(Event.newBuilder()
@@ -456,6 +465,155 @@ class AgentControllerTest extends ApiTestBase {
         AgentToolTicketService.Identity identity = toolTicketService.resolve(capturedTicket.get());
         assertThat(identity).isNotNull();
         assertThat(identity.userId()).isEqualTo(uid);
+    }
+
+    @Test
+    void preferencesDefaultWhenNeverSaved() throws Exception {
+        String token = customerToken("ap" + System.nanoTime());
+
+        // 没有保存过：推广关、联网开、流式关；读取不能顺手建行
+        mockMvc.perform(get("/api/agent/preferences")
+                        .header("Authorization", bearer(token)))
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.promotionEnabled").value(false))
+                .andExpect(jsonPath("$.data.webSearchEnabled").value(true))
+                .andExpect(jsonPath("$.data.streamEnabled").value(false));
+    }
+
+    @Test
+    void preferencesSaveThenReadBack() throws Exception {
+        String token = customerToken("ap" + System.nanoTime());
+
+        mockMvc.perform(put("/api/agent/preferences")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"promotionEnabled":true,"webSearchEnabled":false,"streamEnabled":true}
+                                """))
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.promotionEnabled").value(true))
+                .andExpect(jsonPath("$.data.webSearchEnabled").value(false))
+                .andExpect(jsonPath("$.data.streamEnabled").value(true));
+
+        mockMvc.perform(get("/api/agent/preferences")
+                        .header("Authorization", bearer(token)))
+                .andExpect(jsonPath("$.data.promotionEnabled").value(true))
+                .andExpect(jsonPath("$.data.webSearchEnabled").value(false))
+                .andExpect(jsonPath("$.data.streamEnabled").value(true));
+
+        // 再保存一次是覆盖而不是插第二行
+        mockMvc.perform(put("/api/agent/preferences")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"promotionEnabled":false,"webSearchEnabled":true,"streamEnabled":false}
+                                """))
+                .andExpect(jsonPath("$.data.promotionEnabled").value(false))
+                .andExpect(jsonPath("$.data.webSearchEnabled").value(true))
+                .andExpect(jsonPath("$.data.streamEnabled").value(false));
+    }
+
+    @Test
+    void preferencesRequireLogin() throws Exception {
+        mockMvc.perform(get("/api/agent/preferences"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value(401));
+
+        mockMvc.perform(put("/api/agent/preferences")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"promotionEnabled":true,"webSearchEnabled":true,"streamEnabled":true}
+                                """))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value(401));
+    }
+
+    @Test
+    void preferencesRequireAllThreeSwitches() throws Exception {
+        String token = customerToken("ap" + System.nanoTime());
+
+        // PUT 是全量覆盖：缺任何一个开关都 400，不能拿 false 当默认
+        mockMvc.perform(put("/api/agent/preferences")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"promotionEnabled":true,"webSearchEnabled":true}
+                                """))
+                .andExpect(jsonPath("$.code").value(400));
+    }
+
+    @Test
+    void conversePassesDefaultPreferencesToGateway() throws Exception {
+        when(agentGateway.configured()).thenReturn(true);
+        java.util.concurrent.atomic.AtomicReference<Boolean> webSearch =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.atomic.AtomicReference<Boolean> stream =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        when(agentGateway.converse(anyLong(), anyString(), anyString(), any(), any(), anyString(),
+                anyBoolean(), anyBoolean()))
+                .thenAnswer(invocation -> {
+                    webSearch.set(invocation.getArgument(6));
+                    stream.set(invocation.getArgument(7));
+                    return List.of(Event.newBuilder()
+                            .setFinal(FinalEvent.newBuilder().setAnswer("ok").setWebOnly(false)).build())
+                            .iterator();
+                });
+
+        String token = customerToken("ad" + System.nanoTime());
+        MvcResult result = mockMvc.perform(post("/api/agent/converse")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"message":"hello"}
+                                """))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+        mockMvc.perform(asyncDispatch(result)).andExpect(status().isOk());
+
+        // 没保存过设置：联网默认开、流式默认关（与旧行为一致）
+        assertThat(webSearch.get()).isTrue();
+        assertThat(stream.get()).isFalse();
+    }
+
+    @Test
+    void conversePassesSavedPreferencesToGateway() throws Exception {
+        when(agentGateway.configured()).thenReturn(true);
+        java.util.concurrent.atomic.AtomicReference<Boolean> webSearch =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.atomic.AtomicReference<Boolean> stream =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        when(agentGateway.converse(anyLong(), anyString(), anyString(), any(), any(), anyString(),
+                anyBoolean(), anyBoolean()))
+                .thenAnswer(invocation -> {
+                    webSearch.set(invocation.getArgument(6));
+                    stream.set(invocation.getArgument(7));
+                    return List.of(Event.newBuilder()
+                            .setFinal(FinalEvent.newBuilder().setAnswer("ok").setWebOnly(false)).build())
+                            .iterator();
+                });
+
+        String token = customerToken("ad" + System.nanoTime());
+        mockMvc.perform(put("/api/agent/preferences")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"promotionEnabled":true,"webSearchEnabled":false,"streamEnabled":true}
+                                """))
+                .andExpect(jsonPath("$.code").value(200));
+
+        MvcResult result = mockMvc.perform(post("/api/agent/converse")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"message":"hello"}
+                                """))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+        mockMvc.perform(asyncDispatch(result)).andExpect(status().isOk());
+
+        // 保存后的开关原样透传给 agent（promotion 本次不下发）
+        assertThat(webSearch.get()).isFalse();
+        assertThat(stream.get()).isTrue();
     }
 
     @Test
