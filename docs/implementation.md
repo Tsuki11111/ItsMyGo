@@ -2671,3 +2671,28 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 **测试**：`OrderPaidNotificationTest` —— 支付后会话存在、SYSTEM 消息含订单号与
 「请及时发货」、商家未读 +1、顾客未读为 0；重复支付被状态机拒绝且不会重复通知。
 mutation 2/2 抓住（不调通知 / 通知不发消息）。通知用真实 SSE 推送，断连处理见 §5.43。
+
+### 3.40 支付后商家自动发订单确认卡 + 发货前改收货地址（2026-11-07）
+
+**需求**：支付成功后商家自动发出订单信息让顾客再次确认；只要还没发货（`PAID` / 待发货），
+顾客可以改收货地址；确认与否只作提醒，不阻塞商家发货。
+
+**后端**：
+
+- `OrderServiceImpl.pay` 事务 `afterCommit`：先 `notifyOrderPaid`（通知商家发货，§3.39），
+  再 `ChatService.sendOrderConfirmRequest` —— 各自 try/catch，失败只记 WARN，不影响支付。
+- `ChatServiceImpl.sendOrderConfirmRequest`：`insertIgnore` 顾客—店铺会话，以
+  `sender_type=MERCHANT`（平台自营店取管理员兜底）插入 `contentType=ORDER_CONFIRM`
+  的卡片消息（`cardData` 复用 `ChatCard.Order` 快照）；顾客未读 +1，SSE 实时推送。
+- `OrderService.updateShippingAddress(userId, orderId, addressId)`：归属校验后仅允许
+  `PAID`（发货后拒绝），复制所选地址快照到订单；提交后 `notifyOrderAddressChanged`
+  给商家发 SYSTEM 消息「买家已修改收货地址…」。
+- 接口：`POST /api/orders/{id}/address`，body `{addressId}`（`OrderAddressUpdateRequest`）。
+
+**前端**：`ChatContentType` 增加 `ORDER_CONFIRM`；`MessageBubble` 在顾客侧渲染
+「信息无误 / 修改地址」按钮（仅订单仍为 `PAID` 时显示），修改走地址选择弹窗并调用新接口，
+随后发一条普通聊天消息同步；商家侧只读展示确认卡。
+
+**测试**：`OrderPaidNotificationTest` 扩到 6 条：支付后生成确认卡（MERCHANT 发、card 含
+orderId）、顾客未读 +1；发货前改地址成功且商家收到 SYSTEM 同步；`SHIPPED` 后改地址被拒；
+用别人的地址被拒。mutation 3/3 抓住（不发确认卡 / 去掉状态守卫 / 改地址不通知商家）。

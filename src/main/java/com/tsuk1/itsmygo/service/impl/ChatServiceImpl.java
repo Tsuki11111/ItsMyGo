@@ -242,6 +242,73 @@ public class ChatServiceImpl implements ChatService {
 
     @Override
     @Transactional
+    public ChatMessageView sendOrderConfirmRequest(Order order) {
+        if (order == null || order.getUserId() == null || order.getMerchantId() == null) {
+            throw new BizException(ResultCode.BAD_REQUEST, "订单信息不完整，无法发送确认卡片");
+        }
+        Merchant merchant = merchantMapper.selectById(order.getMerchantId());
+        if (merchant == null || !Merchant.ACTIVE.equals(merchant.getStatus())) {
+            throw new BizException(ResultCode.BAD_REQUEST, "店铺不存在或已停用");
+        }
+        conversationMapper.insertIgnore(order.getUserId(), order.getMerchantId());
+        Conversation conversation = conversationMapper.selectOne(Wrappers.<Conversation>lambdaQuery()
+                .eq(Conversation::getCustomerUserId, order.getUserId())
+                .eq(Conversation::getMerchantId, order.getMerchantId()));
+        if (conversation == null) {
+            throw new BizException(ResultCode.INTERNAL_ERROR, "会话创建失败");
+        }
+        ChatCard.Order card;
+        String cardData;
+        try {
+            card = buildOrderCard(order.getId(), conversation);
+            cardData = objectMapper.writeValueAsString(card);
+        } catch (Exception e) {
+            throw new BizException(ResultCode.INTERNAL_ERROR, "订单卡片生成失败");
+        }
+        // sender_type=MERCHANT：顾客未读 +1；sender_user_id 记商家账号（平台自营店取管理员兜底）
+        ChatMessage message = appendMessage(conversation, merchantSenderId(merchant, order),
+                ChatMessage.SENDER_MERCHANT, ChatMessage.TYPE_ORDER_CONFIRM,
+                order.getOrderNo(), cardData);
+        log.info("已发送订单确认卡片：订单 {}，顾客 {}", order.getOrderNo(), order.getUserId());
+        return toMessageView(message);
+    }
+
+    @Override
+    @Transactional
+    public void notifyOrderAddressChanged(Order order) {
+        if (order == null || order.getUserId() == null || order.getMerchantId() == null) {
+            return;
+        }
+        Conversation conversation = conversationMapper.selectOne(Wrappers.<Conversation>lambdaQuery()
+                .eq(Conversation::getCustomerUserId, order.getUserId())
+                .eq(Conversation::getMerchantId, order.getMerchantId()));
+        if (conversation == null) {
+            return;
+        }
+        String content = String.format("买家已修改收货地址：%s %s，%s。发货前请按新地址寄送。",
+                order.getReceiver(), order.getPhone(), order.getAddress());
+        if (content.length() > MAX_TEXT_LENGTH) {
+            content = content.substring(0, MAX_TEXT_LENGTH);
+        }
+        appendMessage(conversation, order.getUserId(), ChatMessage.SENDER_SYSTEM,
+                ChatMessage.TYPE_TEXT, content, null);
+        log.info("已通知商家地址变更：订单 {}", order.getOrderNo());
+    }
+
+    /** 商家侧发消息用的 sender_user_id：店主优先，平台自营店取管理员兜底（非空约束） */
+    private Long merchantSenderId(Merchant merchant, Order order) {
+        if (merchant.getOwnerUserId() != null) {
+            return merchant.getOwnerUserId();
+        }
+        List<User> admins = userMapper.selectList(Wrappers.<User>lambdaQuery()
+                .eq(User::getRole, Roles.ADMIN)
+                .eq(User::getStatus, 1)
+                .last("LIMIT 1"));
+        return admins.isEmpty() ? order.getUserId() : admins.get(0).getId();
+    }
+
+    @Override
+    @Transactional
     public long customerRead(CurrentUser user, Long conversationId, Long lastMessageId) {
         requireNotAdmin(user);
         Conversation conversation = requireCustomerConversation(conversationId, user.id());

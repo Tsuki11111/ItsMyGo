@@ -1,6 +1,7 @@
 package com.tsuk1.itsmygo;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.tsuk1.itsmygo.common.Roles;
 import com.tsuk1.itsmygo.common.exception.BizException;
 import com.tsuk1.itsmygo.entity.User;
 import com.tsuk1.itsmygo.service.AdminUserService;
@@ -87,6 +88,14 @@ class AdminUserControllerTest extends ApiTestBase {
         String adminName = "au" + System.nanoTime();
         adminToken(adminName);
         long adminId = userId(adminName);
+
+        // 用例自隔离：库是共享测试库，可能已有别的活跃管理员；
+        // 在本次事务内把其余活跃管理员临时停用（事务回滚后恢复），才能稳定验证「最后一个管理员」规则
+        userMapper.update(null, Wrappers.<User>lambdaUpdate()
+                .eq(User::getRole, Roles.ADMIN)
+                .eq(User::getStatus, 1)
+                .ne(User::getId, adminId)
+                .set(User::getStatus, 0));
 
         assertThatThrownBy(() -> adminUserService.disable(99999999L, adminId))
                 .isInstanceOf(BizException.class)

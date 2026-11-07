@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.tsuk1.itsmygo.common.Roles;
 import com.tsuk1.itsmygo.dto.CreateOrderRequest;
 import com.tsuk1.itsmygo.entity.Address;
+import com.tsuk1.itsmygo.entity.ChatMessage;
+import com.tsuk1.itsmygo.entity.Conversation;
 import com.tsuk1.itsmygo.entity.CartItem;
 import com.tsuk1.itsmygo.entity.Category;
 import com.tsuk1.itsmygo.entity.Order;
@@ -13,6 +15,8 @@ import com.tsuk1.itsmygo.entity.Product;
 import com.tsuk1.itsmygo.entity.ProductSku;
 import com.tsuk1.itsmygo.entity.User;
 import com.tsuk1.itsmygo.mapper.AddressMapper;
+import com.tsuk1.itsmygo.mapper.ChatMessageMapper;
+import com.tsuk1.itsmygo.mapper.ConversationMapper;
 import com.tsuk1.itsmygo.mapper.CartItemMapper;
 import com.tsuk1.itsmygo.mapper.CategoryMapper;
 import com.tsuk1.itsmygo.mapper.OrderItemMapper;
@@ -82,6 +86,10 @@ class PaymentConcurrencyTest {
     private PaymentMapper paymentMapper;
     @Autowired
     private PasswordEncoder passwordEncoder;
+    @Autowired
+    private ConversationMapper conversationMapper;
+    @Autowired
+    private ChatMessageMapper chatMessageMapper;
 
     private final List<Long> createdUserIds = new ArrayList<>();
     private Long createdCategoryId;
@@ -242,6 +250,17 @@ class PaymentConcurrencyTest {
     @AfterEach
     void cleanup() {
         if (!createdUserIds.isEmpty()) {
+            // 支付会写聊天（通知商家 + 订单确认卡），会话/消息也要按本次用户清掉
+            List<Long> conversationIds = conversationMapper.selectList(
+                            Wrappers.<Conversation>lambdaQuery()
+                                    .in(Conversation::getCustomerUserId, createdUserIds))
+                    .stream().map(Conversation::getId).toList();
+            if (!conversationIds.isEmpty()) {
+                chatMessageMapper.delete(Wrappers.<ChatMessage>lambdaQuery()
+                        .in(ChatMessage::getConversationId, conversationIds));
+                conversationMapper.delete(Wrappers.<Conversation>lambdaQuery()
+                        .in(Conversation::getId, conversationIds));
+            }
             List<Long> orderIds = orderMapper.selectList(Wrappers.<Order>lambdaQuery()
                             .in(Order::getUserId, createdUserIds))
                     .stream().map(Order::getId).toList();

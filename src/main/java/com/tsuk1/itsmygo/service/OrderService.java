@@ -59,6 +59,12 @@ public interface OrderService {
 
     OrderView confirmReceipt(Long userId, Long orderId);
 
+    /**
+     * 发货前（仅 PAID）修改订单收货地址：复制所选地址的快照到订单，
+     * 并给商家发一条 SYSTEM 消息同步新地址；已发货/已关闭拒绝。
+     */
+    OrderView updateShippingAddress(Long userId, Long orderId, Long addressId);
+
     /** 申请退款：待发货 / 待收货 / 已完成 的订单可申请 */
     OrderView applyRefund(Long userId, Long orderId);
 

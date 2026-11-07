@@ -23,6 +23,8 @@ public class ChatMessage {
     public static final String TYPE_IMAGE = "IMAGE";
     public static final String TYPE_PRODUCT = "PRODUCT";
     public static final String TYPE_ORDER = "ORDER";
+    /** 商家自动发起的“请核对订单”卡片；发货前可改收货地址 */
+    public static final String TYPE_ORDER_CONFIRM = "ORDER_CONFIRM";
 
     @TableId(type = IdType.AUTO)
     private Long id;

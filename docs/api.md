@@ -413,6 +413,7 @@ Authorization: Bearer <token>
 - `IMAGE`：`content` 是图片 URL（必须是系统 `chat/` 前缀）。
 - `PRODUCT`：`card` 为商品快照。
 - `ORDER`：`card` 为订单快照。
+- `ORDER_CONFIRM`：商家自动发的订单确认快照（同一份订单 `card`）；顾客侧渲染「信息无误 / 修改地址」，发货前可改收货地址。
 
 **商品卡片**
 
@@ -605,6 +606,7 @@ Authorization: Bearer <token>
 | GET | `/api/orders/{id}` | 登录 | — | `OrderView` |
 | GET | `/api/orders/{id}/logistics` | 登录 | — | `LogisticsView \| null`（未发货为 null） |
 | POST | `/api/orders/{id}/pay` | 登录 | — | `OrderView` |
+| POST | `/api/orders/{id}/address` | 登录 | `{addressId}` | `OrderView` |
 | POST | `/api/orders/{id}/cancel` | 登录 | — | `OrderView` |
 | POST | `/api/orders/{id}/confirm` | 登录 | — | `OrderView` |
 | POST | `/api/orders/{id}/refund` | 登录 | `RefundRequest` | `OrderView` |
@@ -615,6 +617,11 @@ Authorization: Bearer <token>
 - `status` 支持逗号分隔的多个枚举，如 `PAID,SHIPPED`。
 - `previewLimit=0` 返回全部明细。
 - 支付是模拟支付：直接改状态为 `PAID` 并写支付流水。
+- **支付成功后自动发订单确认卡**：商家身份在会话里发一条 `ORDER_CONFIRM` 卡片
+  （订单号/商品/金额），顾客可「信息无误」或「修改地址」；确认只是聊天提醒，**不阻塞发货**。
+- **发货前可改收货地址**：`POST /api/orders/{id}/address`，`addressId` 必须是当前用户
+  自己的地址；仅 `PAID`（待发货）允许，`SHIPPED` 及之后返回 400。修改后订单
+  `receiver / phone / address` 快照立即更新，并在会话里给商家发一条 `SYSTEM` 消息同步新地址。
 - **支付成功会通知商家发货**：在「顾客—店铺」会话里插入一条 `SYSTEM` 消息
   （商家未读 +1、SSE 实时推给商家；平台自营店推给管理员）。通知在支付事务提交后执行，
   失败只记 WARN、**不影响支付结果**。

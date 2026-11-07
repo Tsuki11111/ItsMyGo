@@ -5,6 +5,7 @@ import com.tsuk1.itsmygo.common.ratelimit.RateLimit;
 import com.tsuk1.itsmygo.dto.CheckoutView;
 import com.tsuk1.itsmygo.dto.CreateOrderRequest;
 import com.tsuk1.itsmygo.dto.LogisticsView;
+import com.tsuk1.itsmygo.dto.OrderAddressUpdateRequest;
 import com.tsuk1.itsmygo.dto.OrderView;
 import com.tsuk1.itsmygo.dto.PageResponse;
 import com.tsuk1.itsmygo.dto.RefundRequest;
@@ -86,6 +87,14 @@ public class OrderController {
     @PostMapping("/{id}/cancel")
     public Result<OrderView> cancel(@AuthenticationPrincipal CurrentUser user, @PathVariable Long id) {
         return Result.ok(orderService.cancel(user.id(), id));
+    }
+
+    /** 发货前改收货地址（仅待发货 PAID）；改后聊天里同步给商家，不阻塞发货 */
+    @PostMapping("/{id}/address")
+    public Result<OrderView> updateAddress(@AuthenticationPrincipal CurrentUser user,
+                                           @PathVariable Long id,
+                                           @Valid @RequestBody OrderAddressUpdateRequest request) {
+        return Result.ok(orderService.updateShippingAddress(user.id(), id, request.addressId()));
     }
 
     @PostMapping("/{id}/confirm")

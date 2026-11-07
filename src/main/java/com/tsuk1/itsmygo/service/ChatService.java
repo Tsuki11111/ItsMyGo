@@ -36,6 +36,16 @@ public interface ChatService {
      */
     void notifyOrderPaid(Order order);
 
+    /**
+     * 支付成功内部调用：以商家身份给顾客发一条“请核对订单信息”的卡片
+     * （contentType=ORDER_CONFIRM，发货前可改收货地址）；顾客未读 +1、SSE 实时推送。
+     * 平台自营店由管理员代发。
+     */
+    ChatMessageView sendOrderConfirmRequest(Order order);
+
+    /** 顾客在发货前修改收货地址后，给商家发一条 SYSTEM 消息同步新地址。 */
+    void notifyOrderAddressChanged(Order order);
+
     /** @return 标记已读后，该身份在全平台的未读总数（用于更新角标） */
     long customerRead(CurrentUser user, Long conversationId, Long lastMessageId);
 

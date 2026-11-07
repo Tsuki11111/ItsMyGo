@@ -1,8 +1,18 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { RouterLink } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import ProductImage from '@/components/ProductImage.vue'
-import type { ChatMessage, ChatOrderCard, ChatProductCard, ChatScope } from '@/api/types'
+import { fetchAddresses } from '@/api/address'
+import { updateOrderAddress } from '@/api/order'
+import { sendMessage } from '@/api/chat'
+import type {
+  Address,
+  ChatMessage,
+  ChatOrderCard,
+  ChatProductCard,
+  ChatScope,
+} from '@/api/types'
 
 const props = defineProps<{
   message: ChatMessage
@@ -17,10 +27,70 @@ const productCard = computed(() =>
     : null,
 )
 const orderCard = computed(() =>
-  props.message.contentType === 'ORDER'
+  props.message.contentType === 'ORDER' || props.message.contentType === 'ORDER_CONFIRM'
     ? (props.message.card as ChatOrderCard | null)
     : null,
 )
+const isOrderConfirm = computed(() => props.message.contentType === 'ORDER_CONFIRM')
+/** 确认卡只在顾客侧、且订单仍可改（待发货）时给操作入口 */
+const canActOnConfirm = computed(() => isOrderConfirm.value
+  && props.mode === 'CUSTOMER'
+  && orderCard.value?.status === 'PAID')
+const confirmed = ref(false)
+const addressDialog = ref(false)
+const addressLoading = ref(false)
+const addresses = ref<Address[]>([])
+const selectedAddressId = ref<number | null>(null)
+const submitting = ref(false)
+
+async function sendText(text: string) {
+  await sendMessage(props.message.conversationId, { type: 'TEXT', text })
+}
+
+async function confirmOrderInfo() {
+  if (confirmed.value) return
+  confirmed.value = true
+  try {
+    await sendText('订单信息确认无误，请按此信息发货')
+  } catch {
+    confirmed.value = false
+    ElMessage.error('发送失败，请稍后再试')
+  }
+}
+
+async function openAddressDialog() {
+  addressDialog.value = true
+  addressLoading.value = true
+  try {
+    addresses.value = await fetchAddresses()
+    selectedAddressId.value = addresses.value.find((item) => item.isDefault === 1)?.id
+      ?? addresses.value[0]?.id ?? null
+  } catch {
+    ElMessage.error('地址加载失败')
+  } finally {
+    addressLoading.value = false
+  }
+}
+
+async function submitAddress() {
+  const order = orderCard.value
+  if (!order || !selectedAddressId.value) {
+    ElMessage.warning('请选择收货地址')
+    return
+  }
+  submitting.value = true
+  try {
+    await updateOrderAddress(order.orderId, selectedAddressId.value)
+    addressDialog.value = false
+    confirmed.value = true
+    ElMessage.success('收货地址已修改')
+    await sendText('收货地址已修改，请按新地址发货')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '修改失败，订单可能已发货')
+  } finally {
+    submitting.value = false
+  }
+}
 const isAgent = computed(() => props.message.senderType === 'AGENT')
 const isSystem = computed(() => props.message.senderType === 'SYSTEM')
 
@@ -73,22 +143,50 @@ function formatTime(value: string): string {
       </template>
 
       <template v-else-if="orderCard">
-        <component
-          :is="mode === 'CUSTOMER' ? RouterLink : 'div'"
-          :to="mode === 'CUSTOMER' ? `/order/${orderCard.orderId}` : undefined"
-          class="card order-card"
-        >
-          <div class="card-info">
-            <p class="card-name">订单 {{ orderCard.orderNo }}</p>
-            <p class="card-desc">
-              {{ orderCard.firstItemName || '订单商品' }}
-              <span v-if="orderCard.statusLabel"> · {{ orderCard.statusLabel }}</span>
-            </p>
-            <p class="card-price">¥{{ Number(orderCard.totalAmount).toFixed(2) }}</p>
-            <p v-if="mode === 'CUSTOMER'" class="card-tip">点击查看订单</p>
+        <div class="order-confirm-wrap">
+          <p v-if="isOrderConfirm" class="confirm-title">请核对订单信息</p>
+          <component
+            :is="mode === 'CUSTOMER' ? RouterLink : 'div'"
+            :to="mode === 'CUSTOMER' ? `/order/${orderCard.orderId}` : undefined"
+            class="card order-card"
+          >
+            <div class="card-info">
+              <p class="card-name">订单 {{ orderCard.orderNo }}</p>
+              <p class="card-desc">
+                {{ orderCard.firstItemName || '订单商品' }}
+                <span v-if="orderCard.statusLabel"> · {{ orderCard.statusLabel }}</span>
+              </p>
+              <p class="card-price">¥{{ Number(orderCard.totalAmount).toFixed(2) }}</p>
+              <p v-if="mode === 'CUSTOMER'" class="card-tip">点击查看订单</p>
+            </div>
+          </component>
+          <p v-if="isOrderConfirm" class="confirm-tip">发货前可修改收货地址</p>
+          <div v-if="canActOnConfirm" class="confirm-actions">
+            <el-button size="small" :disabled="confirmed" @click="confirmOrderInfo">
+              {{ confirmed ? '已确认' : '信息无误' }}
+            </el-button>
+            <el-button size="small" type="primary" plain @click="openAddressDialog">
+              修改地址
+            </el-button>
           </div>
-        </component>
+        </div>
       </template>
+
+      <el-dialog v-model="addressDialog" title="修改收货地址" width="420px" append-to-body>
+        <div v-loading="addressLoading" class="address-list">
+          <el-radio-group v-model="selectedAddressId" class="address-radio">
+            <el-radio v-for="item in addresses" :key="item.id" :value="item.id">
+              {{ item.receiver }} {{ item.phone }} — {{ item.province }}{{ item.city
+              }}{{ item.district }}{{ item.detail }}
+            </el-radio>
+          </el-radio-group>
+          <el-empty v-if="!addressLoading && !addresses.length" description="还没有收货地址" />
+        </div>
+        <template #footer>
+          <el-button @click="addressDialog = false">取消</el-button>
+          <el-button type="primary" :loading="submitting" @click="submitAddress">保存</el-button>
+        </template>
+      </el-dialog>
 
       <p class="time">{{ formatTime(message.createdAt) }}</p>
     </div>
@@ -97,6 +195,42 @@ function formatTime(value: string): string {
 </template>
 
 <style scoped>
+.order-confirm-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.confirm-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c-text);
+}
+
+.confirm-tip {
+  margin: 0;
+  font-size: 11px;
+  color: var(--c-text-3);
+}
+
+.confirm-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.address-list {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.address-radio {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
 .system-row {
   display: flex;
   flex-direction: column;

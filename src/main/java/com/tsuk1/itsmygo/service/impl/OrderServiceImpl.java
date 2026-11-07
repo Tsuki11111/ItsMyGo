@@ -565,13 +565,19 @@ public class OrderServiceImpl implements OrderService {
         return view(order);
     }
 
-    /** 提交后通知商家（SESSION 内插一条 SYSTEM 消息并推 SSE）；不抛异常、不拖慢支付 */
+    /** 提交后通知商家 + 给顾客发订单确认卡；失败只记日志、不影响支付 */
     private void notifyMerchantAfterPaid(Order order) {
         Runnable action = () -> {
             try {
                 chatService.notifyOrderPaid(order);
             } catch (Exception e) {
                 log.warn("订单 {} 支付成功但通知商家失败（不影响支付）：{}",
+                        order.getOrderNo(), e.getMessage(), e);
+            }
+            try {
+                chatService.sendOrderConfirmRequest(order);
+            } catch (Exception e) {
+                log.warn("订单 {} 支付成功但发送订单确认卡失败（不影响支付）：{}",
                         order.getOrderNo(), e.getMessage(), e);
             }
         };
@@ -585,6 +591,46 @@ public class OrderServiceImpl implements OrderService {
         } else {
             action.run();
         }
+    }
+
+    @Override
+    @Transactional
+    public OrderView updateShippingAddress(Long userId, Long orderId, Long addressId) {
+        Order order = requireOwned(userId, orderId);
+        if (!OrderStatus.PAID.name().equals(order.getStatus())) {
+            throw new BizException(ResultCode.BAD_REQUEST,
+                    OrderStatus.SHIPPED.name().equals(order.getStatus())
+                            || OrderStatus.COMPLETED.name().equals(order.getStatus())
+                            ? "订单已发货，不能再修改收货地址"
+                            : "当前订单状态不允许修改收货地址");
+        }
+        Address address = addressMapper.selectOne(Wrappers.<Address>lambdaQuery()
+                .eq(Address::getId, addressId)
+                .eq(Address::getUserId, userId));
+        if (address == null) {
+            throw new BizException(ResultCode.NOT_FOUND, "收货地址不存在");
+        }
+        order.setReceiver(address.getReceiver());
+        order.setPhone(address.getPhone());
+        order.setAddress(address.getProvince() + address.getCity()
+                + address.getDistrict() + address.getDetail());
+        orderMapper.updateById(order);
+        Order updated = orderMapper.selectById(orderId);
+        // 提交后再通知商家（失败不影响改地址本身）
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    try {
+                        chatService.notifyOrderAddressChanged(updated);
+                    } catch (Exception e) {
+                        log.warn("订单 {} 地址已改但通知商家失败：{}",
+                                updated.getOrderNo(), e.getMessage(), e);
+                    }
+                }
+            });
+        }
+        return view(updated);
     }
 
     // ── 售后：退款 ──

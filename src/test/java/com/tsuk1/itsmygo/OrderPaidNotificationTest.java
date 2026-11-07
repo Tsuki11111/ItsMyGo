@@ -185,7 +185,8 @@ class OrderPaidNotificationTest {
         Conversation conversation = conversation();
         assertThat(conversation).as("支付成功后应建立顾客—店铺会话").isNotNull();
         assertThat(conversation.getMerchantUnread()).as("商家未读应 +1").isGreaterThanOrEqualTo(1);
-        assertThat(conversation.getCustomerUnread()).as("系统消息不算顾客未读").isZero();
+        // 支付后还会给顾客发一张订单确认卡（MERCHANT 发），故顾客未读 = 1
+        assertThat(conversation.getCustomerUnread()).as("订单确认卡让顾客未读 +1").isEqualTo(1);
 
         List<ChatMessage> messages = systemMessages();
         assertThat(messages).hasSize(1);
@@ -203,6 +204,102 @@ class OrderPaidNotificationTest {
                 .isInstanceOf(BizException.class);
 
         assertThat(systemMessages()).as("重复支付被状态机拒绝，不应再发通知").hasSize(1);
+    }
+
+    private List<ChatMessage> messagesOfType(String contentType) {
+        Conversation conversation = conversation();
+        if (conversation == null) {
+            return List.of();
+        }
+        return chatMessageMapper.selectList(Wrappers.<ChatMessage>lambdaQuery()
+                .eq(ChatMessage::getConversationId, conversation.getId())
+                .eq(ChatMessage::getContentType, contentType));
+    }
+
+    @Test
+    void paySendsOrderConfirmCardToCustomer() {
+        preparePendingOrder();
+        String orderNo = orderMapper.selectById(orderId).getOrderNo();
+
+        orderService.pay(buyerId, orderId);
+
+        List<ChatMessage> cards = messagesOfType(ChatMessage.TYPE_ORDER_CONFIRM);
+        assertThat(cards).hasSize(1);
+        ChatMessage card = cards.get(0);
+        assertThat(card.getSenderType()).isEqualTo(ChatMessage.SENDER_MERCHANT);
+        assertThat(card.getContent()).isEqualTo(orderNo);
+        assertThat(card.getCardData()).contains("\"orderId\":" + orderId);
+    }
+
+    @Test
+    void buyerCanChangeAddressBeforeShipment() {
+        preparePendingOrder();
+        orderService.pay(buyerId, orderId);
+
+        Address second = new Address();
+        second.setUserId(buyerId);
+        second.setReceiver("新收货人");
+        second.setPhone("13900000000");
+        second.setProvince("浙江省");
+        second.setCity("杭州市");
+        second.setDistrict("西湖区");
+        second.setDetail("文三路 1 号");
+        second.setIsDefault(0);
+        addressMapper.insert(second);
+
+        orderService.updateShippingAddress(buyerId, orderId, second.getId());
+
+        Order order = orderMapper.selectById(orderId);
+        assertThat(order.getReceiver()).isEqualTo("新收货人");
+        assertThat(order.getAddress()).contains("文三路 1 号");
+        assertThat(systemMessages())
+                .anyMatch(m -> m.getContent().contains("已修改收货地址")
+                        && m.getContent().contains("文三路 1 号"));
+    }
+
+    @Test
+    void addressChangeRejectedAfterShipment() {
+        preparePendingOrder();
+        orderService.pay(buyerId, orderId);
+        // 模拟已发货（真实链路是商家 ship 接口，这里直接改状态即可验证守卫）
+        orderMapper.update(null, Wrappers.<Order>lambdaUpdate()
+                .eq(Order::getId, orderId)
+                .set(Order::getStatus, "SHIPPED"));
+
+        Address any = addressMapper.selectOne(Wrappers.<Address>lambdaQuery()
+                .eq(Address::getUserId, buyerId).last("LIMIT 1"));
+        assertThatThrownBy(() -> orderService.updateShippingAddress(buyerId, orderId, any.getId()))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("不能");
+    }
+
+    @Test
+    void addressChangeRejectedForOtherUsersAddress() {
+        preparePendingOrder();
+        orderService.pay(buyerId, orderId);
+
+        User other = new User();
+        other.setUsername("other" + System.nanoTime());
+        other.setPassword(passwordEncoder.encode("secret123"));
+        other.setNickname("other");
+        other.setPhone("");
+        other.setStatus(1);
+        other.setRole(Roles.CUSTOMER);
+        userMapper.insert(other);
+        createdUserIds.add(other.getId());
+        Address stolen = new Address();
+        stolen.setUserId(other.getId());
+        stolen.setReceiver("别人");
+        stolen.setPhone("13700000000");
+        stolen.setProvince("P");
+        stolen.setCity("C");
+        stolen.setDistrict("D");
+        stolen.setDetail("x");
+        stolen.setIsDefault(1);
+        addressMapper.insert(stolen);
+
+        assertThatThrownBy(() -> orderService.updateShippingAddress(buyerId, orderId, stolen.getId()))
+                .isInstanceOf(BizException.class);
     }
 
     /** 只删本次测试造出来的行（库是共享的测试库，绝不能 delete(null)） */
