@@ -9,6 +9,9 @@
   "scripts": {
     "dev": "npm --prefix frontend run dev",
     "dev:api": "node scripts/mvn.mjs spring-boot:run",
+    "dev:joint": "node scripts/dev-joint.mjs up",
+    "dev:joint:stop": "node scripts/dev-joint.mjs stop",
+    "dev:joint:status": "node scripts/dev-joint.mjs status",
     "build": "npm run build:web && npm run build:api",
     "build:web": "npm --prefix frontend run build",
     "build:api": "node scripts/mvn.mjs -Dmaven.test.skip=true package",
@@ -22,6 +25,10 @@
     "deploy:status": "node scripts/npm-deploy.mjs status",
     "deploy:seed": "node scripts/npm-deploy.mjs seed",
     "deploy:reset": "node scripts/npm-deploy.mjs reset",
-    "deploy:help": "node scripts/npm-deploy.mjs help"
+    "deploy:help": "node scripts/npm-deploy.mjs help",
+    "deploy:joint": "node scripts/npm-deploy.mjs joint",
+    "deploy:joint:down": "node scripts/npm-deploy.mjs joint-down",
+    "deploy:joint:logs": "node scripts/npm-deploy.mjs joint-logs",
+    "deploy:joint:status": "node scripts/npm-deploy.mjs joint-status"
   }
 }

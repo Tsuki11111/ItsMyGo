@@ -11,7 +11,13 @@
  *   npm run deploy -- reset          停止并删除所有数据卷（需输入 yes）
  *   npm run deploy -- up --no-seed   启动但不导入演示数据
  *
+ *   npm run deploy -- joint          启动 ItsMyGo + rag_helper 联合栈（演示环境）
+ *   npm run deploy -- joint-down     停止两套（保留数据）
+ *   npm run deploy -- joint-logs     跟踪 rag_helper agent 日志
+ *   npm run deploy -- joint-status   查看两套容器状态
+ *
  * 也提供快捷脚本：deploy:up / deploy:down / deploy:logs / deploy:status / deploy:seed / deploy:reset / deploy:help
+ * 以及联合脚本：deploy:joint / deploy:joint:down / deploy:joint:logs / deploy:joint:status
  *
  * 为什么要 node 而不是直接把命令写进 package.json：
  * Windows 下 npm 走 cmd/powershell、Linux/macOS 走 sh，直接写 `./deploy.sh` 两边不通用；
@@ -23,7 +29,19 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
-const COMMANDS = new Set(['up', 'down', 'logs', 'status', 'seed', 'reset', 'help'])
+const COMMANDS = new Set([
+  'up',
+  'down',
+  'logs',
+  'status',
+  'seed',
+  'reset',
+  'help',
+  'joint',
+  'joint-down',
+  'joint-logs',
+  'joint-status',
+])
 
 const USAGE = `
 ItsMyGo 部署入口（转发到 deploy.sh / deploy.ps1）
@@ -36,7 +54,14 @@ ItsMyGo 部署入口（转发到 deploy.sh / deploy.ps1）
   npm run deploy -- reset          停止并删除所有数据卷（需输入 yes）
   npm run deploy -- up --no-seed   启动但不导入演示数据
 
+  联合 rag_helper（演示环境，需要 rag_helper 目录）：
+  npm run deploy -- joint          启动 ItsMyGo + rag_helper 联合栈
+  npm run deploy -- joint-down     停止两套（保留数据）
+  npm run deploy -- joint-logs     跟踪 agent 日志
+  npm run deploy -- joint-status   查看两套容器状态
+
 等价快捷脚本：npm run deploy:up / deploy:down / deploy:logs / deploy:status / deploy:seed / deploy:reset / deploy:help
+联合快捷脚本：npm run deploy:joint / deploy:joint:down / deploy:joint:logs / deploy:joint:status
 `.trim()
 
 const raw = process.argv.slice(2)

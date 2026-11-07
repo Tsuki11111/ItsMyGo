@@ -434,8 +434,8 @@ Conventional Commits，**描述用中文**（与 `rag_helper` 保持一致）：
 
 | 环境 | 适用 | 命令 |
 |---|---|---|
-| 开发 | 日常改代码 | `cd dev-infra && docker compose --env-file .env up -d` 起中间件，再本机跑应用（§4.0 / start.txt） |
-| 演示（本地全栈） | 新克隆、演示 | `./deploy.sh`（根 `docker-compose.yml`，8088） |
+| 开发 | 日常改代码 | `npm run dev:joint`（dev-infra 中间件 + ItsMyGo 前后端 + rag_helper venv，一键联合）；或手动 `cd dev-infra && docker compose --env-file .env up -d` + 本机跑应用（§4.0 / start.txt） |
+| 演示（本地全栈） | 新克隆、演示 | `./deploy.sh`（8088）；联合客服用 `./deploy.sh joint` / `npm run deploy:joint` |
 | 生产（内网 VM） | 离线包部署 | `~/itsmygo-offline/start.sh`（=`install.sh`，幂等拉起两套栈）；`status.sh` / `stop.sh`；发版换镜像仍按 [docs/deployment.md](docs/deployment.md) 流程 |
 
 **`deploy.sh` 做了什么**（`deploy.ps1` 等价）：复制 `.env.example` 为 `.env` →
@@ -1481,6 +1481,27 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
    以后重建 RabbitMQ 若后端报 `ACCESS_REFUSED`，先 `rabbitmqctl list_users` 核对。
 
 ## 6. 历史记录
+
+### 2026-11-07 · 开发/演示联合启动入口收归 ItsMyGo
+
+**背景**：联合客服的启停逻辑原本只在 rag_helper 仓（`deploy.sh joint`），开发环境还要手动
+起中间件 + 两边应用。用户要求把「开发环境与演示环境的联合启动/部署」全部收归本项目管理。
+
+**做法**：
+
+- **演示联合（Docker）**：`./deploy.sh joint` / `joint-down` / `joint-logs` / `joint-status`
+  （`deploy.ps1` 等价）；npm 入口 `deploy:joint` 等 4 个。逻辑从 rag_helper 迁入，新增
+  rag_helper 目录解析（`RAG_HELPER_DIR` → `.rag-helper-dir` → `../rag_helper`）、
+  模型密钥校验、`agent-key-init` 等待。rag_helper 的 `deploy.sh/ps1` 改为**轻量转发**。
+- **开发联合（本机进程）**：新增 `scripts/dev-joint.mjs` + `npm run dev:joint`
+  （`dev:joint:stop` / `dev:joint:status`）：拉起 dev-infra 中间件（`up -d --wait`）→
+  初始化 Mongo 访问密钥（等价容器版 `agent-key-init`）→ 启动 ItsMyGo 后端/前端 +
+  rag_helper 三个 venv 进程；detached 启动、日志与 PID 在 `.dev-logs/`（gitignore）。
+- 两个仓库的联合入口只在本仓库维护；`rag_helper/docs` 与 README/HANDOFF 同步改为转发说明。
+
+**验证**：`npm run dev:joint` 全链路起来后，Java→agent SSE 返回 `start` / `usage` 事件；
+`dev:joint:stop` 全部端口释放；`deploy.ps1 help` / `npm run deploy:joint:status` 正常。
+新增 `.rag-helper-dir`（本机路径，gitignore）指向 `D:\PycharmProjects\rag_helper`。
 
 ### 2026-11-06 · 知识缺口管理端接入（代理 rag_helper）
 

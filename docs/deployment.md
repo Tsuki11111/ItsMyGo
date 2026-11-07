@@ -97,7 +97,7 @@ PowerShell 用 `./deploy.ps1`，参数相同；跳过演示数据用 `./deploy.p
 - `VITE_TMAP_KEY`：订单地图的腾讯位置服务 Key。它是**构建期变量**，改了要重新
   `./deploy.sh`（会重建前端镜像）。
 - `AGENT_GRPC_KEY` / `AGENT_IMPORT_KEY` / `AGENT_EVAL_KEY`：联合部署时由
-  `rag_helper/deploy.sh joint` 自动写入，不需要手填；后两者不填时默认复用
+  `./deploy.sh joint`（本仓库）自动写入，不需要手填；后两者不填时默认复用
   `AGENT_GRPC_KEY`。
 - 管理员密码在 `.env` 的 `BOOTSTRAP_ADMIN_PASSWORD`；只在库中没有管理员时使用。
 - `AFTER_SALE_*`：售后超时策略 —— `AFTER_SALE_REVIEW_HOURS`（商家审核时限，默认 48）、
@@ -130,15 +130,31 @@ docker exec its-my-go-redis sh -c 'redis-cli --scan --pattern "its-my-go:product
 
 ## 联合部署客服智能体
 
-两个仓库放成同级（`ItsMyGo/`、`rag_helper/`），在 `rag_helper` 里执行：
+**联合入口已收归本仓库**。`rag_helper` 目录用以下任一方式指定（不需要两个仓库同级）：
+`RAG_HELPER_DIR` 环境变量 → 仓库根 `.rag-helper-dir` 文件（写入绝对路径）→ 默认 `../rag_helper`。
 
 ```bash
-./deploy.sh joint
+# 演示环境（Docker 全栈 + rag_helper，8088）
+./deploy.sh joint            # Windows: .\deploy.ps1 joint
+npm run deploy:joint         # npm 入口
+
+./deploy.sh joint-down       # 停止两套（保留数据）
+./deploy.sh joint-status     # 查看两套容器
+./deploy.sh joint-logs       # 跟踪 agent 日志
+
+# 开发环境（本机进程，5173/8080 + rag_helper venv 8001/8002/8003）
+npm run dev:joint            # dev-infra 中间件 + 两边应用一起拉起
+npm run dev:joint:status
+npm run dev:joint:stop       # 只停应用进程，中间件保留
 ```
 
-它会自动生成共享密钥、写入两边的 `.env`、先启动 ItsMyGo，再启动 agent。
-Java 通过 `rag-agent:8003` / `rag-import:8001` / `rag-chat:8002` 访问 agent，
-agent 通过 `its-my-go-backend:8080` 回调 Java。停止两套：`./deploy.sh joint-down`。
+`joint` 会自动：检查/生成 rag_helper `.env` 与共享密钥 → 写两边的 `AGENT_GRPC_KEY` /
+`AGENT_IMPORT_KEY` → 起 ItsMyGo → 起 rag_helper 并接入 `its-my-go-net` →
+等 agent 就绪。Java 通过 `rag-agent:8003` / `rag-import:8001` / `rag-chat:8002` 访问 agent，
+agent 通过 `its-my-go-backend:8080` 回调 Java。
+
+> `rag_helper` 仓里的 `deploy.sh joint` / `deploy.ps1 joint` 现在只是**转发**到本仓库；
+> 它的 `logs` / `status` / `reset` 仍管理自己的容器。
 
 ## 生产（演示）部署：内网 VM
 

@@ -114,12 +114,16 @@ npm run deploy       # 任意平台（需要 Node ≥18；只是转发到上面�
 `./deploy.sh up --no-seed`（或 `npm run deploy -- up --no-seed`）。
 npm 入口的完整命令见 [docs/deployment.md](docs/deployment.md#命令)。
 
-联合客服智能体（两个仓库同级）：
+联合客服智能体（两个仓库都可在本机任意位置，用 `.rag-helper-dir` 或 `RAG_HELPER_DIR` 指定）：
 
 ```bash
-cd ../rag_helper && ./deploy.sh joint
-# 或在 rag_helper 根用 npm（零依赖转发）：npm run deploy:joint
+./deploy.sh joint          # 演示环境联合启动（ItsMyGo + rag_helper）
+npm run deploy:joint       # 同上的 npm 入口
 ```
+Windows 用 `.\deploy.ps1 joint`。停止两套：`./deploy.sh joint-down`。
+开发环境（本机进程）联合启动用 `npm run dev:joint`（见「本地开发」）。
+
+> 联合入口已收归本仓库；`rag_helper/deploy.sh joint` 现在只是转发到这里。
 
 端口、环境变量、手工 Compose、镜像源等问题见 [docs/deployment.md](docs/deployment.md)。
 
@@ -176,9 +180,15 @@ docker compose --env-file .env down      # 停止（external 数据卷不会删�
 > 造成“两套数据”的错觉（2026-11-07 踩过，见 HANDOFF §5.41/§5.42）。
 > 全量 `./deploy.sh` 只在“不用本机开发库”的全栈演示场景使用。
 
-然后起应用：
+然后起应用（两种方式任选）：
 
 ```bash
+# 方式 A：一键拉起开发环境（中间件 + ItsMyGo 前后端 + rag_helper 三进程）
+npm run dev:joint            # 首次按提示配置 .rag-helper-dir / RAG_HELPER_DIR
+npm run dev:joint:status     # 查看状态
+npm run dev:joint:stop       # 停止应用进程（中间件保留）
+
+# 方式 B：手动分进程
 ./mvnw spring-boot:run
 cd frontend && npm run dev     # 另开终端
 ```
@@ -188,6 +198,8 @@ cd frontend && npm run dev     # 另开终端
 ```bash
 npm run dev:api                # = ./mvnw spring-boot:run（Windows 自动用 mvnw.cmd）
 npm run dev                    # 另开终端，= cd frontend && npm run dev
+npm run dev:joint              # 开发环境联合启动（dev-infra + 前后端 + rag_helper venv）
+npm run dev:joint:stop         # 停止应用进程
 npm run build                  # 前端生产构建 + 后端 jar（跳过测试）
 npm run type-check             # 前端 vue-tsc
 npm test                       # = ./mvnw test（后端全量）

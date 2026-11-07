@@ -44,3 +44,8 @@ frontend/e2e-*.log
 ### æœ¬åœ°å¼€å‘åŸºç¡€è®¾æ–½ï¼ˆdev-infraï¼‰ï¼šå‡­æ®ä¸æ•°æ®åº“å¤‡ä»½ä¸å…¥åº“ ###
 /dev-infra/.env
 /dev-infra/backup/
+
+### ±¾»úÂ·¾¶/ÔËĞĞ²úÎï£¨²»Èë¿â£©###
+.rag-helper-dir
+.itsmygo-dir
+.dev-logs/
