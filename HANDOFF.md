@@ -56,10 +56,12 @@ CI 跑 270 条（跳过 4 条依赖 MinIO 的用例）。数据库 schema 到 **
   查订单物流、导购、下单退款草稿、催发货 / 退款、知识库导入、**管理端智能体评测**。
 - **后台**：管理端数据概览、订单筛选 / CSV、用户审计、商户商品运营、品牌 / 缩略图、
   管理员邀请审批；商家端经营看板。
-- **部署**：`./deploy.sh` 一键全栈；`rag_helper/deploy.sh joint` 联合部署；
-  生产是**内网 VM**（静态 IP、离线镜像包、图片同源），缺口见
-  [docs/deployment.md](docs/deployment.md)。**2026-11-05 晚已重建镜像并上线 M30**；
-  **2026-11-06 M31 已上线生产**（重建镜像 + Flyway 已迁到 v32 + 真实 MQ 链路验收通过）。
+- **环境分层（2026-11-07 定）**：**开发** = `dev-infra/`（只起中间件）+ 本机应用
+  （Vite 5173 / 后端 8080 / rag_helper venv）；**演示** = `./deploy.sh` 本地 Docker 全栈
+  （根 `docker-compose.yml`，8088）；**生产** = 内网 VM 离线包（同款根 compose +
+  `docker-compose.offline.yml` + 预构建镜像 + `prod` profile）。三者数据/端口互相隔离，
+  **不能同时起**。缺口见 [docs/deployment.md](docs/deployment.md)。
+  2026-11-05 晚重建镜像上线 M30；2026-11-06 M31 已上线生产（Flyway v32 + 真实 MQ 验收通过）。
 - **体验与合规**：品牌专区 / 缩略图、四份平台政策（协议 / 隐私 / 售后 / 商家规范）、
   2026-11-02 首次压测（读接口 2600–3500 QPS、并发不超卖、支付幂等）、
   2026-11-05 图片地址同源化（换 IP 不再裂图）。
@@ -350,19 +352,29 @@ taskkill //PID <pid> //F                          # 杀
   `java.io.EOFException: Unexpected end of file from server`
 - 若再遇下载类错误，先查镜像配置；必要时用 `-U` 强制重试
 
-### 4.3 共用中间件（**本项目不另起容器**）
+### 4.3 开发环境中间件（已统一到 `dev-infra/`）
 
-**开工前先确认这三个容器都在跑** —— 它们不在本项目任何 Compose 里，
-Docker Desktop 重启后不保证自动拉起：
+日常开发用的所有基础设施（ItsMyGo + rag_helper 共用）统一在**仓库内 `dev-infra/`**：
+一个 compose 项目 `dev-infra`，Docker Desktop 只显示一个分组。
+
+```bash
+cd dev-infra
+docker compose --env-file .env up -d
+docker compose --env-file .env ps
+```
+
+容器名 / 端口 / 数据卷都与旧的一致：`mysql` 3306、`redis` 6379、`minio` 9000/9001、
+`its-my-go-rabbitmq` 5672/15672、`mongo` 27017、`milvus-standalone` 19530、
+`neo4j` 7687（另含 `mongo-express` / `attu` / `milvus-etcd`）。
+
+- **演示环境**不用这份：`./deploy.sh`（根 `docker-compose.yml`，独立 `its-my-go-*` 卷，8088）；
+- **生产环境**在 VM 上用离线包（同款根 compose + offline 覆盖），与 `dev-infra` 无关；
+- 数据卷全部声明为 `external`，`down` 不会删数据；`.env` / `backup/` 已 gitignore。
+
+**开工前先确认这些容器都在跑**（Docker Desktop 重启后不保证自动拉起）：
 
 ```bash
 docker ps --filter "name=^(mysql|redis|minio)$" --format "table {{.Names}}\t{{.Status}}"
-```
-
-缺哪个就拉哪个（已在运行的会提示 "already running"，无害）：
-
-```bash
-docker start mysql redis minio
 ```
 
 | 容器 | restart policy | 实际行为 |
@@ -416,14 +428,15 @@ Conventional Commits，**描述用中文**（与 `rag_helper` 保持一致）：
 `type` 取 `feat` / `fix` / `docs` / `style` / `refactor` / `perf` / `test` /
 `build` / `ci` / `chore` / `revert`；`scope` 用短词（如 `order` / `product` / `auth`）。
 
-### 4.7 Docker 部署（2026-10-25 新增）
+### 4.7 Docker 部署（2026-10-25 新增，2026-11-07 更新环境分层）
 
-**两套运行方式并存**：
+**三种环境并存**：
 
-| 方式 | 适用 | 命令 |
+| 环境 | 适用 | 命令 |
 |---|---|---|
-| 本机开发 | 日常改代码，复用共用中间件 | 见 §4.0 / start.txt |
-| Compose 全栈 | 新克隆、演示、内网部署 | `./deploy.sh` |
+| 开发 | 日常改代码 | `cd dev-infra && docker compose --env-file .env up -d` 起中间件，再本机跑应用（§4.0 / start.txt） |
+| 演示（本地全栈） | 新克隆、演示 | `./deploy.sh`（根 `docker-compose.yml`，8088） |
+| 生产（内网 VM） | 离线包部署 | 同款根 compose + `docker-compose.offline.yml`，见 [docs/deployment.md](docs/deployment.md) |
 
 **`deploy.sh` 做了什么**（`deploy.ps1` 等价）：复制 `.env.example` 为 `.env` →
 补齐 JWT / DB / RabbitMQ / MinIO 随机密码 → 生成 `admin` 初始密码并打印一次 →
@@ -433,8 +446,8 @@ Conventional Commits，**描述用中文**（与 `rag_helper` 保持一致）：
 **生产（演示）环境是一台内网 VM**（静态 IP、离线镜像包、图片同源）—— 机器与网络、
 部署形态、已知缺口都记在 [docs/deployment.md](docs/deployment.md) 的
 「生产（演示）部署：内网 VM」一节，本文不重复。
-⚠️ **VM 上的后端跑的是默认 profile**：`application-prod.yml` 虽已存在，但 compose 的
-backend 没有设置 `SPRING_PROFILES_ACTIVE`，所以 JSON 日志文件不会生成。
+✅ **VM 上的后端跑的是 `prod` profile**：compose 已透传 `SPRING_PROFILES_ACTIVE`，
+VM 的 `ItsMyGo/.env` 设了 `prod`（日志级别/关 SQL 明细按 `application-prod.yml`）。
 
 **Compose 服务与端口**（都可用 `.env` 覆盖）：
 

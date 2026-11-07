@@ -2,7 +2,17 @@
 
 > README 只留三行命令；端口、环境变量、手工 Compose 等细节放这里。
 
-## 一键启动
+## 环境分层
+
+| 环境 | 启动方式 | 编排 / 产物 | 数据 |
+|---|---|---|---|
+| **开发** | `dev-infra/` + 本机应用 | 只起中间件；应用用 `mvnw` / `vite` / rag_helper venv | 共享 MySQL `its_mygo`、`rag_helper-*` 卷 |
+| **演示**（本地全栈） | `./deploy.sh`（`docker-compose.yml`） | 应用 + 独立中间件一起 build/起 | `its-my-go-*` 卷（与开发库隔离） |
+| **生产**（内网 VM） | VM 离线包 | **同一份** `docker-compose.yml` + `docker-compose.offline.yml` + 预构建镜像，`.env` 设 `SPRING_PROFILES_ACTIVE=prod` | VM 上的 `its-my-go-*` 卷 |
+
+⚠️ 开发与演示抢 3306/6379/9000/5672，**不能同时起**；生产在独立 VM 上，不受本机影响。
+
+## 一键启动（演示环境）
 
 前置：Docker Desktop 已启动。
 

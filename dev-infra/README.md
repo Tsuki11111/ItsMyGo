@@ -1,5 +1,9 @@
 # 本地开发统一基础设施（dev-infra）
 
+**环境定位：开发环境**——只起中间件，应用在本机跑（ItsMyGo 的 `mvnw`/`vite`、rag_helper 的 venv）。
+演示环境用 `./deploy.sh`（根 `docker-compose.yml`），生产环境在 VM 上用离线包（同款根 compose）。
+三者数据与端口隔离，不要同时起。
+
 把 ItsMyGo 与 rag_helper 开发时用到的所有基础设施容器，收进**一个 Docker Compose 项目**，
 Docker Desktop 的 Containers 页面只显示一个 `dev-infra` 分组。
 

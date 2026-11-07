@@ -1,13 +1,18 @@
-# ItsMyGo 本地一键栈：MySQL / Redis / MinIO / RabbitMQ + 后端 + 前端
+# ItsMyGo **演示环境**全栈：MySQL / Redis / MinIO / RabbitMQ + 后端 + 前端。
+#
+# 环境定位：
+#   - 演示（本地全栈）：本文件 + `./deploy.sh`；浏览器 http://localhost:8088；
+#   - 生产（内网 VM）：**同一份编排**再叠加 docker-compose.offline.yml（离线镜像），
+#     并在 VM 的 .env 里设 SPRING_PROFILES_ACTIVE=prod；
+#   - 开发（日常）：用 dev-infra/（只起中间件，应用本机跑），**不要与这份同时起**（端口冲突）。
 #
 # 快速开始（在仓库根目录）：
-#   docker compose up -d --build
-#   浏览器打开 http://localhost:8088
+#   ./deploy.sh            # 或 npm run deploy
 #
 # 首次启动没有管理员：在 .env 配 BOOTSTRAP_ADMIN_USERNAME / BOOTSTRAP_ADMIN_PASSWORD，
 # 或注册后按 README 的 SQL 兜底提权。
 #
-# 所有容器/卷都以 its-my-go 开头，不会碰本机共用 mysql/redis/minio。
+# 所有容器/卷都以 its-my-go 开头，与 dev-infra 的开发库数据互相隔离。
 name: its-my-go
 
 services:

@@ -88,7 +88,18 @@ Spring Boot 单体 + Vue 3 前后端分离，经 **gRPC 接入 RAG 客服智能�
 `rag_helper/docs/architecture.md` §4，对接前提见 `rag_helper/docs/requirements.md` §4
 （rag_helper 2026-11-05 文档归并后，原 `evolution-plan.md` §5/§6 已迁到这两个位置，旧文件已删除）。
 
-## 快速启动（Docker）
+## 环境分层（先看这个）
+
+| 环境 | 怎么起 | 数据 | 入口 |
+|---|---|---|---|
+| **开发环境** | `dev-infra/`（只起中间件）+ 本机 `mvnw` / `vite` / rag_helper venv | 共享 MySQL `its_mygo`、`rag_helper-*` 卷 | 前端 `5173`、后端 `8080` |
+| **演示环境**（本地全栈） | `./deploy.sh` / `npm run deploy`（根 `docker-compose.yml`） | `its-my-go-*` 独立卷 | `http://localhost:8088` |
+| **生产环境**（内网 VM） | VM 离线包：同款根 compose + `docker-compose.offline.yml` + 预构建镜像 | VM 上的 `its-my-go-*` 卷 | `http://10.184.171.106:8088` |
+
+三者数据与端口互相隔离，**不能同时起**（开发与演示抢 3306/6379/9000/5672）。
+根 `docker-compose.yml` 是演示与生产共用的编排，日常开发请用 `dev-infra/`。
+
+## 快速启动（Docker · 演示环境）
 
 前置：Docker Desktop。
 
