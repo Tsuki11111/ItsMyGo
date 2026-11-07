@@ -48,12 +48,13 @@ function onLogout() {
   ElMessage.success('已退出登录')
 }
 
-// 登录后建立 SSE；登出时断开。管理员也要连：平台自营店的消息由管理员接收。
+// 登录后只刷新一次角标（消息未读含在 badgeStore.refreshAll 的轮询里）；
+// SSE 不在这里常驻 —— 只在聊天页可见时由 ChatCenter 打开，避免多标签占满连接池。
+// 登出时断开所有连接并重置角标。
 watch(
   () => userStore.isLoggedIn,
   (loggedIn) => {
     if (loggedIn) {
-      void chatStore.connect()
       void badgeStore.refreshAll()
     } else {
       chatStore.disconnect()

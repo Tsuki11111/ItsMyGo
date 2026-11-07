@@ -1588,6 +1588,26 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 
 ## 6. 历史记录
 
+### 2026-11-07 · 消息 SSE 连接策略：根治多标签“网络异常”
+
+**背景**：用户开 6 个浏览器标签后页面报「网络异常，请稍后重试」。排查发现每个已登录标签
+都在 `App.vue` 里全局 `chatStore.connect()`，常驻一条 `GET /api/chat/stream` SSE；
+浏览器对同源 HTTP/1.1 只有 **6 个并发连接**，6 个标签正好占满连接池，普通接口排队超时。
+
+**改动（前端）**：
+- `stores/chat.ts`：新增 `release()`（离开聊天页断开、保留未读计数）；SSE 只在聊天页
+  `ChatCenter` 挂载且页面可见时连接，`visibilitychange` 隐藏即断开、回到前台重连并补拉未读；
+  断线仍走指数退避（1s→30s）。
+- `App.vue`：登录后不再建全局 SSE，只刷新一次角标；登出仍 `disconnect()` 清连接与未读。
+- `stores/badge.ts`：`refreshAll()` 增加 `chatStore.refreshUnread()`，消息未读并入 30s
+  可见轮询；三个角标统一由轮询维护。
+- `ChatCenter.vue`：`onMounted → connect()`、`onBeforeUnmount → release()`。
+
+**效果**：多开标签不再各占一条 SSE —— 只有“聊天页可见”的那一个标签占用（最多 1 条），
+其余标签只做轻量轮询；未读角标延迟 ≤30s，聊天页内仍实时。
+
+**验证**：`npm run type-check` 通过、`npm run build:web` 通过。
+
 ### 2026-11-07 · 支付后自动发订单确认卡 + 发货前可改收货地址
 
 **需求**：支付成功后商家自动发订单信息让顾客再次确认；发货前可改收货地址；确认不阻塞发货。

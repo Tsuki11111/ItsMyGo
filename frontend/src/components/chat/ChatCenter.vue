@@ -328,12 +328,16 @@ watch([routeId, routeAgent], ([id, isAgent]) => {
 
 onMounted(() => {
   void loadConversations()
+  // 只有聊天页可见时才占用 SSE 连接；未读角标由 badge 轮询维护
+  void chatStore.connect()
   void chatStore.refreshUnread()
   unsubscribe = chatStore.onEvent(handleEvent)
 })
 
 onBeforeUnmount(() => {
   unsubscribe?.()
+  // 离开聊天页即释放连接（保留未读计数，轮询继续维护角标）
+  chatStore.release()
 })
 </script>
 

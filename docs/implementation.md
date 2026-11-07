@@ -1132,6 +1132,13 @@ SSE 推送、已读回执、在线状态（管理员连接即视为平台自营�
 - 事件：`connected` / `message` / `read` / `presence`；`@Scheduled` 每 25 秒发心跳注释。
 - 推送注册在 `TransactionSynchronization.afterCommit`，事务回滚不推送；推送失败不回滚消息，
   客户端重连后用 `afterId` 补齐。
+- **前端连接策略（2026-11-07 根治多标签“网络异常”）**：SSE **只在聊天页可见时**由
+  `ChatCenter` 挂载打开，离开聊天页或标签隐藏即断开（`chatStore.connect()/release()` +
+  `visibilitychange`，断线指数退避重连））；未读角标改由 `badge` 的 30s **可见时轮询**
+  （`refreshAll` 内调 `/api/chat/unread`）维护，**不再全局常驻 SSE**。
+  原因：浏览器对同源 HTTP/1.1 只有 6 个并发连接，每个标签一条常驻 SSE 会在多开时把连接池
+  占满，普通接口排队超时后提示「网络异常」。现在即使开 6+ 标签，也只有聊天页可见的那一个
+  会占 SSE 连接。
 - 多实例部署需要 Redis Pub/Sub 或粘性会话，本期单机，明确不做。
 
 **入口行为**：从商品/店铺/订单页发起会话；只有**新建会话**时自动附一张卡片，

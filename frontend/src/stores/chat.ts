@@ -43,8 +43,10 @@ interface PresenceEventPayload {
 /**
  * 全局消息状态：未读角标 + SSE 生命周期。
  *
- * App.vue 根据登录态连接/断开；页面通过 `onEvent` 订阅事件，
- * 离开页面时记得取消订阅。
+ * 连接策略（根治多标签把浏览器 HTTP/1.1 连接池占满的问题）：
+ * - 未读角标由 `badge` 的 30s 轮询 + `refreshUnread()` 维护，**不建常驻连接**；
+ * - SSE 只在聊天页（ChatCenter）挂载且页面可见时开启，离开/隐藏即断开；
+ * - 页面通过 `onEvent` 订阅事件，离开页面时记得取消订阅。
  */
 export const useChatStore = defineStore('chat', () => {
   const customerUnread = ref(0)
@@ -58,7 +60,14 @@ export const useChatStore = defineStore('chat', () => {
   let attempts = 0
   let stopped = false
   let connecting = false
+  // released = 当前页面没有聊天页在显示（未读靠轮询，不占 SSE 连接）
+  let released = true
   const listeners = new Set<(event: ChatSocketEvent) => void>()
+
+  /** 用函数读取，避免 TS 把 visibilityState 收窄成 literal 类型 */
+  function isHidden(): boolean {
+    return document.visibilityState === 'hidden'
+  }
 
   function canConnect(): boolean {
     const user = useUserStore()
@@ -66,18 +75,49 @@ export const useChatStore = defineStore('chat', () => {
     return Boolean(getToken() && user.isLoggedIn)
   }
 
+  function closeSource() {
+    if (reconnectTimer !== undefined) {
+      window.clearTimeout(reconnectTimer)
+      reconnectTimer = undefined
+    }
+    source?.close()
+    source = null
+    connected.value = false
+  }
+
+  /**
+   * 只在「聊天页可见」时占用一条 SSE 连接。
+   * 浏览器对同源 HTTP/1.1 只有 6 个并发连接，全局常驻 SSE 会在多标签时把连接池占满，
+   * 导致普通接口排队超时报「网络异常」；所以聊天页挂载时才连、隐藏/离开就断。
+   */
+  function onVisibilityChange() {
+    if (stopped || released) return
+    if (document.visibilityState === 'hidden') {
+      closeSource()
+      return
+    }
+    void open()
+    void refreshUnread()
+  }
+
   async function connect() {
     stopped = false
+    released = false
+    document.addEventListener('visibilitychange', onVisibilityChange)
     if (!canConnect() || source || connecting) return
     await open()
   }
 
   async function open() {
-    if (stopped || !canConnect() || source || connecting) return
+    if (stopped || released || !canConnect() || source || connecting) return
+    // 后台标签不建连接；切到前台时由 onVisibilityChange 触发
+    if (isHidden()) return
     connecting = true
     try {
       const { ticket } = await createChatStreamTicket()
-      if (stopped) return
+      if (stopped || released || !canConnect()) return
+      // 等票据期间标签被切到后台：不建连接，等 visibilitychange 再开
+      if (isHidden()) return
       const es = new EventSource(`/api/chat/stream?ticket=${encodeURIComponent(ticket)}`)
       source = es
       es.addEventListener('connected', (event) => {
@@ -127,7 +167,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function scheduleReconnect() {
-    if (stopped || reconnectTimer !== undefined || !canConnect()) return
+    if (stopped || released || reconnectTimer !== undefined || !canConnect()) return
     const delay = Math.min(1_000 * 2 ** Math.min(attempts, 5), 30_000)
     attempts += 1
     reconnectTimer = window.setTimeout(() => {
@@ -136,15 +176,18 @@ export const useChatStore = defineStore('chat', () => {
     }, delay)
   }
 
+  /** 离开聊天页：断开 SSE、保留未读计数（未读由角标轮询维护） */
+  function release() {
+    released = true
+    document.removeEventListener('visibilitychange', onVisibilityChange)
+    closeSource()
+  }
+
   function disconnect() {
+    released = true
     stopped = true
-    if (reconnectTimer !== undefined) {
-      window.clearTimeout(reconnectTimer)
-      reconnectTimer = undefined
-    }
-    source?.close()
-    source = null
-    connected.value = false
+    document.removeEventListener('visibilitychange', onVisibilityChange)
+    closeSource()
     customerUnread.value = 0
     merchantUnread.value = 0
   }
@@ -181,6 +224,7 @@ export const useChatStore = defineStore('chat', () => {
     unreadTotal,
     connected,
     connect,
+    release,
     disconnect,
     refreshUnread,
     setUnreadFor,

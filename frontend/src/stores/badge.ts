@@ -3,14 +3,15 @@ import { defineStore } from 'pinia'
 import { fetchCouponCenter } from '@/api/coupon'
 import { fetchCart } from '@/api/cart'
 import { getToken } from '@/api/http'
+import { useChatStore } from '@/stores/chat'
 import { useUserStore } from '@/stores/user'
 import type { CartView, CouponView } from '@/api/types'
 
 /**
- * 顶栏角标：可领券数量 + 购物车商品总数。
+ * 顶栏角标：可领券数量 + 购物车商品总数 + 消息未读数。
  *
- * 消息角标由 SSE 实时维护（stores/chat.ts），这里只负责另外两个；
- * 每 30 秒轮询一次，并在加购/改购物车/领券后立即刷新。
+ * 三个角标都走这里轮询（30s，且只在页面可见时），不再为消息单独建全局 SSE：
+ * SSE 只在实际聊天页可见时连接（stores/chat.ts），避免多标签占满浏览器连接池。
  */
 export const useBadgeStore = defineStore('badge', () => {
   const claimableCoupons = ref(0)
@@ -56,7 +57,7 @@ export const useBadgeStore = defineStore('badge', () => {
   }
 
   async function refreshAll() {
-    await Promise.all([refreshCoupons(), refreshCart()])
+    await Promise.all([refreshCoupons(), refreshCart(), useChatStore().refreshUnread()])
   }
 
   function startPolling() {
