@@ -1588,6 +1588,42 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 
 ## 6. 历史记录
 
+### 2026-11-07 · 客服设置（推广/联网/流式）+ 真流式输出
+
+**需求**：客服面板三个开关，偏好持久化并生效；流式要真增量。
+
+**实现**：`V33__user_agent_preferences.sql`（默认推广关/联网开/流式关）；
+`GET/PUT /api/agent/preferences`；每轮 Converse 把联网/流式偏好写进 gRPC
+`ConverseRequest` 的 optional 字段；rag_helper `stream=true` 时逐 token 推 `delta`，
+前端把增量追加到本轮回复、final 到达后整段替换。设置入口在客服面板标题栏齿轮弹窗。
+
+**验证**：全量 313 条全绿；联合栈实测流式开 111 个 delta 且拼接=final、关 0 delta。
+
+### 2026-11-07 · 智能推广（价格历史 + 推荐打分 + 每日定时）
+
+**需求**：用户开启后每天主动推 1 条可能感兴趣的商品到站内聊天。
+
+**实现**：`V34__product_price_history.sql`（含存量基线）；商品/规格改价写历史；
+`PromotionService` 按降价 0.45 / 相似购买 0.25 / 销量 0.20 / 评分 0.10 打分，
+排除近 30 天买过的商品；`ChatService.sendPromotionMessage` 以商家身份发
+`contentType=PROMOTION` 商品卡（未读 + SSE）；`PromotionScheduler` 每天 10:00
+（`itsmygo.promotion.*` 可配），`last_promotion_date` 保证每人每天最多 1 条。
+
+**验证**：单测覆盖价格历史/打分/每日一次/偏好关闭；全量 313 条全绿。
+
+### 2026-11-07 · 个人消费报告（页面 + 聊天摘要）
+
+**需求**：用户查看自己的消费情况，并能在客服对话里让 bot 摘要。
+
+**实现**：`ReportMapper` 聚合已支付订单（金额/退款/优惠/均价/品类/店铺/商品 Top3/月度）；
+顾客接口 `GET /api/reports/consumption?period=month|year&date=`，内部接口
+`GET /internal/agent/reports/consumption`（票据身份）；前端 `/user/report` 页面
+（用户中心入口）；rag_helper 工具 `get_consumption_report` 概括成中文摘要，金额不推算。
+
+**验证**：全量 313 条全绿；联合栈实测接口金额/排行/月度正确、聊天里真实调用工具并复述金额。
+
+
+
 ### 2026-11-07 · 消息 SSE 连接策略：根治多标签“网络异常”
 
 **背景**：用户开 6 个浏览器标签后页面报「网络异常，请稍后重试」。排查发现每个已登录标签
