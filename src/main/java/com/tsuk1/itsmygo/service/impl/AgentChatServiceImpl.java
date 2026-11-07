@@ -1,17 +1,22 @@
 package com.tsuk1.itsmygo.service.impl;
 
 import agent.v1.Event;
+import agent.v1.FormField;
+import agent.v1.FormOption;
+import agent.v1.FormRequest;
 import agent.v1.FormResult;
 import agent.v1.HistoryMessage;
 import agent.v1.SessionInfo;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.tsuk1.itsmygo.common.ResultCode;
 import com.tsuk1.itsmygo.common.agent.AgentEventMapper;
+import com.tsuk1.itsmygo.common.agent.AgentFormGuard;
 import com.tsuk1.itsmygo.common.agent.AgentGateway;
 import com.tsuk1.itsmygo.common.agent.AgentProperties;
 import com.tsuk1.itsmygo.common.agent.AgentSseSink;
 import com.tsuk1.itsmygo.common.agent.AgentToolTicketService;
 import com.tsuk1.itsmygo.common.exception.BizException;
+import com.tsuk1.itsmygo.dto.AfterSaleReasonView;
 import com.tsuk1.itsmygo.dto.agent.AgentConverseRequest;
 import com.tsuk1.itsmygo.dto.agent.AgentHistoryMessage;
 import com.tsuk1.itsmygo.dto.agent.AgentHistoryView;
@@ -20,6 +25,7 @@ import com.tsuk1.itsmygo.dto.agent.AgentStopRequest;
 import com.tsuk1.itsmygo.entity.AgentSession;
 import com.tsuk1.itsmygo.mapper.AgentSessionMapper;
 import com.tsuk1.itsmygo.security.CurrentUser;
+import com.tsuk1.itsmygo.service.AfterSaleService;
 import com.tsuk1.itsmygo.service.AgentChatService;
 import io.grpc.Context;
 import io.grpc.StatusRuntimeException;
@@ -31,6 +37,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -50,11 +57,15 @@ import java.util.stream.Collectors;
 public class AgentChatServiceImpl implements AgentChatService {
 
     private static final int MAX_HISTORY = 50;
+    private static final String FORM_TYPE_REFUND_REASON = "refund_reason";
+    private static final String FORM_FIELD_REASON = "reason";
 
     private final AgentGateway gateway;
     private final AgentProperties properties;
     private final AgentSessionMapper sessionMapper;
     private final AgentToolTicketService toolTicketService;
+    private final AgentFormGuard formGuard;
+    private final AfterSaleService afterSaleService;
     private final ExecutorService agentExecutor;
     private final ScheduledExecutorService auxExecutor;
     private final ObjectMapper objectMapper;
@@ -63,6 +74,8 @@ public class AgentChatServiceImpl implements AgentChatService {
     public AgentChatServiceImpl(AgentGateway gateway, AgentProperties properties,
                                 AgentSessionMapper sessionMapper,
                                 AgentToolTicketService toolTicketService,
+                                AgentFormGuard formGuard,
+                                AfterSaleService afterSaleService,
                                 @Qualifier("agentExecutor") ExecutorService agentExecutor,
                                 @Qualifier("agentAuxExecutor") ScheduledExecutorService auxExecutor,
                                 ObjectMapper objectMapper) {
@@ -70,6 +83,8 @@ public class AgentChatServiceImpl implements AgentChatService {
         this.properties = properties;
         this.sessionMapper = sessionMapper;
         this.toolTicketService = toolTicketService;
+        this.formGuard = formGuard;
+        this.afterSaleService = afterSaleService;
         this.agentExecutor = agentExecutor;
         this.auxExecutor = auxExecutor;
         this.objectMapper = objectMapper;
@@ -159,13 +174,124 @@ public class AgentChatServiceImpl implements AgentChatService {
         return builder.build();
     }
 
+    /**
+     * 退款原因校验：回传值必须落在售后原因字典的展示名里。
+     * 表单回传只有 {@code form_id + values}、不带 formType，所以按「有 reason 字段就校验」处理；
+     * 其它表单不受影响。非法返回 null（调用方发 FORM_INVALID）。
+     */
+    private FormResult normalizeRefundReason(FormResult formResult) {
+        Map<String, String> values = formResult.getValuesMap();
+        if (!values.containsKey(FORM_FIELD_REASON)) {
+            return formResult;
+        }
+        String raw = values.get(FORM_FIELD_REASON);
+        if (!StringUtils.hasText(raw)) {
+            return null;
+        }
+        String reason = raw.trim();
+        if (!refundReasonLabels().contains(reason)) {
+            return null;
+        }
+        return reason.equals(raw) ? formResult
+                : formResult.toBuilder().putValues(FORM_FIELD_REASON, reason).build();
+    }
+
+    /** 售后原因字典（启用中的）展示名集合：表单选项与提交校验共用这一份口径。 */
+    private Set<String> refundReasonLabels() {
+        return afterSaleService.reasons().stream()
+                .map(AfterSaleReasonView::label)
+                .filter(StringUtils::hasText)
+                .collect(Collectors.toSet());
+    }
+
+    /**
+     * refund_reason 表单的 select 选项由 Java 补全：rag_helper 只下发空 options，
+     * 原因字典保持售后模块单一口径。选项 value 直接用中文展示名 ——
+     * 回传值最终会作为订单的退款原因文本（{@code orders.refund_reason}），
+     * 用稳定编码会让用户看到 {@code QUALITY} 之类的内部值。
+     */
+    private Event fillRefundReasonOptions(Event event) {
+        List<FormRequest> forms = event.getFinal().getFormsList();
+        if (forms.isEmpty()) {
+            return event;
+        }
+        boolean changed = false;
+        List<FormRequest> filled = new ArrayList<>(forms.size());
+        for (FormRequest form : forms) {
+            FormRequest next = fillRefundReasonOptions(form);
+            changed |= next != form;
+            filled.add(next);
+        }
+        if (!changed) {
+            return event;
+        }
+        return event.toBuilder().setFinal(event.getFinal().toBuilder()
+                .clearForms().addAllForms(filled).build()).build();
+    }
+
+    private FormRequest fillRefundReasonOptions(FormRequest form) {
+        if (!FORM_TYPE_REFUND_REASON.equals(form.getFormType())) {
+            return form;
+        }
+        List<FormOption> options = null;
+        boolean changed = false;
+        List<FormField> fields = new ArrayList<>(form.getFieldsCount());
+        for (FormField field : form.getFieldsList()) {
+            if (!FORM_FIELD_REASON.equals(field.getName()) || field.getOptionsCount() > 0) {
+                fields.add(field);
+                continue;
+            }
+            if (options == null) {
+                options = afterSaleService.reasons().stream()
+                        .filter(reason -> StringUtils.hasText(reason.label()))
+                        .map(reason -> FormOption.newBuilder()
+                                .setValue(reason.label())
+                                .setLabel(reason.label())
+                                .build())
+                        .toList();
+            }
+            if (options.isEmpty()) {
+                log.warn("售后原因字典为空，退款原因表单保持空选项: formId={}", form.getFormId());
+                fields.add(field);
+                continue;
+            }
+            fields.add(field.toBuilder().addAllOptions(options).build());
+            changed = true;
+        }
+        if (!changed) {
+            return form;
+        }
+        return form.toBuilder().clearFields().addAllFields(fields).build();
+    }
+
     private void stream(CurrentUser user, String sessionId, String message, FormResult formResult,
                         String toolTicket, AgentSseSink sink, Context.CancellableContext context,
                         AtomicReference<String> runIdRef,
                         AtomicBoolean finalSeen, AtomicBoolean errorSeen, Runnable cleanup) {
         try {
+            FormResult forwardedForm = formResult;
+            if (forwardedForm != null) {
+                // 先校验后消费：非法提交不能白白烧掉一张一次性表单
+                forwardedForm = normalizeRefundReason(forwardedForm);
+                if (forwardedForm == null) {
+                    errorSeen.set(true);
+                    sink.send("error", AgentEventMapper.error("FORM_INVALID",
+                            "退款原因不在可选范围内，请重新选择后提交", false));
+                    sink.send("done", AgentEventMapper.done("error"));
+                    return;
+                }
+                if (!formGuard.tryConsume(user.id(), forwardedForm.getFormId())) {
+                    // SETNX 失败：不调 agent，直接告诉前端这张表单已经提交过
+                    errorSeen.set(true);
+                    sink.send("error", AgentEventMapper.error("FORM_ALREADY_SUBMITTED",
+                            "这张表单已经提交过了，请重新发起一次", false));
+                    sink.send("done", AgentEventMapper.done("error"));
+                    return;
+                }
+            }
+            FormResult effectiveForm = forwardedForm;
             Iterator<Event> events = context.call(() -> gateway.converse(
-                    user.id(), sessionId, message, formResult,
+                    user.id(), sessionId, message, effectiveForm,
                     Duration.ofSeconds(properties.deadlineSeconds()), toolTicket));
 
             while (!sink.isClosed() && events.hasNext()) {
@@ -175,6 +301,8 @@ public class AgentChatServiceImpl implements AgentChatService {
                     runIdRef.set(event.getStart().getRunId());
                 } else if (kind == Event.KindCase.FINAL) {
                     finalSeen.set(true);
+                    // 退款原因选项由 Java 用售后原因字典补全（agent 只下发空选项）
+                    event = fillRefundReasonOptions(event);
                 } else if (kind == Event.KindCase.ERROR) {
                     errorSeen.set(true);
                     log.warn("买小购返回错误事件: {}", event.getError().getMessage());

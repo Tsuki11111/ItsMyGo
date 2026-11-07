@@ -1169,9 +1169,17 @@ data: {"userId":1,"customerUnread":0,"merchantUnread":0}
 - `sessionId` 为空表示新会话；Java 生成 UUID 并记录归属，在 `start` 事件里返回。
 - `message` 去空白后非空、≤2000 字。
 - `formResult` 可选，会话内表单回传（方案 A），形如
-  `{"formId":"form-xxx","values":{"reason":"quality"}}`；普通文本对话不传。
-  老客户端不传等价于 `null`，Java 不会报错。Java 只把它原样转成 gRPC
-  `ConverseRequest.form_result`，**不落库**；一次性 / 过期由 agent 服务端校验。
+  `{"formId":"form-xxx","values":{"reason":"商品质量问题"}}`；普通文本对话不传。
+  老客户端不传等价于 `null`，Java 不会报错。Java 把它转成 gRPC
+  `ConverseRequest.form_result` 转发，**不落库**。
+  **一次性消费由 Java 做**（在转发前）：Redis `its-my-go:agent:form:{userId}:{formId}`
+  SETNX，TTL 固定 660 秒（拿不到表单的 `expiresInSeconds`，按 600+60 计，不超过 1 小时）。
+  SETNX 失败直接回 SSE `error`（`FORM_ALREADY_SUBMITTED`），**不调 agent**；
+  历史里回放的旧表单不参与消费（只有 Converse 的 `formResult` 才消费）。
+  Redis 不可用时**降级放行**（记日志后照常转发），由 agent 侧的 `form_id` 校验与业务幂等兜底。
+  `values.reason` 还会按售后原因字典校验，不在字典内回 `FORM_INVALID`、不转发；
+  `refund_reason` 表单的 `options` 为空时由 Java 用 `AfterSaleService.reasons()` 补全
+  （见 §19.3）。
 - 会话归属在 Java 侧校验：Stop / History / 带 sessionId 的 Converse，
   只要 `session_id + user_id` 不匹配就返回 404。
 - `/api/agent/sessions` 返回当前用户的历史会话（跨设备可用），按最近活跃倒序；
@@ -1241,10 +1249,10 @@ data: {"userId":1,"customerUnread":0,"merchantUnread":0}
       "type": "select",
       "required": true,
       "placeholder": "请选择",
-      "defaultValue": "quality",
+      "defaultValue": "",
       "options": [
-        { "value": "quality", "label": "商品质量问题" },
-        { "value": "no_need", "label": "不想要了" }
+        { "value": "商品质量问题", "label": "商品质量问题" },
+        { "value": "不想要了", "label": "不想要了" }
       ]
     }
   ],
@@ -1255,6 +1263,9 @@ data: {"userId":1,"customerUnread":0,"merchantUnread":0}
 ```
 
 - `type` 取 `text` / `number` / `select` / `date`；`select` 必有 `options`。
+  `refund_reason` 的 `reason` 选项**由 Java 补全**（AI 侧只下发空 `options`）：
+  取售后原因字典 `GET /api/after-sales/reasons` 里启用中的原因，`value`/`label` 都用中文
+  展示名 —— 回传值最终会写进订单 `refund_reason`，用稳定编码会让用户看到内部值。
 - `meta` 是 agent 侧上下文（例如订单号），**前端不渲染**，回传时不需要带上 ——
   服务端按 `form_type` + 自己保存的 `meta` 拼工具参数。
 - 流式 `final.forms` 可交互；`GetHistory` 的 `forms` 只读。
@@ -1288,6 +1299,8 @@ data: {"kind":"delegate","agent":"product-kb","detail":"检索产品手册"}
 | `AGENT_AUTH_FAILED` | 客服服务鉴权失败 | 否 |
 | `AGENT_BUSY` | 客服繁忙 | 是 |
 | `AGENT_ERROR` | 其它客服错误 | 是 |
+| `FORM_ALREADY_SUBMITTED` | 表单已提交过（Redis 一次性消费失败），本轮未调 agent | 否 |
+| `FORM_INVALID` | 表单值非法（如退款原因不在售后原因字典内），本轮未调 agent | 否 |
 
 说明：
 
@@ -1300,8 +1313,9 @@ data: {"kind":"delegate","agent":"product-kb","detail":"检索产品手册"}
 **会话内表单的提交**：`final.forms` 渲染成卡片；用户填完点提交后，前端只带
 `{formId, values}` 作为**下一轮** `POST /api/agent/converse` 的 `formResult`，本轮卡片
 立即置灰。Java 的 `message` 仍必填，前端会用「已提交：<表单标题>」作为本轮消息。
-服务端校验通过后直接调对应工具（首批为退款原因 → `/internal/agent/actions/refund`），
-并产生下一轮回复。
+服务端校验通过后直接调对应工具（`refund_reason` → `/internal/agent/actions/refund`，
+`address_edit` → `/internal/agent/actions/address`），并产生下一轮回复。
+`address_edit` 的 6 个字段都是普通文本输入，前端表单卡片通用渲染，无需额外适配。
 
 ### 19.3 内部工具接口（agent 专用，非浏览器接口）
 
@@ -1317,6 +1331,7 @@ agent 服务在对话过程中需要实时数据时，会反向回调 Java 的�
 | GET | `/internal/agent/catalog/categories` | `X-Agent-Ticket` | — | `CategoryNode[]` |
 | GET | `/internal/agent/catalog/addresses` | `X-Agent-Ticket` | — | `AgentAddressView[]` |
 | POST | `/internal/agent/actions/order` | `X-Agent-Ticket` | `{addressId?, items:[{productId,skuId,quantity}]}` | `AgentActionView` |
+| POST | `/internal/agent/actions/address` | `X-Agent-Ticket` | `{addressId, receiver, phone, province, city, district, detail}` | `AgentActionView` |
 | POST | `/internal/agent/actions/refund` | `X-Agent-Ticket` | `{orderNo, reason?}` | `AgentActionView` |
 | POST | `/internal/agent/actions/urge-shipment` | `X-Agent-Ticket` | `{orderNo}` | `AgentActionView` |
 | POST | `/internal/agent/actions/urge-shipment/send` | `X-Agent-Ticket` | `{actionNo}` | `AgentActionView` |
@@ -1331,6 +1346,11 @@ agent 服务在对话过程中需要实时数据时，会反向回调 Java 的�
 
 - 商品搜索返回商品与 SKU（skuId / specText / price / stock），供 agent 落到具体规格。
 - 地址只返回当前票据用户自己的；动作准备接口只落 `PENDING_CONFIRM` 草稿，**不执行**。
+- **address_edit**：`/actions/address` 复用 `PUT /api/addresses/{id}` 的更新逻辑，
+  只改票据用户自己的地址（越权按「不存在」返回 404）。返回 `AgentActionView`，
+  `data.summary.address = {id, receiver, address}`（`address` = 省 + 市 + 区 + 详细地址），
+  供 agent 直接复述；地址修改**即时生效**，没有待确认动作。请求不带 `isDefault`，
+  内部工具不会改动用户的默认地址标记。
 - **退款原因**：`/actions/refund` 的 `reason`（≤200 字）来自会话内表单，Java 把它写进
   草稿 `payload_json` 与 `summary.refundReason`；确认退款时以草稿里的 reason 构造
   `RefundRequest`，最终写入订单 `refund_reason`（参与商家确认与催退款文案）。

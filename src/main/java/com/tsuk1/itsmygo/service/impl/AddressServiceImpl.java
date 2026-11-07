@@ -79,7 +79,11 @@ public class AddressServiceImpl implements AddressService {
         address.setCity(request.city());
         address.setDistrict(request.district());
         address.setDetail(request.detail());
-        address.setIsDefault(Boolean.TRUE.equals(request.isDefault()) ? 1 : 0);
+        // 浏览器 PUT 必填 isDefault；内部工具（agent address_edit）只改收货信息、传 null，
+        // 这里保留原默认标记，避免顺带把用户的默认地址清掉。
+        if (request.isDefault() != null) {
+            address.setIsDefault(Boolean.TRUE.equals(request.isDefault()) ? 1 : 0);
+        }
     }
 
     private boolean isDefault(Address address) {

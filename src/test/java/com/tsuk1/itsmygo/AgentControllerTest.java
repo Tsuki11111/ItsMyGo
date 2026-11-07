@@ -31,6 +31,8 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
@@ -141,12 +143,13 @@ class AgentControllerTest extends ApiTestBase {
                 });
 
         String token = customerToken("fm" + System.nanoTime());
+        String formId = "f1-" + System.nanoTime();
         MvcResult result = mockMvc.perform(post("/api/agent/converse")
                         .header("Authorization", bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"message":"已提交","formResult":{"formId":"f1","values":{"reason":"quality"}}}
-                                """))
+                                {"message":"已提交","formResult":{"formId":"%s","values":{"reason":"商品质量问题"}}}
+                                """.formatted(formId)))
                 .andExpect(request().asyncStarted())
                 .andReturn();
 
@@ -160,8 +163,108 @@ class AgentControllerTest extends ApiTestBase {
                 .andExpect(content().string(containsString("\"orderNo\":\"NO1\"")));
 
         assertThat(capturedForm.get()).isNotNull();
-        assertThat(capturedForm.get().getFormId()).isEqualTo("f1");
-        assertThat(capturedForm.get().getValuesMap()).containsEntry("reason", "quality");
+        assertThat(capturedForm.get().getFormId()).isEqualTo(formId);
+        assertThat(capturedForm.get().getValuesMap()).containsEntry("reason", "商品质量问题");
+    }
+
+    @Test
+    void finalFillsRefundReasonOptionsFromAfterSaleDictionary() throws Exception {
+        when(agentGateway.configured()).thenReturn(true);
+        when(agentGateway.converse(anyLong(), anyString(), anyString(), any(), any(), anyString()))
+                .thenAnswer(invocation -> List.of(Event.newBuilder()
+                        .setFinal(FinalEvent.newBuilder()
+                                .setAnswer("请选择退款原因")
+                                .addForms(FormRequest.newBuilder()
+                                        .setFormId("f-" + System.nanoTime())
+                                        .setFormType("refund_reason")
+                                        .setTitle("选择退款原因")
+                                        .addFields(FormField.newBuilder()
+                                                .setName("reason")
+                                                .setLabel("退款原因")
+                                                .setType("select")
+                                                .setRequired(true))
+                                        .setExpiresInSeconds(600)))
+                        .build()).iterator());
+
+        String token = customerToken("fd" + System.nanoTime());
+        MvcResult result = mockMvc.perform(post("/api/agent/converse")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"message":"我要退款"}
+                                """))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        // AI 侧只下发空 options，Java 用售后原因字典补全，value 用中文展示名
+        String sse = mockMvc.perform(asyncDispatch(result))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(sse)
+                .contains("\"value\":\"商品质量问题\",\"label\":\"商品质量问题\"")
+                .contains("\"label\":\"不想要了\"");
+    }
+
+    @Test
+    void duplicateFormSubmissionIsRejectedWithoutCallingAgent() throws Exception {
+        when(agentGateway.configured()).thenReturn(true);
+        when(agentGateway.converse(anyLong(), anyString(), anyString(), any(), any(), anyString()))
+                .thenAnswer(invocation -> List.of(Event.newBuilder()
+                        .setFinal(FinalEvent.newBuilder().setAnswer("ok").setWebOnly(false)).build())
+                        .iterator());
+
+        String token = customerToken("fu" + System.nanoTime());
+        String formId = "dup-" + System.nanoTime();
+        String body = """
+                {"message":"已提交","formResult":{"formId":"%s","values":{"reason":"商品质量问题"}}}
+                """.formatted(formId);
+
+        MvcResult first = mockMvc.perform(post("/api/agent/converse")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+        mockMvc.perform(asyncDispatch(first))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("event:final")));
+
+        // 同一 form_id 再提交：Redis SETNX 失败，直接 SSE error，不再调 agent
+        MvcResult second = mockMvc.perform(post("/api/agent/converse")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+        mockMvc.perform(asyncDispatch(second))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("FORM_ALREADY_SUBMITTED")));
+
+        verify(agentGateway, times(1))
+                .converse(anyLong(), anyString(), anyString(), any(), any(), anyString());
+    }
+
+    @Test
+    void invalidRefundReasonIsRejectedWithoutCallingAgent() throws Exception {
+        when(agentGateway.configured()).thenReturn(true);
+        String token = customerToken("fv" + System.nanoTime());
+
+        MvcResult result = mockMvc.perform(post("/api/agent/converse")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"message":"已提交","formResult":{"formId":"bad-%s",
+                                 "values":{"reason":"我说了算"}}}
+                                """.formatted(System.nanoTime())))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        mockMvc.perform(asyncDispatch(result))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("FORM_INVALID")));
+
+        verify(agentGateway, never())
+                .converse(anyLong(), anyString(), anyString(), any(), any(), anyString());
     }
 
     @Test

@@ -39,8 +39,8 @@
 ## 1. 当前状态一句话
 
 **交易闭环、多商户、AI 客服、运营后台、平台政策、压测、售后、下单异步补账、Docker 部署均已完成（2026-11-06）。**
-后端自动化测试 **279 条**（M31 新增 9 条；此后知识缺口 4 条、本次会话内表单 1 条；
-此前售后 11 条、智能体评测 2 条、商品问答 1 条），
+后端自动化测试 **288 条**（M31 新增 9 条；此后知识缺口 4 条、会话内表单 1 条、
+表单协议评审增量 9 条；此前售后 11 条、智能体评测 2 条、商品问答 1 条），
 CI 跑 275 条（跳过 4 条依赖 MinIO 的用例）。数据库 schema 到 **v32**。
 
 - **交易**：商品 / SKU、购物车、按店拆单、支付、发货、收货、取消、超时关单、退款；
@@ -327,23 +327,45 @@ docker exec -i mysql sh -c 'mysql --default-character-set=utf8mb4 -utsuk1 -p"$MY
   `GetHistory` 的 forms 只读并提示「仅展示」；退款动作卡片显示退款原因。
 - **无数据库迁移**：历史 forms 只是 gRPC 透传，不落 Java 表。
 
+**评审增量（2026-11-07，评审稿 §9 三项）**：
+- **一次性消费**：转发 `formResult` 前 Redis `SETNX its-my-go:agent:form:{userId}:{formId}`，
+  TTL 固定 660 秒；失败直接 SSE `error`（`FORM_ALREADY_SUBMITTED`）、不调 agent。
+  `history` 的旧表单不消费。**Redis 故障降级放行**（记 WARN 后照常转发），
+  不带 TTL 之外的任何状态，符合「Redis key 必须带 TTL」的硬约束。
+- **退款原因选项由 Java 补全**：final 转发时对 `refund_reason` 且 `options` 为空的
+  `reason` 字段用 `AfterSaleService.reasons()` 填充（value/label 都用中文展示名）；
+  提交时按同一份字典校验，非法回 `FORM_INVALID`、不转发。
+- **address_edit**：新增内部工具 `POST /internal/agent/actions/address`
+  （票据鉴权），复用 `PUT /api/addresses/{id}` 的 service（越权 404），
+  返回 `summary.address = {id, receiver, address}`；`isDefault` 不传，保留原默认标记。
+  前端 `AgentFormCard.vue` 的 text 分支已通用，6 个字段直接可渲染/提交。
+- **未做**：`address_edit` 的「默认地址预填」——前端没有地址 store（只有
+  `api/address.ts` 的薄封装），按约定跳过，不额外引入取数副作用。
+
 **验证**：
-- `.\mvnw.cmd test` 全量 279 条：278 通过、1 条失败 ——
+- `.\mvnw.cmd test` 全量 **288 条：287 通过、1 条失败** ——
   `AdminUserControllerTest.cannotDisableLastActiveAdmin`，原因是测试库 `its_mygo_test`
   启动时已有 1 个活跃 ADMIN（日志「库中已有 1 个活跃管理员，跳过 bootstrap」），
   该用例假设库里没有其他活跃管理员，**与本次改动无关**；单独重跑同样失败，
   清理测试库多余管理员后可恢复。
+- 本次新增/更新的定向用例（21 条，全绿）：`AgentFormGuardTest`（SETNX 首次 /
+  已提交 / Redis 故障降级）、`AgentControllerTest`（final 选项补全、
+  重复提交 `FORM_ALREADY_SUBMITTED`、非法原因 `FORM_INVALID` 且不调 agent）、
+  `AgentToolControllerTest`（`/actions/address` 正常更新保留默认标记 / 越权 404 /
+  参数非法 400 / 无票据 401）。
 - `AgentEventMapperTest`（final.forms 映射）、`AgentControllerTest`（formResult 透传、
   老客户端 null、history.forms 映射）、`AgentActionControllerTest`（reason 落草稿 /
-  最新值覆盖 / 确认后写订单）覆盖新增链路；
-- 前端 `npm run build`（vue-tsc + vite）通过。
+  最新值覆盖 / 确认后写订单）继续通过；
+- 前端 `npm run build`（vue-tsc + vite）EXITCODE=0。
 
 **遗留**：
 - 与真实 rag_helper 8003 的表单联调未在本仓库内做（单测 mock gRPC）；依赖那边
-  `final.forms` / `form_result` 已上线。
+  `final.forms` / `form_result` 已上线（rag_helper `forms.py` 已按
+  `/internal/agent/actions/address` 与 `summary.address` 对接）。
 - 历史表单只读是前端约定（GetHistory 不带「是否已提交」状态），因此统一提示「仅展示」。
 - 表单 `meta` 前端不渲染；回传只带 `formId + values`，由 agent 侧按 `form_type + meta`
   拼工具参数。
+- `address_edit` 的默认地址预填未做（前端暂无地址 store），需要时再单独加。
 
 ---
 

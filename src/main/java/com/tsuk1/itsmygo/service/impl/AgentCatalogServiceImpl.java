@@ -2,8 +2,11 @@ package com.tsuk1.itsmygo.service.impl;
 
 import com.tsuk1.itsmygo.common.ResultCode;
 import com.tsuk1.itsmygo.common.exception.BizException;
+import com.tsuk1.itsmygo.dto.AddressRequest;
 import com.tsuk1.itsmygo.dto.CategoryNode;
 import com.tsuk1.itsmygo.dto.ProductReviewStat;
+import com.tsuk1.itsmygo.dto.agent.AgentActionView;
+import com.tsuk1.itsmygo.dto.agent.AgentAddressEditRequest;
 import com.tsuk1.itsmygo.dto.agent.AgentAddressView;
 import com.tsuk1.itsmygo.dto.agent.AgentProductSearchRequest;
 import com.tsuk1.itsmygo.dto.agent.AgentProductView;
@@ -24,7 +27,9 @@ import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDateTime;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -110,6 +115,32 @@ public class AgentCatalogServiceImpl implements AgentCatalogService {
                         fullAddress(address),
                         address.getIsDefault() != null && address.getIsDefault() == 1))
                 .toList();
+    }
+
+    @Override
+    public AgentActionView updateAddress(long userId, AgentAddressEditRequest request) {
+        // 复用 PUT /api/addresses/{id} 的更新逻辑：归属校验（越权按不存在返回 404）
+        // 与字段校验都在 AddressService 内完成；isDefault 传 null 表示保留原默认标记。
+        Address address = addressService.update(userId, request.addressId(),
+                new AddressRequest(request.receiver(), request.phone(), request.province(),
+                        request.city(), request.district(), request.detail(), null));
+
+        Map<String, Object> addressView = new LinkedHashMap<>();
+        addressView.put("id", address.getId());
+        addressView.put("receiver", nullToEmpty(address.getReceiver()));
+        addressView.put("address", fullAddress(address));
+
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("address", addressView);
+        summary.put("note", "收货地址已更新。");
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("addressId", address.getId());
+        result.put("note", "地址修改已保存。");
+
+        // 地址修改是即时生效的，没有待确认动作；actionNo 留空，summary.address 供 agent 读取
+        return new AgentActionView("", "ADDRESS_EDIT", "SUCCEEDED", summary, result, "",
+                null, LocalDateTime.now());
     }
 
     /** 批量回填评价 / 店铺 / 分类，避免按商品 N+1 */

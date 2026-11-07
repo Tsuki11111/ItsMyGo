@@ -7,6 +7,7 @@ import com.tsuk1.itsmygo.common.exception.BizException;
 import com.tsuk1.itsmygo.dto.CategoryNode;
 import com.tsuk1.itsmygo.dto.OrderView;
 import com.tsuk1.itsmygo.dto.agent.AgentActionView;
+import com.tsuk1.itsmygo.dto.agent.AgentAddressEditRequest;
 import com.tsuk1.itsmygo.dto.agent.AgentAddressView;
 import com.tsuk1.itsmygo.dto.agent.AgentOrderDraftRequest;
 import com.tsuk1.itsmygo.dto.agent.AgentOrderQueryRequest;
@@ -112,6 +113,15 @@ public class AgentToolController {
             @RequestHeader(value = "X-Agent-Ticket", required = false) String ticket) {
         AgentToolTicketService.Identity identity = requireIdentity(ticket);
         return Result.ok(catalogService.addresses(identity.userId()));
+    }
+
+    /** address_edit 表单提交后，agent 调这里更新当前用户的收货地址（即时生效，无待确认） */
+    @PostMapping("/actions/address")
+    public Result<AgentActionView> updateAddress(
+            @RequestHeader(value = "X-Agent-Ticket", required = false) String ticket,
+            @Valid @RequestBody AgentAddressEditRequest request) {
+        AgentToolTicketService.Identity identity = requireIdentity(ticket);
+        return Result.ok(catalogService.updateAddress(identity.userId(), request));
     }
 
     @PostMapping("/actions/order")

@@ -2007,6 +2007,36 @@ rag_helper 8001 侧已单独验证「列表 → 周报 → 草稿 → 状态 →
   `OrderService.applyRefund`（最终落订单 `refund_reason`）；老草稿无 reason 时回退
   「通过买小购申请退款」。
 
+**评审增量（2026-11-07，评审稿 §9）**：
+
+1. **一次性消费**（`common/agent/AgentFormGuard`）：转发 `formResult` 前先
+   `SETNX its-my-go:agent:form:{userId}:{formId}`，TTL 固定 **660 秒**
+   （gRPC 只回 `formId/values`，拿不到 `expiresInSeconds`；按 600+60 计且不超过 1 小时）。
+   只做一次原子 SETNX，不存在「先 EXISTS 再 SETNX」的窗口；返回值不是明确的 true
+   一律按已提交处理。SETNX 失败 → SSE `error`（`FORM_ALREADY_SUBMITTED`），
+   **不调 agent**。`AgentChatServiceImpl.stream` 里的顺序是「先校验、后消费」，
+   非法提交不会白白烧掉一次性表单。`GET /api/agent/history` 的旧表单不参与消费。
+   **Redis 故障降级**：捕获异常记 WARN 后放行（返回 true），不阻断对话；
+   降级窗口的重复提交由 agent 侧 `form_id` 校验与业务幂等兜底。
+2. **退款原因选项补全**：`AgentChatServiceImpl.fillRefundReasonOptions` 在 final 事件
+   映射前补全 —— `formType=refund_reason` 且 `reason` 字段 `options` 为空时，用
+   `AfterSaleService.reasons()`（启用中的售后原因）生成选项，`value`/`label` 都取中文
+   展示名（回传值最终写订单 `refund_reason`，不能是 `QUALITY` 这类内部编码）。
+   选项在 proto 层补，`AgentEventMapper` 保持纯映射。
+3. **提交校验**：`normalizeRefundReason` 对带 `reason` 字段的 formResult 按同一份字典
+   校验（去空白后必须命中展示名），非法 → SSE `FORM_INVALID`、不转发。
+   表单回传只有 `formId + values`，没有 `formType`，所以按「有 reason 就校验」处理。
+4. **address_edit**：`POST /internal/agent/actions/address`
+   （`AgentToolController`，票据鉴权同其它 `/internal/agent/**`），body
+   `{addressId, receiver, phone, province, city, district, detail}`，DTO
+   `AgentAddressEditRequest` 的约束与 `AddressRequest` 一致。实现落在
+   `AgentCatalogServiceImpl.updateAddress`，复用 `AddressService.update`
+   （归属校验、越权 404 都在那里），返回 `AgentActionView`，其中
+   `summary.address = {id, receiver, address}`（`address` 为省市区+详细地址）。
+   `AddressServiceImpl.apply` 改为「`isDefault` 为 null 时保留原标记」——
+   内部工具不传这个字段，不能顺带把用户的默认地址清掉。
+   **无数据库迁移**，前端 `AgentFormCard.vue` 的 text 分支通用渲染 6 个字段。
+
 **前端**：
 - `api/types.ts`：`AgentFormRequest / AgentFormField / AgentFormOption /
   AgentFormResult`，并给 `AgentHistoryMessage`、`AgentFinalEvent` 加 `forms`，
@@ -2020,7 +2050,11 @@ rag_helper 8001 侧已单独验证「列表 → 周报 → 草稿 → 状态 →
 - 退款动作卡片补「退款原因」一行（`AgentRefundSummary.refundReason`）。
 
 **验证**：`AgentEventMapperTest` 断言 final.forms 映射；`AgentControllerTest` 断言
-formResult 透传（含老客户端 null）与 history.forms 映射；`AgentActionControllerTest`
+formResult 透传（含老客户端 null）、history.forms 映射、final 选项补全、
+重复提交 `FORM_ALREADY_SUBMITTED`、非法原因 `FORM_INVALID`（且不调 agent）；
+`AgentFormGuardTest` 覆盖 SETNX 成功 / 已提交 / Redis 故障降级；
+`AgentToolControllerTest` 覆盖 `/actions/address` 正常更新（保留默认标记）/ 越权 404 /
+参数非法 400 / 无票据 401；`AgentActionControllerTest`
 断言 reason 落草稿、重复提交以最新为准、确认后写入订单 `refund_reason`。
 前端 `npm run build`（vue-tsc + vite）通过。
 

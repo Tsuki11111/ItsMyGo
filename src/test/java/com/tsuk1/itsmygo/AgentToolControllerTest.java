@@ -2,6 +2,7 @@ package com.tsuk1.itsmygo;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.tsuk1.itsmygo.common.agent.AgentToolTicketService;
+import com.tsuk1.itsmygo.dto.AddressRequest;
 import com.tsuk1.itsmygo.entity.Order;
 import com.tsuk1.itsmygo.entity.OrderItem;
 import com.tsuk1.itsmygo.entity.User;
@@ -16,6 +17,7 @@ import java.time.LocalDateTime;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -166,6 +168,105 @@ class AgentToolControllerTest extends ApiTestBase {
                         .header("X-Agent-Ticket", "not-a-real-ticket")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
+                .andExpect(jsonPath("$.code").value(401));
+    }
+
+    private long createAddress(String token) throws Exception {
+        String body = mockMvc.perform(post("/api/addresses")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new AddressRequest(
+                                "张三", "13800000000", "浙江省", "杭州市", "西湖区",
+                                "文三路 1 号", true))))
+                .andExpect(jsonPath("$.code").value(200))
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(body).path("data").path("id").asLong();
+    }
+
+    @Test
+    void addressEditUpdatesOwnedAddressAndKeepsDefaultFlag() throws Exception {
+        String username = "ad" + System.nanoTime();
+        String token = customerToken(username);
+        long uid = userId(username);
+        long addressId = createAddress(token);
+
+        mockMvc.perform(post("/internal/agent/actions/address")
+                        .header("X-Agent-Ticket", ticket(uid))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"addressId":%d,"receiver":"李四","phone":"13900000000",
+                                 "province":"浙江省","city":"杭州市","district":"西湖区",
+                                 "detail":"文三路 2 号"}
+                                """.formatted(addressId)))
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.summary.address.id").value(addressId))
+                .andExpect(jsonPath("$.data.summary.address.receiver").value("李四"))
+                .andExpect(jsonPath("$.data.summary.address.address")
+                        .value("浙江省杭州市西湖区文三路 2 号"));
+
+        // 内部工具不传 isDefault，不能把用户原来的默认地址标记清掉
+        mockMvc.perform(get("/api/addresses").header("Authorization", bearer(token)))
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data[0].receiver").value("李四"))
+                .andExpect(jsonPath("$.data[0].isDefault").value(1));
+    }
+
+    @Test
+    void addressEditRejectsAnotherUsersAddress() throws Exception {
+        String aName = "ada" + System.nanoTime();
+        String bName = "adb" + System.nanoTime();
+        String bToken = customerToken(bName);
+        customerToken(aName);
+        long aId = userId(aName);
+        long bAddressId = createAddress(bToken);
+
+        mockMvc.perform(post("/internal/agent/actions/address")
+                        .header("X-Agent-Ticket", ticket(aId))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"addressId":%d,"receiver":"李四","phone":"13900000000",
+                                 "province":"浙江省","city":"杭州市","district":"西湖区",
+                                 "detail":"文三路 2 号"}
+                                """.formatted(bAddressId)))
+                .andExpect(jsonPath("$.code").value(404));
+    }
+
+    @Test
+    void addressEditValidatesParamsAndTicket() throws Exception {
+        String username = "adv" + System.nanoTime();
+        customerToken(username);
+        long uid = userId(username);
+
+        // 手机号非法
+        mockMvc.perform(post("/internal/agent/actions/address")
+                        .header("X-Agent-Ticket", ticket(uid))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"addressId":1,"receiver":"李四","phone":"123",
+                                 "province":"浙江省","city":"杭州市","district":"西湖区",
+                                 "detail":"文三路 2 号"}
+                                """))
+                .andExpect(jsonPath("$.code").value(400));
+
+        // 缺地址 id
+        mockMvc.perform(post("/internal/agent/actions/address")
+                        .header("X-Agent-Ticket", ticket(uid))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"receiver":"李四","phone":"13900000000",
+                                 "province":"浙江省","city":"杭州市","district":"西湖区",
+                                 "detail":"文三路 2 号"}
+                                """))
+                .andExpect(jsonPath("$.code").value(400));
+
+        // 没有票据：参数合法也要 401（鉴权先于业务）
+        mockMvc.perform(post("/internal/agent/actions/address")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"addressId":1,"receiver":"李四","phone":"13900000000",
+                                 "province":"浙江省","city":"杭州市","district":"西湖区",
+                                 "detail":"文三路 2 号"}
+                                """))
                 .andExpect(jsonPath("$.code").value(401));
     }
 }
