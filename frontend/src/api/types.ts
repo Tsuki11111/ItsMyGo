@@ -776,7 +776,7 @@ export interface ShipAddressPayload {
 // ── 在线聊天 ──────────────────────────────────────────────────────
 
 export type ChatScope = 'CUSTOMER' | 'MERCHANT'
-export type ChatSenderType = ChatScope | 'AGENT'
+export type ChatSenderType = ChatScope | 'AGENT' | 'SYSTEM'
 export type ChatContentType = 'TEXT' | 'IMAGE' | 'PRODUCT' | 'ORDER'
 
 export interface ChatProductCard {

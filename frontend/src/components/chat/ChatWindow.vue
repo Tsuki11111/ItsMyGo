@@ -54,6 +54,7 @@ const peerId = computed(() => {
 
 function mine(message: ChatMessage): boolean {
   return message.senderType !== 'AGENT'
+    && message.senderType !== 'SYSTEM'
     && message.senderUserId === props.currentUserId
 }
 

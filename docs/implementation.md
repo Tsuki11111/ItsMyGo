@@ -2645,3 +2645,29 @@ MyBatis-Plus 的 `delete(null)` 生成的是 `DELETE FROM orders`。
 
 详见 [requirements.md](requirements.md) §7 的路线与里程碑（逐轮验收记录在
 [HANDOFF.md](../HANDOFF.md) §6）。
+
+### 3.39 支付成功通知商家发货（2026-11-07）
+
+**目标**：支付成功后商家能立刻知道「有新单要发」，而不是自己刷新订单列表。
+
+**链路**（复用现有聊天通道，不新增表 / 不新增 MQ）：
+
+1. `OrderServiceImpl.pay` 在状态机转 `PAID`、写支付流水后，注册
+   `TransactionSynchronization.afterCommit` 回调 —— 只有支付事务**真正提交**才通知；
+   回调里 try/catch 包住，通知失败只记 WARN，**绝不影响支付结果**。
+2. `ChatService.notifyOrderPaid(order)`：
+   - 店铺不存在/停用、非平台店又没绑定店主 → 记日志跳过（无法通知）；
+   - `insertIgnore` 顾客—店铺会话（`conversations` 唯一键保证幂等），取回会话；
+   - 用 `appendMessage` 插一条 `sender_type=SYSTEM` 的文本消息：
+     「订单 {orderNo} 已支付，请及时发货：{首件商品} 等 {n} 件，金额 ¥{amount}。」
+   - `appendMessage` 自带：更新会话最后一条、**商家未读 +1**（顾客未读不加）、
+     `afterCommit` 推 SSE（顾客与商家两侧都收到；顾客侧仅作确认）。
+3. 平台自营店（merchantId=1）无店主 → `merchantRecipients()` 返回全部启用中的 ADMIN，
+   管理员侧聊天红点/实时消息即可见。
+
+**前端**：`ChatSenderType` 增加 `SYSTEM`；`MessageBubble` 用居中胶囊样式渲染系统消息、
+不计入“我的消息”（`ChatWindow.mine` 排除 SYSTEM）。
+
+**测试**：`OrderPaidNotificationTest` —— 支付后会话存在、SYSTEM 消息含订单号与
+「请及时发货」、商家未读 +1、顾客未读为 0；重复支付被状态机拒绝且不会重复通知。
+mutation 2/2 抓住（不调通知 / 通知不发消息）。通知用真实 SSE 推送，断连处理见 §5.43。

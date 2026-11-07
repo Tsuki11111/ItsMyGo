@@ -16,6 +16,8 @@ public class ChatMessage {
     public static final String SENDER_MERCHANT = "MERCHANT";
     /** 买小购客服消息（催发货等）；sender_user_id 仍记发起顾客 */
     public static final String SENDER_AGENT = "AGENT";
+    /** 平台系统通知（如实付款后提醒商家发货）；sender_user_id 记订单归属顾客 */
+    public static final String SENDER_SYSTEM = "SYSTEM";
 
     public static final String TYPE_TEXT = "TEXT";
     public static final String TYPE_IMAGE = "IMAGE";

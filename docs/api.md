@@ -406,6 +406,9 @@ Authorization: Bearer <token>
 
 `id, conversationId, senderUserId, senderType, contentType, content, card, createdAt`
 
+- `senderType`：`CUSTOMER` / `MERCHANT`（双方自己发的）、`AGENT`（买小购替顾客发的通知）、
+  `SYSTEM`（平台系统通知，如「订单已支付，请及时发货」；前端按居中系统提示渲染，不参与「我的消息」）。
+
 - `TEXT`：`content` 是文本。
 - `IMAGE`：`content` 是图片 URL（必须是系统 `chat/` 前缀）。
 - `PRODUCT`：`card` 为商品快照。
@@ -612,6 +615,9 @@ Authorization: Bearer <token>
 - `status` 支持逗号分隔的多个枚举，如 `PAID,SHIPPED`。
 - `previewLimit=0` 返回全部明细。
 - 支付是模拟支付：直接改状态为 `PAID` 并写支付流水。
+- **支付成功会通知商家发货**：在「顾客—店铺」会话里插入一条 `SYSTEM` 消息
+  （商家未读 +1、SSE 实时推给商家；平台自营店推给管理员）。通知在支付事务提交后执行，
+  失败只记 WARN、**不影响支付结果**。
 - 取消会回滚库存；使用了未过期优惠券会自动退回。
 - 申请退款要求状态为 `PAID` / `SHIPPED` / `COMPLETED`，进入 `REFUNDING` 等审核。
 - `RefundRequest`：`{ "reason": "商品有瑕疵" }`，`reason` 最多 200 字；

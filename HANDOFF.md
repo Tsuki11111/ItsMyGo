@@ -1588,6 +1588,18 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 
 ## 6. 历史记录
 
+### 2026-11-07 · 支付成功通知商家发货
+
+**需求**：用户支付成功后商家应收到「请及时发货」提醒。
+
+**实现**：复用聊天通道，不新增表/MQ。`OrderServiceImpl.pay` 在支付事务 `afterCommit`
+调 `ChatService.notifyOrderPaid`：在顾客—店铺会话插一条 `SYSTEM` 消息（订单号/首件商品/
+件数/金额），商家未读 +1 并 SSE 实时推送；平台自营店推给管理员。通知失败只记 WARN，
+不影响支付。前端 `SYSTEM` 消息按居中系统提示渲染、不计入「我的消息」。
+
+**验证**：新增 `OrderPaidNotificationTest` 2 条（正常通知 + 重复支付不重复通知），
+mutation 2/2 抓住；见 docs/api.md §10/§2.10、docs/implementation.md §3.39。
+
 ### 2026-11-07 · 开发/演示联合启动入口收归 ItsMyGo
 
 **背景**：联合客服的启停逻辑原本只在 rag_helper 仓（`deploy.sh joint`），开发环境还要手动

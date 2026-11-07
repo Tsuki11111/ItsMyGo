@@ -200,6 +200,48 @@ public class ChatServiceImpl implements ChatService {
 
     @Override
     @Transactional
+    public void notifyOrderPaid(Order order) {
+        if (order == null || order.getUserId() == null || order.getMerchantId() == null) {
+            return;
+        }
+        Merchant merchant = merchantMapper.selectById(order.getMerchantId());
+        if (merchant == null || !Merchant.ACTIVE.equals(merchant.getStatus())) {
+            log.warn("订单 {} 支付成功，但店铺 {} 不存在/已停用，跳过商家发货通知",
+                    order.getOrderNo(), order.getMerchantId());
+            return;
+        }
+        if (merchant.getOwnerUserId() == null
+                && !Objects.equals(merchant.getId(), Merchant.PLATFORM_MERCHANT_ID)) {
+            log.warn("订单 {} 支付成功，但店铺 {} 未绑定商家账号，跳过发货通知",
+                    order.getOrderNo(), merchant.getId());
+            return;
+        }
+        conversationMapper.insertIgnore(order.getUserId(), order.getMerchantId());
+        Conversation conversation = conversationMapper.selectOne(Wrappers.<Conversation>lambdaQuery()
+                .eq(Conversation::getCustomerUserId, order.getUserId())
+                .eq(Conversation::getMerchantId, order.getMerchantId()));
+        if (conversation == null) {
+            log.warn("订单 {} 支付成功，但会话创建失败，跳过商家发货通知", order.getOrderNo());
+            return;
+        }
+        List<OrderItem> items = orderItemMapper.selectList(Wrappers.<OrderItem>lambdaQuery()
+                .eq(OrderItem::getOrderId, order.getId()));
+        String firstItem = items.isEmpty() ? "商品"
+                : (StringUtils.hasText(items.get(0).getProductName())
+                        ? items.get(0).getProductName() : "商品");
+        String content = String.format("订单 %s 已支付，请及时发货：%s 等 %d 件，金额 ¥%s。",
+                order.getOrderNo(), firstItem, items.size(), order.getTotalAmount());
+        if (content.length() > MAX_TEXT_LENGTH) {
+            content = content.substring(0, MAX_TEXT_LENGTH);
+        }
+        // sender_type=SYSTEM：商家未读 +1；SSE 同时推给顾客与商家（顾客侧仅作确认，不加未读）
+        appendMessage(conversation, order.getUserId(), ChatMessage.SENDER_SYSTEM,
+                ChatMessage.TYPE_TEXT, content, null);
+        log.info("已通知商家发货：订单 {}，店铺 {}", order.getOrderNo(), order.getMerchantId());
+    }
+
+    @Override
+    @Transactional
     public long customerRead(CurrentUser user, Long conversationId, Long lastMessageId) {
         requireNotAdmin(user);
         Conversation conversation = requireCustomerConversation(conversationId, user.id());

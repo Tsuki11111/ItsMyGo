@@ -22,6 +22,7 @@ const orderCard = computed(() =>
     : null,
 )
 const isAgent = computed(() => props.message.senderType === 'AGENT')
+const isSystem = computed(() => props.message.senderType === 'SYSTEM')
 
 function formatTime(value: string): string {
   const date = new Date(value)
@@ -36,7 +37,11 @@ function formatTime(value: string): string {
 </script>
 
 <template>
-  <div class="message-row" :class="{ mine, agent: isAgent }">
+  <div v-if="isSystem" class="system-row">
+    <span class="system-text">{{ message.content }}</span>
+    <span class="system-time">{{ formatTime(message.createdAt) }}</span>
+  </div>
+  <div v-else class="message-row" :class="{ mine, agent: isAgent }">
     <span v-if="isAgent" class="agent-label">买小购 · 平台客服</span>
     <div class="bubble" :class="{ 'card-bubble': message.contentType !== 'TEXT' }">
       <p v-if="message.contentType === 'TEXT'" class="text">{{ message.content }}</p>
@@ -92,6 +97,30 @@ function formatTime(value: string): string {
 </template>
 
 <style scoped>
+.system-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: 12px;
+}
+
+.system-text {
+  max-width: 88%;
+  padding: 4px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--c-text-2);
+  background: var(--c-pink-tint);
+  border-radius: 999px;
+  text-align: center;
+}
+
+.system-time {
+  font-size: 10px;
+  color: var(--c-text-3);
+}
+
 .message-row {
   display: flex;
   flex-direction: column;

@@ -34,6 +34,7 @@ import com.tsuk1.itsmygo.mapper.ProductMapper;
 import com.tsuk1.itsmygo.mapper.ProductSkuMapper;
 import com.tsuk1.itsmygo.mapper.ReviewMapper;
 import com.tsuk1.itsmygo.mapper.UserCouponMapper;
+import com.tsuk1.itsmygo.service.ChatService;
 import com.tsuk1.itsmygo.service.OrderService;
 import com.tsuk1.itsmygo.service.OrderSettlementService;
 import com.tsuk1.itsmygo.service.ShipmentService;
@@ -95,6 +96,7 @@ public class OrderServiceImpl implements OrderService {
     private final OrderCreateProperties orderCreateProperties;
     private final OrderCreatedMqPublisher orderCreatedMqPublisher;
     private final OrderSettlementService orderSettlementService;
+    private final ChatService chatService;
 
     public OrderServiceImpl(OrderMapper orderMapper, OrderItemMapper orderItemMapper,
                             CartItemMapper cartItemMapper, ProductMapper productMapper,
@@ -106,7 +108,8 @@ public class OrderServiceImpl implements OrderService {
                             OrderTimeoutPublisher orderTimeoutPublisher,
                             OrderCreateProperties orderCreateProperties,
                             OrderCreatedMqPublisher orderCreatedMqPublisher,
-                            OrderSettlementService orderSettlementService) {
+                            OrderSettlementService orderSettlementService,
+                            ChatService chatService) {
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
         this.cartItemMapper = cartItemMapper;
@@ -124,6 +127,7 @@ public class OrderServiceImpl implements OrderService {
         this.orderCreateProperties = orderCreateProperties;
         this.orderCreatedMqPublisher = orderCreatedMqPublisher;
         this.orderSettlementService = orderSettlementService;
+        this.chatService = chatService;
     }
 
     /**
@@ -555,7 +559,32 @@ public class OrderServiceImpl implements OrderService {
         payment.setPaidAt(order.getPaidAt());
         paymentMapper.insert(payment);
 
+        // 支付成功后通知商家发货：事务提交后再发（失败不能影响支付结果）
+        notifyMerchantAfterPaid(order);
+
         return view(order);
+    }
+
+    /** 提交后通知商家（SESSION 内插一条 SYSTEM 消息并推 SSE）；不抛异常、不拖慢支付 */
+    private void notifyMerchantAfterPaid(Order order) {
+        Runnable action = () -> {
+            try {
+                chatService.notifyOrderPaid(order);
+            } catch (Exception e) {
+                log.warn("订单 {} 支付成功但通知商家失败（不影响支付）：{}",
+                        order.getOrderNo(), e.getMessage(), e);
+            }
+        };
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    action.run();
+                }
+            });
+        } else {
+            action.run();
+        }
     }
 
     // ── 售后：退款 ──

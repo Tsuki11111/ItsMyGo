@@ -23,6 +23,7 @@ import com.tsuk1.itsmygo.mapper.PaymentMapper;
 import com.tsuk1.itsmygo.mapper.ProductMapper;
 import com.tsuk1.itsmygo.mapper.ReviewMapper;
 import com.tsuk1.itsmygo.mapper.UserCouponMapper;
+import com.tsuk1.itsmygo.service.ChatService;
 import com.tsuk1.itsmygo.service.OrderService;
 import com.tsuk1.itsmygo.service.OrderSettlementService;
 import com.tsuk1.itsmygo.service.ShipmentService;
@@ -618,7 +619,8 @@ class OrderControllerTest extends ApiTestBase {
                 Mockito.mock(ShipmentService.class), Mockito.mock(OrderTimeoutPublisher.class),
                 new OrderCreateProperties(false, false, 120, 60_000L, 240, 3),
                 Mockito.mock(OrderCreatedMqPublisher.class),
-                Mockito.mock(OrderSettlementService.class));
+                Mockito.mock(OrderSettlementService.class),
+                Mockito.mock(ChatService.class));
 
         PageResponse<OrderView> result = service.pageForCustomer(
                 currentUserId(token), 1, 10, 3);

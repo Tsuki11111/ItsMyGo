@@ -7,6 +7,7 @@ import com.tsuk1.itsmygo.dto.ConversationView;
 import com.tsuk1.itsmygo.dto.PageResponse;
 import com.tsuk1.itsmygo.dto.SendChatMessageRequest;
 import com.tsuk1.itsmygo.dto.StartConversationRequest;
+import com.tsuk1.itsmygo.entity.Order;
 import com.tsuk1.itsmygo.security.CurrentUser;
 
 public interface ChatService {
@@ -27,6 +28,13 @@ public interface ChatService {
      * senderType=AGENT，店铺侧未读 +1；不走浏览器发送接口，但同样推 SSE。
      */
     ChatMessageView sendAgentText(long customerUserId, long merchantId, String text);
+
+    /**
+     * 支付成功内部调用：在「顾客—店铺」会话里插一条 SYSTEM 消息提醒商家及时发货
+     * （商家未读 +1、SSE 实时推送；平台自营店推给管理员）。
+     * 店铺停用/无店主等无法通知的情况只记日志，不抛异常。
+     */
+    void notifyOrderPaid(Order order);
 
     /** @return 标记已读后，该身份在全平台的未读总数（用于更新角标） */
     long customerRead(CurrentUser user, Long conversationId, Long lastMessageId);
