@@ -88,44 +88,59 @@ Spring Boot 单体 + Vue 3 前后端分离，经 **gRPC 接入 RAG 客服智能�
 `rag_helper/docs/architecture.md` §4，对接前提见 `rag_helper/docs/requirements.md` §4
 （rag_helper 2026-11-05 文档归并后，原 `evolution-plan.md` §5/§6 已迁到这两个位置，旧文件已删除）。
 
-## 环境分层（先看这个）
+## 三种环境（先看这个）
 
-| 环境 | 怎么起 | 数据 | 入口 |
-|---|---|---|---|
-| **开发环境** | `dev-infra/`（只起中间件）+ 本机 `mvnw` / `vite` / rag_helper venv | 共享 MySQL `its_mygo`、`rag_helper-*` 卷 | 前端 `5173`、后端 `8080` |
-| **演示环境**（本地全栈） | `./deploy.sh` / `npm run deploy`（根 `docker-compose.yml`） | `its-my-go-*` 独立卷 | `http://localhost:8088` |
-| **生产环境**（内网 VM） | VM 离线包：同款根 compose + `docker-compose.offline.yml` + 预构建镜像；一键 `~/itsmygo-offline/start.sh`（=`install.sh`，幂等） | VM 上的 `its-my-go-*` 卷 | `http://10.184.171.106:8088` |
+> ⚠️ 三个环境**只能同时启动一个**，切换前先停当前环境（原因与停止方式见
+> [HANDOFF.md](HANDOFF.md) §4.0.0）。
 
-三者数据与端口互相隔离，**不能同时起**（开发与演示抢 3306/6379/9000/5672）。
-根 `docker-compose.yml` 是演示与生产共用的编排，日常开发请用 `dev-infra/`。
+| 环境 | 一键启动 | 一键停止 | 入口 | 数据 |
+|---|---|---|---|---|
+| **开发**（本机进程 + 中间件） | `npm run dev:joint` | `npm run dev:joint:stop` | 前端 `5173` / 后端 `8080` / rag_helper `8001-8003` | 共享 MySQL `its_mygo`、`rag_helper-*` 卷 |
+| **演示**（本地 Docker 全栈） | `./deploy.sh joint`（= `npm run deploy:joint`；不含客服用 `./deploy.sh`） | `./deploy.sh joint-down`（或 `./deploy.sh down`） | `http://localhost:8088` | 独立的 `its-my-go-*` 卷 |
+| **生产**（内网 VM 离线包） | VM 上 `~/itsmygo-offline/start.sh` | VM 上 `~/itsmygo-offline/stop.sh` | `http://10.184.171.106:8088` | VM 上的 `its-my-go-*` 卷 |
 
-## 快速启动（Docker · 演示环境）
+### 开发环境（本机进程，热更新）
 
-前置：Docker Desktop。
-
-```bash
-./deploy.sh          # macOS / Linux / Git Bash
-./deploy.ps1         # Windows PowerShell
-npm run deploy       # 任意平台（需要 Node ≥18；只是转发到上面两个脚本）
-```
-
-打开 `http://localhost:8088`。首次会自动生成 `.env`、管理员密码，并导入 44 个演示商品。
-停止用 `./deploy.sh down`（或 `npm run deploy -- down`）；想跳过演示数据用
-`./deploy.sh up --no-seed`（或 `npm run deploy -- up --no-seed`）。
-npm 入口的完整命令见 [docs/deployment.md](docs/deployment.md#命令)。
-
-联合客服智能体（两个仓库都可在本机任意位置，用 `.rag-helper-dir` 或 `RAG_HELPER_DIR` 指定）：
+前置：Docker Desktop、`JAVA_HOME`、rag_helper 的 `.venv`；rag_helper 路径用
+`.rag-helper-dir` 文件或 `RAG_HELPER_DIR` 环境变量指定（默认 `../rag_helper`）。
 
 ```bash
-./deploy.sh joint          # 演示环境联合启动（ItsMyGo + rag_helper）
-npm run deploy:joint       # 同上的 npm 入口
+npm run dev:joint            # 一键：dev-infra 中间件 + ItsMyGo 前后端 + rag_helper 三个 venv 进程
+npm run dev:joint:status     # 查看进程与健康状态
+npm run dev:joint:stop       # 停止应用进程（中间件保留）
+# 连中间件一起停：
+cd dev-infra && docker compose --env-file .env down
 ```
-Windows 用 `.\deploy.ps1 joint`。停止两套：`./deploy.sh joint-down`。
-开发环境（本机进程）联合启动用 `npm run dev:joint`（见「本地开发」）。
 
-> 联合入口已收归本仓库；`rag_helper/deploy.sh joint` 现在只是转发到这里。
+只起中间件用 `cd dev-infra && docker compose --env-file .env up -d`；
+手动分进程方式见下文「本地开发」。
 
-端口、环境变量、手工 Compose、镜像源等问题见 [docs/deployment.md](docs/deployment.md)。
+### 演示环境（本机 Docker 全栈，8088）
+
+```bash
+./deploy.sh joint            # 一键：ItsMyGo + rag_helper 联合栈（Windows: .\deploy.ps1 joint）
+npm run deploy:joint         # 同上，npm 入口
+./deploy.sh                  # 只起 ItsMyGo（不含客服）
+
+./deploy.sh joint-down       # 停止两套（保留数据卷）
+```
+
+首次会自动生成 `.env`、管理员密码并导入 44 个演示商品；想跳过演示数据用
+`./deploy.sh up --no-seed`。`rag_helper` 仓的 `deploy.sh joint` 现在只转发到这里。
+
+### 生产环境（内网 VM 离线包）
+
+```bash
+cd ~/itsmygo-offline
+./start.sh                   # 一键启动（= install.sh，幂等：导入离线镜像 → 起两套栈 → 等 health → 库空时恢复数据）
+./status.sh                  # 查看容器
+./stop.sh                    # 停止两套（保留数据卷），清理构建缓存/悬空镜像
+```
+
+> `start.sh` 只负责启动/恢复，**不负责换镜像**；发版流程（`docker save` → scp →
+> `docker load` → compose up）见 [docs/deployment.md](docs/deployment.md)。
+
+端口、环境变量、手工 Compose、镜像源、生产 VM 缺口等细节见 [docs/deployment.md](docs/deployment.md)。
 
 ## 进度
 
