@@ -86,6 +86,7 @@ const chatWindowRef = ref<InstanceType<typeof ChatWindow> | null>(null)
 
 let lastReadSent = 0
 let reading = false
+let loadingSeq = 0
 let unsubscribe: (() => void) | null = null
 
 const routeId = computed(() => {
@@ -166,14 +167,24 @@ function backToList() {
 
 async function openConversation(id: number) {
   if (activeId.value === id && active.value) return
+  const seq = ++loadingSeq
   loadingMessages.value = true
+  if (activeId.value !== id) {
+    // 切换到另一会话时先清空旧内容，让窗口显示骨架而不是上一段对话
+    activeId.value = id
+    active.value = null
+    messages.value = []
+    hasMore.value = false
+    peerLastReadMessageId.value = null
+    lastReadSent = 0
+  }
   try {
     const [detail, page] = await Promise.all([
       api.detail(id),
       api.messages(id, { size: PAGE_SIZE }),
     ])
     // 用户可能已快速切到别的会话，旧请求的结果直接丢弃
-    if (routeId.value !== id) return
+    if (seq !== loadingSeq || routeId.value !== id) return
     activeId.value = id
     active.value = detail
     messages.value = page.records
@@ -192,12 +203,14 @@ async function openConversation(id: number) {
     await markReadNow()
     await chatWindowRef.value?.scrollToBottom()
   } catch {
-    if (routeId.value === id) {
+    if (seq === loadingSeq && routeId.value === id) {
       ElMessage.error('会话不存在或无权访问')
       await router.replace(basePath)
     }
   } finally {
-    loadingMessages.value = false
+    if (seq === loadingSeq) {
+      loadingMessages.value = false
+    }
   }
 }
 
@@ -342,7 +355,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="chat-center" :class="{ 'has-active': activeId !== null || agentActive }">
+  <div class="chat-center" :class="{ 'has-active': activeId !== null || agentActive || loadingMessages }">
     <ConversationList
       :items="conversations"
       :active-id="activeId"

@@ -1610,6 +1610,22 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 
 ## 6. 历史记录
 
+### 2026-11-08 · 消息中心加载骨架与淡入过渡
+
+**需求**：消息界面打开/切换会话时只有空白或转圈，观感差，需要加载过渡画面。
+
+**实现**：
+- `ConversationList.vue`：首次加载渲染 5 行 shimmer 骨架；加载更多才用列表 loading 遮罩；
+  会话项淡入；
+- `ChatWindow.vue`：会话未返回时显示窗口头/气泡/输入区骨架；消息气泡用
+  `TransitionGroup` 淡入；`prefers-reduced-motion` 下关闭动画；
+- `ChatCenter.vue`：切换会话先清空旧内容，`loadingSeq` 丢弃过期响应，窄屏加载态计入
+  `has-active`，深链打开直接显示窗口骨架。
+
+**验证**：`npm run type-check`、`npm run build` 通过；用 CDP 暂停 `/api/*chat*` 请求截取
+首次加载骨架（`.skeleton-row=5`、`.skeleton-bubble=5`），放行后会话 8 条、消息正常渲染、
+无骨架残留、无控制台错误。
+
 ### 2026-11-08 · 确认不做 RBAC P2.1 与商户运营二期
 
 **决定（用户明确）**：

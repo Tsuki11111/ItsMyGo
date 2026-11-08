@@ -99,27 +99,47 @@ defineExpose({ scrollToBottom })
         </RouterLink>
       </header>
 
-      <div ref="scrollEl" v-loading="loading" class="messages">
-        <div v-if="hasMore" class="older">
-          <el-button link type="primary" size="small" @click="emit('loadOlder')">
-            加载更早消息
-          </el-button>
-        </div>
+      <div ref="scrollEl" class="messages" :aria-busy="loading">
+        <!-- 切换/首次进入会话时用消息骨架占位，避免右侧整块空白 -->
+        <template v-if="loading && messages.length === 0">
+          <div class="skeleton-day shimmer" />
+          <div
+            v-for="n in 5"
+            :key="n"
+            class="skeleton-bubble-row"
+            :class="n % 2 ? 'left' : 'right'"
+          >
+            <span
+              class="skeleton-bubble shimmer"
+              :style="{ width: `${n % 2 ? 44 : 34 + (n % 3) * 8}%` }"
+            />
+          </div>
+        </template>
 
-        <el-empty
-          v-if="!loading && messages.length === 0"
-          description="还没有消息，打个招呼吧"
-          :image-size="80"
-        />
+        <template v-else>
+          <div v-if="hasMore" class="older">
+            <el-button link type="primary" size="small" @click="emit('loadOlder')">
+              加载更早消息
+            </el-button>
+          </div>
 
-        <MessageBubble
-          v-for="message in messages"
-          :key="message.id"
-          :message="message"
-          :mine="mine(message)"
-          :read="read(message)"
-          :mode="mode"
-        />
+          <el-empty
+            v-if="messages.length === 0"
+            description="还没有消息，打个招呼吧"
+            :image-size="80"
+          />
+
+          <TransitionGroup name="bubble" tag="div" class="bubble-list">
+            <MessageBubble
+              v-for="message in messages"
+              :key="message.id"
+              :message="message"
+              :mine="mine(message)"
+              :read="read(message)"
+              :mode="mode"
+            />
+          </TransitionGroup>
+        </template>
       </div>
 
       <ChatComposer
@@ -128,6 +148,37 @@ defineExpose({ scrollToBottom })
         :mode="mode"
         @send="emit('send', $event)"
       />
+    </template>
+
+    <!-- 深链/首次打开会话时先渲染窗口骨架，再淡入真实内容 -->
+    <template v-else-if="loading">
+      <header class="window-head">
+        <button type="button" class="back-btn" title="返回会话列表" @click="emit('back')">
+          <el-icon><ArrowLeft /></el-icon>
+        </button>
+        <span class="avatar skeleton-avatar shimmer" />
+        <div class="who">
+          <span class="skeleton-line shimmer skeleton-name" />
+          <span class="skeleton-line shimmer skeleton-status" />
+        </div>
+      </header>
+      <div class="messages skeleton-messages" aria-hidden="true">
+        <div class="skeleton-day shimmer" />
+        <div
+          v-for="n in 5"
+          :key="n"
+          class="skeleton-bubble-row"
+          :class="n % 2 ? 'left' : 'right'"
+        >
+          <span
+            class="skeleton-bubble shimmer"
+            :style="{ width: `${n % 2 ? 44 : 34 + (n % 3) * 8}%` }"
+          />
+        </div>
+      </div>
+      <div class="composer-skeleton" aria-hidden="true">
+        <span class="skeleton-line shimmer" />
+      </div>
     </template>
 
     <el-empty v-else description="选择一个会话开始聊天" class="blank" />
@@ -217,6 +268,111 @@ defineExpose({ scrollToBottom })
   min-height: 0;
   overflow-y: auto;
   padding: 14px;
+}
+
+.bubble-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.bubble-enter-active {
+  transition: opacity 0.22s ease, transform 0.22s ease;
+}
+
+.bubble-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+.bubble-leave-active {
+  display: none;
+}
+
+.skeleton-day {
+  width: 64px;
+  height: 8px;
+  margin: 2px auto 16px;
+  border-radius: 4px;
+}
+
+.skeleton-bubble-row {
+  display: flex;
+  margin-bottom: 14px;
+}
+
+.skeleton-bubble-row.right {
+  justify-content: flex-end;
+}
+
+.skeleton-bubble {
+  height: 38px;
+  border-radius: 12px;
+}
+
+.skeleton-messages {
+  padding-top: 20px;
+}
+
+.skeleton-avatar {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  border-radius: 9px;
+}
+
+.skeleton-line {
+  display: block;
+  height: 10px;
+  border-radius: 5px;
+}
+
+.skeleton-name {
+  width: 120px;
+  height: 12px;
+  margin-bottom: 7px;
+}
+
+.skeleton-status {
+  width: 60px;
+  height: 8px;
+}
+
+.composer-skeleton {
+  flex: none;
+  height: 74px;
+  padding: 14px;
+  background: #fff;
+  border-top: 1px solid var(--c-border);
+}
+
+.composer-skeleton .skeleton-line {
+  width: 72%;
+  height: 34px;
+  margin: 5px auto;
+  border-radius: 10px;
+}
+
+.shimmer {
+  background: linear-gradient(90deg, #f2f2f4 25%, #e9e9ee 37%, #f2f2f4 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.2s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer,
+  .bubble-enter-active {
+    animation: none;
+    transition: none;
+  }
 }
 
 .older {

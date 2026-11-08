@@ -50,7 +50,7 @@ function formatTime(value: string | null): string {
       <span v-if="total > 0" class="count">{{ total }} 个会话</span>
     </div>
 
-    <div v-loading="loading" class="list-body">
+    <div v-loading="loading && items.length > 0" class="list-body" :aria-busy="loading">
       <!-- 永久置顶：客服智能体占位入口，所有用户都能看到 -->
       <button
         type="button"
@@ -71,6 +71,17 @@ function formatTime(value: string | null): string {
           </span>
         </span>
       </button>
+
+      <!-- 首次加载用骨架屏占位，避免只剩一个转圈图标和空白列表 -->
+      <div v-if="loading && items.length === 0" class="skeleton-list" aria-hidden="true">
+        <div v-for="n in 5" :key="n" class="skeleton-row">
+          <span class="skeleton-avatar shimmer" />
+          <span class="skeleton-main">
+            <span class="skeleton-line shimmer" :style="{ width: `${52 + (n % 3) * 12}%` }" />
+            <span class="skeleton-line shimmer short" />
+          </span>
+        </div>
+      </div>
 
       <el-empty
         v-if="!loading && items.length === 0"
@@ -162,6 +173,77 @@ function formatTime(value: string | null): string {
   border-radius: 10px;
   cursor: pointer;
   transition: background 0.14s;
+  animation: rise-in 0.2s ease both;
+}
+
+.skeleton-list {
+  padding-top: 2px;
+}
+
+.skeleton-row {
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+}
+
+.skeleton-avatar {
+  width: 42px;
+  height: 42px;
+  flex: none;
+  border-radius: 10px;
+}
+
+.skeleton-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+}
+
+.skeleton-line {
+  display: block;
+  height: 10px;
+  border-radius: 5px;
+}
+
+.skeleton-line.short {
+  width: 72%;
+  height: 8px;
+}
+
+.shimmer {
+  background: linear-gradient(90deg, #f2f2f4 25%, #e9e9ee 37%, #f2f2f4 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.2s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conversation,
+  .shimmer {
+    animation: none;
+  }
 }
 
 .conversation:hover {

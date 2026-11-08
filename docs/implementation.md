@@ -2418,6 +2418,18 @@ frontend/
 **已读回执**：自己的气泡下方显示「已读 / 未读」，由 `peerLastReadMessageId` 与 SSE
 `read` 事件驱动。
 
+**加载过渡（2026-11-08）**：消息中心不再用整块 `v-loading` 转圈：
+
+- `ConversationList.vue` 首次拉会话时渲染 5 行带 shimmer 的骨架（头像 + 两行文字），
+  有数据后骨架消失、会话项淡入；只有「加载更多」时才在列表上保留 loading 遮罩；
+- `ChatWindow.vue` 在 `conversation` 为空且 `loading=true` 时渲染「窗口头 + 消息气泡 +
+  输入区」骨架；切换会话时 `ChatCenter.openConversation()` 先清空旧 `active/messages`
+  再显示骨架，避免右侧空白或闪现上一段对话；
+- 消息列表用 `TransitionGroup` 做气泡淡入（`prefers-reduced-motion: reduce` 时关闭动画）；
+- `openConversation()` 用递增 `loadingSeq` 丢弃快速切换会话时的过期响应，避免旧请求
+  把新会话的 loading 提前关掉；`ChatCenter` 的窄屏 `has-active` 也把加载态计入，
+  深链打开时直接显示窗口骨架而不是先闪一下会话列表。
+
 **入口**：
 
 - 商品详情店铺卡片「联系卖家」（带 productId，新会话自动发商品卡）
