@@ -1,4 +1,4 @@
-﻿# 一次买够（ItsMyGo）
+# 一次买够（ItsMyGo）
 
 [![Tests](https://github.com/Tsuki11111/ItsMyGo/actions/workflows/test.yml/badge.svg)](https://github.com/Tsuki11111/ItsMyGo/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -88,10 +88,10 @@ Spring Boot 单体 + Vue 3 前后端分离，经 **gRPC 接入 RAG 客服智能�
 `rag_helper/docs/architecture.md` §4，对接前提见 `rag_helper/docs/requirements.md` §4
 （rag_helper 2026-11-05 文档归并后，原 `evolution-plan.md` §5/§6 已迁到这两个位置，旧文件已删除）。
 
-## 三种环境（先看这个）
+## 部署方式（三选一）
 
-> ⚠️ 三个环境**只能同时启动一个**，切换前先停当前环境（原因与停止方式见
-> [HANDOFF.md](HANDOFF.md) §4.0.0）。
+> 三种环境**只能同时启动一个**，切换前先停当前环境（原因与停止方式见
+> [HANDOFF.md](HANDOFF.md) §4.0.0）。开发环境的完整操作也收在本节，不再单列「本地开发」。
 
 | 环境 | 一键启动 | 一键停止 | 入口 | 数据 |
 |---|---|---|---|---|
@@ -104,16 +104,49 @@ Spring Boot 单体 + Vue 3 前后端分离，经 **gRPC 接入 RAG 客服智能�
 前置：Docker Desktop、`JAVA_HOME`、rag_helper 的 `.venv`；rag_helper 路径用
 `.rag-helper-dir` 文件或 `RAG_HELPER_DIR` 环境变量指定（默认 `../rag_helper`）。
 
+本地基础设施（ItsMyGo + rag_helper 共用）统一收在仓库内的 **`dev-infra/`** 目录
+（一个 compose 项目，Docker Desktop 只显示一个 `dev-infra` 分组）：
+
 ```bash
-npm run dev:joint            # 一键：dev-infra 中间件 + ItsMyGo 前后端 + rag_helper 三个 venv 进程
-npm run dev:joint:status     # 查看进程与健康状态
-npm run dev:joint:stop       # 停止应用进程（中间件保留）
-# 连中间件一起停：
-cd dev-infra && docker compose --env-file .env down
+cd dev-infra
+docker compose --env-file .env up -d      # mysql/redis/minio/mongo/milvus/neo4j/rabbitmq/...
+docker compose --env-file .env ps        # 查看状态
+docker compose --env-file .env down      # 停止（external 数据卷不会删）
 ```
 
-只起中间件用 `cd dev-infra && docker compose --env-file .env up -d`；
-手动分进程方式见下文「本地开发」。
+> 不要在 ItsMyGo 仓库根跑全量 `docker compose up`：那会再起一套
+> `its-my-go-mysql` / `its-my-go-redis` / `its-my-go-minio`（独立数据卷、抢同样端口），
+> 造成“两套数据”的错觉（2026-11-07 踩过，见 HANDOFF §5.41/§5.42）。
+> 全量 `./deploy.sh` 只在“不用本机开发库”的全栈演示场景使用。
+
+启动应用（二选一）：
+
+```bash
+# 方式 A：一键拉起开发环境（中间件 + ItsMyGo 前后端 + rag_helper 三进程）
+npm run dev:joint            # 首次按提示配置 .rag-helper-dir / RAG_HELPER_DIR
+npm run dev:joint:status     # 查看状态
+npm run dev:joint:stop       # 停止应用进程（中间件保留）
+
+# 方式 B：手动分进程
+./mvnw spring-boot:run
+cd frontend && npm run dev     # 另开终端
+```
+
+也可以在**仓库根**用 npm 转发（零依赖，脚本会自动选平台对应的命令）：
+
+```bash
+npm run dev:api                # = ./mvnw spring-boot:run（Windows 自动用 mvnw.cmd）
+npm run dev                    # 另开终端，= cd frontend && npm run dev
+npm run dev:joint              # 开发环境联合启动（dev-infra + 前后端 + rag_helper venv）
+npm run dev:joint:stop         # 停止应用进程
+npm run build                  # 前端生产构建 + 后端 jar（跳过测试）
+npm run type-check             # 前端 vue-tsc
+npm test                       # = ./mvnw test（后端全量）
+```
+
+打开 `http://localhost:5173`；本地开发库演示账号 `testuser` / `123456`（仅 DEV seed，生产不创建）。
+中间件、RabbitMQ、客服智能体、管理员开通等完整清单见 [start.txt](start.txt)；
+根目录 npm 脚本只是转发，真正的命令仍在 `mvnw` / `frontend/package.json` / `deploy.sh`。
 
 ### 演示环境（本机 Docker 全栈，8088）
 
@@ -200,52 +233,6 @@ cd ~/itsmygo-offline
 - **压测基线**（2026-11-02）：读接口 2600–3500 QPS、分类 / 令牌 7000+ QPS、
   10 并发抢 5 件库存恰好 5 单、同一订单 5 并发支付只产生 1 条支付记录。
 - 完整里程碑与验收记录见 [HANDOFF.md](HANDOFF.md) §6。
-
-## 本地开发
-
-本地基础设施（ItsMyGo + rag_helper 共用）统一收在仓库内的 **`dev-infra/`** 目录
-（一个 compose 项目，Docker Desktop 只显示一个 `dev-infra` 分组）；容器名、端口、数据卷与以前一致：
-
-```bash
-cd dev-infra
-docker compose --env-file .env up -d      # mysql/redis/minio/mongo/milvus/neo4j/rabbitmq/...
-docker compose --env-file .env ps        # 查看状态
-docker compose --env-file .env down      # 停止（external 数据卷不会删）
-```
-
-> 不要在 ItsMyGo 仓库里跑全量 `docker compose up`：那会再起一套
-> `its-my-go-mysql` / `its-my-go-redis` / `its-my-go-minio`（独立数据卷、抢同样端口），
-> 造成“两套数据”的错觉（2026-11-07 踩过，见 HANDOFF §5.41/§5.42）。
-> 全量 `./deploy.sh` 只在“不用本机开发库”的全栈演示场景使用。
-
-然后起应用（两种方式任选）：
-
-```bash
-# 方式 A：一键拉起开发环境（中间件 + ItsMyGo 前后端 + rag_helper 三进程）
-npm run dev:joint            # 首次按提示配置 .rag-helper-dir / RAG_HELPER_DIR
-npm run dev:joint:status     # 查看状态
-npm run dev:joint:stop       # 停止应用进程（中间件保留）
-
-# 方式 B：手动分进程
-./mvnw spring-boot:run
-cd frontend && npm run dev     # 另开终端
-```
-
-也可以在**仓库根**用 npm 转发（零依赖，脚本会自动选平台对应的命令）：
-
-```bash
-npm run dev:api                # = ./mvnw spring-boot:run（Windows 自动用 mvnw.cmd）
-npm run dev                    # 另开终端，= cd frontend && npm run dev
-npm run dev:joint              # 开发环境联合启动（dev-infra + 前后端 + rag_helper venv）
-npm run dev:joint:stop         # 停止应用进程
-npm run build                  # 前端生产构建 + 后端 jar（跳过测试）
-npm run type-check             # 前端 vue-tsc
-npm test                       # = ./mvnw test（后端全量）
-```
-
-打开 `http://localhost:5173`，演示账号 `testuser` / `123456`。
-中间件、RabbitMQ、客服智能体、管理员开通等完整清单见 [start.txt](start.txt)。
-根目录 npm 脚本只是转发，真正的命令仍在 `mvnw` / `frontend/package.json` / `deploy.sh`。
 
 ## 文档
 
