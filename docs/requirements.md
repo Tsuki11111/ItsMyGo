@@ -208,6 +208,7 @@ CREATING ──补账成功──> PENDING_PAYMENT → 后续与现有交易状�
 | 售后 M30（售后单 / 退货退款 / 部分退款 / 原因字典） | ✅ 2026-11-05（后端 + 三端页面） |
 | 下单异步补账 M31（D1：占位 + MQ 补账） | ✅ 2026-11-06（后端 + 前端轮询） |
 | 站内通知（商家端 / 管理端铃铛） | ✅ 2026-11-08（5 类事件 + 未读角标 + 已读） |
+| 权限管理（管理端子角色 + 权限码 + 数据范围） | 🚧 设计完成待评审（§2.9 / architecture D26） |
 | 商户与商品运营二期（商品审核 / 券运营 / 对账） | ⬜ 未开始（见 §7） |
 
 ### 2.8 站内通知（商家端 / 平台管理端，2026-11-08 定）
@@ -233,6 +234,75 @@ CREATING ──补账成功──> PENDING_PAYMENT → 后续与现有交易状�
 **范围外**：浏览器系统通知 / 声音、短信 / 邮件 / IM webhook、按用户配置通知偏好、顾客端通知。
 **验收**：通知列表/未读数/已读接口可用；入驻申请触发管理员通知、订单支付触发商家通知；
 单测覆盖幂等与已读。
+
+### 2.9 权限管理（RBAC，2026-11-08 设计待评审）
+
+**背景**：当前只有 3 个硬编码角色（CUSTOMER / MERCHANT / ADMIN）+ 服务层归属校验；
+`/api/admin/**` 所有 ADMIN 权限完全一样，无法区分客服 / 运营 / 财务 / 超管，也没有可配置的
+权限码、菜单权限、按钮权限——授权规则散落在 `SecurityConfig` 的 URL 前缀和业务代码里。
+
+**目标（v1）**：
+
+1. **管理端功能权限码化**：每个管理端 API / 菜单 / 按钮对应权限码；后端方法级校验，
+   前端按权限码渲染（前端隐藏不等于授权，后端必须兜底）。
+2. **管理端子角色**（v1 固定 4 个，不支持自定义角色）：
+   `SUPER_ADMIN` / `OPERATOR`（运营）/ `CUSTOMER_SERVICE`（客服）/ `FINANCE`（财务）。
+   邀请管理员时指定子角色；**现有 ADMIN 用户迁移为 SUPER_ADMIN**。
+3. **数据范围**：管理端 `ALL`；商家端 `MERCHANT_SELF`（仅本店）；顾客端 `USER_SELF`（仅本人）。
+   平台代商家操作必须是**显式权限码**（例如发货 `admin:order:ship`，且按 D25 只允许自营店订单）。
+4. **可审计**：角色变更、权限拒绝（403）进审计；管理员列表展示子角色。
+
+**v1 权限码清单（管理端）**：
+
+| 模块 | 权限码 | 说明 |
+|---|---|---|
+| 概览 | `admin:dashboard:view` | 数据概览 / 待办 |
+| 订单 | `admin:order:view` / `admin:order:export` / `admin:order:ship` / `admin:order:refund` / `admin:order:cancel-expired` | 查看/导出/代发货/退款审核/取消超时 |
+| 售后 | `admin:aftersale:view` / `admin:aftersale:handle` / `admin:aftersale:reason` | 查看/平台处理/原因字典维护 |
+| 商家 | `admin:merchant:view` / `admin:merchant:review` / `admin:merchant:ship-address` | 查看/入驻审核/代设发货地址 |
+| 商品 | `admin:product:view` / `admin:product:manage` | 商品/分类/品牌/缩略图 |
+| 用户 | `admin:user:view` / `admin:user:manage` | 用户列表/审计处置 |
+| 管理员 | `admin:admin:view` / `admin:admin:manage` | 管理员列表/邀请与角色分配 |
+| 知识库 | `admin:knowledge:import` / `admin:knowledge-gap:manage` | 导入、缺口闭环 |
+| 评测 | `admin:agent-eval:view` / `admin:agent-eval:run` | 查看报告 / 启动评测 |
+| 优惠券 | `admin:coupon:manage` | 平台券运营 |
+| 审计 | `admin:audit:view` | 审计日志 |
+| 通知 | `admin:notification:view` | 站内通知（所有管理员默认有） |
+
+> v1 **商家端与顾客端不引入子角色/权限码**，继续使用 `hasRole + 归属校验`；
+> 商家员工子账号列为二期。
+
+**子角色 → 权限（v1 矩阵）**：
+
+| 子角色 | 权限范围 |
+|---|---|
+| `SUPER_ADMIN` | 全部权限码 |
+| `OPERATOR`（运营） | 概览、订单查看/导出、商品、优惠券、知识库、评测查看/运行、通知；**不含**退款审核、管理员管理、审计 |
+| `CUSTOMER_SERVICE`（客服） | 概览、订单查看、售后查看/处理、用户查看、通知；**不含**代发货、退款审核、商品/商家/管理员管理 |
+| `FINANCE`（财务） | 订单查看/导出、退款审核、售后查看、审计查看、通知 |
+
+**验收标准**：
+
+1. 无权限码访问管理端 API → 403；有码 → 200；SUPER_ADMIN 全通；
+2. 邀请一个 CUSTOMER_SERVICE：能看订单/售后但不能发货、退款审核、用户管理；
+3. 商家仍只能操作本店（越权 404）；顾客仍只能操作本人；
+4. 前端菜单/按钮按权限码显隐，直接调接口仍被后端 403 拦截；
+5. 旧 ADMIN 升级后默认 SUPER_ADMIN，现有行为不变；权限变更 ≤60s 生效（缓存）；
+6. 角色变更写审计日志。
+
+**迁移方案**：Flyway **V36** 建 `roles` / `permissions` / `role_permissions` /
+`admin_user_roles` 四表并 seed 上述角色与权限码；现有 `role=ADMIN` 用户写入
+`admin_user_roles(SUPER_ADMIN)`；后端加 `itsmygo.rbac.enabled` 开关（默认 false，
+关闭时行为与现状一致，灰度验证后再打开）。详细表结构与分阶段计划见 architecture §3.7 / D26。
+
+**范围外**：自定义角色与权限管理 UI、Casbin/OPA/Keycloak、ReBAC/多租户、商家员工子账号、
+字段级权限、SSO、权限申请/审批流。
+
+**待定问题**：
+1. 商家员工子账号是否二期做？需要时是否复用同一套权限码（`merchant:*`）？
+2. `FINANCE` 是否需要独立于 CUSTOMER_SERVICE 审批售后（当前 v1 售后处理归客服）？
+3. 权限码粒度是否要细到单个 API（v1 按模块+动作，足够）？
+4. 是否需要“临时授权/委托”（如超管休假时把权限临时给运营）？
 
 ## 3. 非功能需求（NFR）
 

@@ -223,6 +223,96 @@ CREATING ──异步补账成功──> PENDING_PAYMENT ──支付──> PAI
 
 ---
 
+### 3.7 权限与授权模型（目标态，2026-11-08 设计）
+
+> 现状：3 个硬编码用户类型 + URL 前缀 `hasRole` + 服务层归属校验；无权限码/菜单/按钮/数据范围。
+> 本节是 v1 目标设计，落地分阶段（见下方），**当前尚未改代码**。
+
+**授权链路（目标态）**：
+
+```
+JWT(userId) → AuthIdentityService（按库实时推导，60s 缓存）
+  → 用户类型 ROLE_CUSTOMER / ROLE_MERCHANT / ROLE_ADMIN_<SUBROLE>
+  → ADMIN 额外加载权限码集合（DB: role_permissions）
+  → SecurityContext.authorities = ROLE_* + 权限码
+  → ① SecurityConfig URL 前缀粗筛（保留）
+  → ② @EnableMethodSecurity + @PreAuthorize("hasAuthority('admin:order:ship')") 细粒度
+  → 服务层数据范围：ADMIN=ALL；MERCHANT=本店；CUSTOMER=本人（沿用现有归属校验）
+```
+
+**为什么不是“纯前端隐藏”**：前端只负责体验，后端方法级校验是唯一可信边界；
+前端权限码仅用于菜单/按钮显隐。
+
+**表结构（V36 草案）**：
+
+```sql
+CREATE TABLE roles (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  code VARCHAR(64) NOT NULL UNIQUE,   -- SUPER_ADMIN / OPERATOR / CUSTOMER_SERVICE / FINANCE
+  name VARCHAR(64) NOT NULL,
+  description VARCHAR(255) NOT NULL DEFAULT '',
+  builtin TINYINT NOT NULL DEFAULT 1, -- v1 固定角色，禁改
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE permissions (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  code VARCHAR(96) NOT NULL UNIQUE,   -- admin:order:ship
+  name VARCHAR(64) NOT NULL,
+  module VARCHAR(32) NOT NULL,        -- order / aftersale / merchant / product ...
+  type VARCHAR(16) NOT NULL,          -- API / MENU / BUTTON
+  description VARCHAR(255) NOT NULL DEFAULT '',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE role_permissions (
+  role_id BIGINT NOT NULL,
+  permission_id BIGINT NOT NULL,
+  PRIMARY KEY (role_id, permission_id)
+);
+
+CREATE TABLE admin_user_roles (
+  user_id BIGINT NOT NULL,
+  role_id BIGINT NOT NULL,
+  PRIMARY KEY (user_id, role_id)
+);
+```
+
+**初始化数据**：4 个内置角色 + requirements §2.9 的权限码 + 角色映射；
+现有 `users.role='ADMIN'` 用户写入 `admin_user_roles(SUPER_ADMIN)`；
+商家/顾客**不迁移**（继续用 `users.role` 作为用户类型）。
+
+**分阶段落地**：
+
+| 阶段 | 内容 | 验收 |
+|---|---|---|
+| P0（当前） | requirements §2.9 + 本节 + D26 评审，不改代码 | 用户确认 |
+| P1 后端 | V36 建表/seed；AuthIdentityService 加载 ADMIN 角色与权限码并缓存；`@EnableMethodSecurity`；管理端 controller 加 `@PreAuthorize`；`itsmygo.rbac.enabled` 默认 **false**（关闭=现状 ADMIN 全通）；单测覆盖 403/200/子角色边界 | 开关关闭时全量测试不变；打开后按权限码生效 |
+| P2 前端 | 登录/身份接口返回 `roles` + `permissions`；路由 `meta.permission` + `v-permission` 指令；菜单过滤；邀请管理员时选子角色；管理员列表显示角色 | 无权限菜单/按钮不渲染；直接调接口仍 403 |
+| P3 灰度 | 本地/演示验证 → 打开开关 → 清理 `hasRole` 中可被权限码替代的硬编码 → 文档收尾 | 6 条验收用例通过 |
+
+**回退**：`itsmygo.rbac.enabled=false` 立即回到现状（ADMIN 全通、前端不按权限码过滤）；
+权限缓存 60s + 角色变更主动 evict，旧 token 不受影响（角色仍按库推导）。
+
+**备选方案对比**：
+
+| 方案 | 结论 |
+|---|---|
+| 自研 DB RBAC + Spring Method Security（选中） | 复用现有 JWT/AuthIdentityService，成本低、可审计、与现有归属校验衔接自然 |
+| Keycloak/OIDC | 多应用统一认证才划算；本项目单体 + 自建登录，引入成本高 |
+| Casbin/OPA 策略引擎 | 策略热更新、规则复杂时合适；当前权限规则少且稳定，运维/学习成本不划算 |
+| 前端隐藏权限 | 只能做体验，不能作为授权（直接调接口可绕过） |
+
+**风险与对策**：
+
+1. **接口漏配权限码**：P1 启动时输出未标注的管理端接口清单；未标注接口默认拒绝并记审计；
+2. **缓存不一致**：权限变更 evict `its-my-go:auth:perm:{userId}`，TTL 60s 兜底；
+3. **既有测试**：`rbac.enabled=false` 时行为不变；打开后种子管理员为 SUPER_ADMIN，测试仍通过；
+4. **商家/顾客不受影响**：v1 不迁移，避免面过大。
+
+---
+
 ## 4. 接口与契约概览
 
 ### 4.1 对外 REST
@@ -344,7 +434,7 @@ agent 工具 prepare（只生成草稿）→ Java 落 agent_actions（PENDING_CO
 
 ---
 
-## 6. 决策记录（D1–D23）
+## 6. 决策记录（D1–D26）
 
 | # | 决策 | 理由 | 现状 |
 |---|---|---|---|
@@ -373,6 +463,7 @@ agent 工具 prepare（只生成草稿）→ Java 落 agent_actions（PENDING_CO
 | D23 | 新增 `CREATING` / `CREATE_FAILED` 两个订单状态，支付 / 取消 / 退款只对既有可操作状态开放 | 状态机显式化，避免“异步中间态”被误当成可支付订单；失败终态可带原因让用户重下 | 已落地（M31） |
 | D24 | 后台站内通知不新增常驻 SSE：**30s 可见轮询 + 铃铛下拉**；SSE 仍只服务聊天页 | 与 2026-11-07 多标签连接池治理一致，避免每标签常驻连接；未读延迟 ≤30s 可接受 | 已落地（2026-11-08，V35） |
 | D25 | **发货权归店铺**：管理端只代发平台自营店（`merchant_id=1`）订单；第三方店铺订单管理员发货直接 403，前端不显示发货按钮；退款/售后仍保留平台介入 | 避免管理员替第三方商家发货造成权责错乱；自营店由平台运营，仍需管理端代发 | 已落地（2026-11-08） |
+| D26 | 权限模型采用「**固定用户类型 + 管理端 RBAC1（子角色-权限码）+ 现有对象归属校验**」；可自定义角色 / Casbin / OPA / Keycloak / ReBAC 留到以后 | 复用现有 JWT + `AuthIdentityService`，成本低、可审计、与归属校验衔接自然；当前角色少、规则稳定，策略引擎/外部 IdP 收益不足 | 设计完成（2026-11-08），V36 分阶段落地，默认开关关闭 |
 
 **三条业务红线**（做任何功能都成立）：
 
