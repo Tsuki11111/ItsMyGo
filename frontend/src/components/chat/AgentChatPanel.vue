@@ -78,6 +78,31 @@ const expandedTraces = ref<Record<string, boolean>>({})
 const activeAssistantId = ref<string | null>(null)
 /** 已提交的表单（按 formId）：本轮置灰，等下一轮回复 */
 const submittedForms = ref<Record<string, boolean>>({})
+/** 流式输出开启时，最终回答到达后逐字展示（中间轮次文本不回放） */
+let typingTimer: ReturnType<typeof setInterval> | null = null
+
+function stopTyping() {
+  if (typingTimer) {
+    clearInterval(typingTimer)
+    typingTimer = null
+  }
+}
+
+function startTyping(assistantId: string, answer: string) {
+  stopTyping()
+  const assistant = findMessage(assistantId)
+  if (!assistant) return
+  // 最终回答一次性到达（上游只回放最终回答），这里按约 120 帧的节奏逐字展示
+  const step = Math.max(1, Math.ceil(answer.length / 120))
+  let shown = 0
+  assistant.text = ''
+  typingTimer = setInterval(() => {
+    shown = Math.min(answer.length, shown + step)
+    assistant.text = answer.slice(0, shown)
+    void scrollToBottom()
+    if (shown >= answer.length) stopTyping()
+  }, 16)
+}
 
 /** 客服设置弹窗：默认值与后端一致（推广关 / 联网开 / 流式关），打开时再拉真实值 */
 const settingsVisible = ref(false)
@@ -313,6 +338,7 @@ async function selectSession(command: unknown) {
   if (streaming.value || !id) return
   sessionId.value = id
   persistSession(id)
+  stopTyping()
   messages.value = []
   actions.value = []
   await loadHistory(id)
@@ -324,6 +350,7 @@ async function sendMessage(preset?: string, formResult?: AgentFormResult,
   if (!content || streaming.value) return
 
   input.value = ''
+  stopTyping()
   // 购买意图：本轮回复里不再重复展示已经在会话里出现过的商品卡
   const existingProductIds = new Set<string>()
   if (options?.dedupeProducts) {
@@ -385,10 +412,16 @@ async function sendMessage(preset?: string, formResult?: AgentFormResult,
         })
         break
       case 'delta':
-        assistant.text += event.delta
+        // 流式开启时上游只回放「最终回答」的增量，最终会由 final 触发的打字机统一展示；
+        // 这里不再直接追加，避免整段先出现再重新逐字打一遍
+        if (!preferences.value.streamEnabled) assistant.text += event.delta
         break
       case 'final':
-        assistant.text = event.answer || assistant.text
+        if (preferences.value.streamEnabled && event.answer) {
+          startTyping(assistantId, event.answer)
+        } else {
+          assistant.text = event.answer || assistant.text
+        }
         assistant.images = event.images || []
         assistant.products = (event.products || []).filter(
           (product) => !existingProductIds.has(product.productId))
@@ -466,6 +499,7 @@ function onFormSubmit(form: AgentFormRequest, values: Record<string, string>) {
 
 async function stop() {
   if (!streaming.value) return
+  stopTyping()
   const id = sessionId.value
   const currentRunId = runId.value
   if (id && currentRunId) {
@@ -488,6 +522,7 @@ function newSession() {
   if (streaming.value) {
     void stop()
   }
+  stopTyping()
   sessionId.value = null
   runId.value = ''
   persistSession(null)
@@ -531,6 +566,11 @@ async function saveSettings() {
 
 onMounted(async () => {
   document.addEventListener('visibilitychange', onVisibilityChange)
+  try {
+    preferences.value = await fetchAgentPreferences()
+  } catch {
+    // 偏好加载失败不影响聊天
+  }
   await refreshSessions()
   const saved = sessionKey.value ? localStorage.getItem(sessionKey.value) : null
   const target = saved || sessions.value[0]?.sessionId || null
@@ -544,6 +584,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  stopTyping()
   document.removeEventListener('visibilitychange', onVisibilityChange)
   abortController?.abort()
   if (streaming.value && sessionId.value && runId.value) {
