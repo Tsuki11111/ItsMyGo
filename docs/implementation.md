@@ -3048,3 +3048,19 @@ PROMOTION 类型与渲染已移除。
 **验证**：`type-check` / `build:web` 通过；实测给单规格商品新增「颜色/黑色」规格并保存，
 接口 `PUT /products/{id}` + `PUT /products/{id}/skus` 均 200，SKU 表生成；有旧 SKU 删除时
 仍弹确认（避免误删库存/销量）。
+
+### 3.51 商家双身份消息入口（2026-11-08）
+
+**原因**：`ChatService.unread()` 同时返回 `customerUnread`（买家身份）与 `merchantUnread`
+（商家身份），但顶栏 `App.vue` 的消息角标取 `unreadTotal`（两者相加），链接却固定
+`/user/messages`；商家后台侧栏只显示 `merchantUnread`，于是商家看到“顶栏数字 ≠ 列表”。
+
+**修复**：
+- `App.vue` 新增 `messagesEntry`：`ADMIN→/admin/messages`（平台未读）、
+  `MERCHANT→/merchant/messages`（商家未读）、其他 `→/user/messages`（买家未读）；
+- 顶栏消息链接与角标统一使用 `messagesEntry`；
+- 商家用户菜单保留「商家消息」，另增「买家消息（N）」入口；
+- 商家后台侧栏角标仍用 `merchantUnread`，与顶栏商家入口一致。
+
+**验证**：商家账号实测顶栏 href=`/merchant/messages`、菜单同时有「商家消息/买家消息」；
+接口 `/api/chat/unread-count` 分别返回两箱未读；`type-check` / `build:web` 通过。

@@ -23,7 +23,18 @@ const isBareRoute = computed(() => {
     || path === '/merchant' || path.startsWith('/merchant/')
 })
 
-/** 鼠标移到用户区时展开的抽屉面板 */
+/** 顶栏「消息」入口按当前身份走对应收件箱：商家消息 / 平台消息 / 买家消息 */
+const messagesEntry = computed(() => {
+  if (userStore.isAdmin) {
+    return { path: '/admin/messages', label: '平台消息', unread: chatStore.merchantUnread }
+  }
+  if (userStore.isMerchant) {
+    return { path: '/merchant/messages', label: '商家消息', unread: chatStore.merchantUnread }
+  }
+  return { path: '/user/messages', label: '我的消息', unread: chatStore.customerUnread }
+})
+
+/** 商家仍需要能进买家收件箱；单独放在用户菜单里 */
 const panelOpen = ref(false)
 
 const searchKeyword = ref('')
@@ -96,16 +107,16 @@ onBeforeUnmount(() => badgeStore.stopPolling())
       <nav class="actions">
         <RouterLink
           v-if="userStore.isLoggedIn"
-          :to="userStore.isAdmin ? '/admin/messages' : '/user/messages'"
+          :to="messagesEntry.path"
           class="link badge-link"
           target="_blank"
           rel="noopener"
         >
           <el-icon><ChatDotRound /></el-icon>
           <el-badge
-            :value="chatStore.unreadTotal"
+            :value="messagesEntry.unread"
             :max="99"
-            :hidden="chatStore.unreadTotal === 0"
+            :hidden="messagesEntry.unread === 0"
           >
             <span>消息</span>
           </el-badge>
@@ -164,14 +175,25 @@ onBeforeUnmount(() => badgeStore.stopPolling())
                   <el-icon><Tickets /></el-icon>我的订单
                 </RouterLink>
                 <RouterLink
-                  :to="userStore.isAdmin ? '/admin/messages' : '/user/messages'"
+                  :to="messagesEntry.path"
                   class="panel-item"
                   target="_blank"
                   rel="noopener"
                   @click="panelOpen = false"
                 >
                   <el-icon><ChatDotRound /></el-icon>
-                  {{ userStore.isAdmin ? '平台消息' : '我的消息' }}
+                  {{ messagesEntry.label }}
+                </RouterLink>
+                <RouterLink
+                  v-if="userStore.isMerchant"
+                  to="/user/messages"
+                  class="panel-item"
+                  target="_blank"
+                  rel="noopener"
+                  @click="panelOpen = false"
+                >
+                  <el-icon><ChatDotRound /></el-icon>
+                  买家消息<template v-if="chatStore.customerUnread > 0">（{{ chatStore.customerUnread }}）</template>
                 </RouterLink>
                 <RouterLink
                   to="/user/favorites"
