@@ -25,6 +25,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -53,6 +54,9 @@ public class PromotionServiceImpl implements PromotionService {
     private static final double WEIGHT_SALES = 0.20;
     private static final double WEIGHT_RATING = 0.10;
 
+    /** 一次推送最多带几件商品（卡片顺序与文案顺序一致） */
+    private static final int MAX_PRODUCT_CAP = 5;
+
     private final AgentPreferenceMapper preferenceMapper;
     private final UserMapper userMapper;
     private final ProductMapper productMapper;
@@ -63,6 +67,7 @@ public class PromotionServiceImpl implements PromotionService {
     private final PromotionAgentNotifier agentNotifier;
     private final ObjectProvider<PromotionService> selfProvider;
     private final int batchSize;
+    private final int maxProducts;
 
     public PromotionServiceImpl(AgentPreferenceMapper preferenceMapper,
                                 UserMapper userMapper,
@@ -73,7 +78,8 @@ public class PromotionServiceImpl implements PromotionService {
                                 ProductPriceHistoryService priceHistoryService,
                                 PromotionAgentNotifier agentNotifier,
                                 ObjectProvider<PromotionService> selfProvider,
-                                @Value("${itsmygo.promotion.batch-size:200}") int batchSize) {
+                                @Value("${itsmygo.promotion.batch-size:200}") int batchSize,
+                                @Value("${itsmygo.promotion.max-products:3}") int maxProducts) {
         this.preferenceMapper = preferenceMapper;
         this.userMapper = userMapper;
         this.productMapper = productMapper;
@@ -84,6 +90,7 @@ public class PromotionServiceImpl implements PromotionService {
         this.agentNotifier = agentNotifier;
         this.selfProvider = selfProvider;
         this.batchSize = batchSize;
+        this.maxProducts = Math.max(1, Math.min(maxProducts, MAX_PRODUCT_CAP));
     }
 
     @Override
@@ -124,7 +131,7 @@ public class PromotionServiceImpl implements PromotionService {
                 .max()
                 .orElse(0);
 
-        Scored best = null;
+        List<Scored> ranked = new ArrayList<>();
         for (Product product : candidates) {
             double priceDrop = priceDrop(product, pricePeaks.get(product.getId()));
             boolean categoryHit = product.getCategoryId() != null
@@ -142,24 +149,26 @@ public class PromotionServiceImpl implements PromotionService {
             if (score <= 0) {
                 continue;
             }
-            if (best == null || score > best.score()
-                    || (score == best.score() && salesOf(product) > salesOf(best.product()))) {
-                best = new Scored(product, score, priceDrop, categoryHit, brandHit, rating);
-            }
+            ranked.add(new Scored(product, score, priceDrop, categoryHit, brandHit, rating));
         }
-        if (best == null) {
+        if (ranked.isEmpty()) {
             log.debug("智能推广跳过：用户 {} 没有得分大于 0 的商品", userId);
             return false;
         }
-
-        String reason = buildReason(best);
-        // 推广写进「客服智能体」会话历史（不是顾客—店铺聊天）
-        if (!agentNotifier.deliver(userId, best.product(), reason)) {
+        ranked.sort(Comparator.comparingDouble(Scored::score)
+                .thenComparingInt(scored -> salesOf(scored.product()))
+                .reversed());
+        List<Scored> picked = new ArrayList<>(
+                ranked.subList(0, Math.min(maxProducts, ranked.size())));
+        String text = buildPromotionText(picked);
+        // 推广写进「客服智能体」会话历史（不是顾客—店铺聊天），一次带多件商品
+        List<Product> products = picked.stream().map(Scored::product).toList();
+        if (!agentNotifier.deliver(userId, products, text)) {
             return false;
         }
         preferenceMapper.markPromotionSent(userId, today);
-        log.info("智能推广已发送：用户 {}，商品 {}，得分 {}", userId,
-                best.product().getId(), String.format(Locale.ROOT, "%.3f", best.score()));
+        log.info("智能推广已发送：用户 {}，商品 {} 件，最高分 {}", userId, products.size(),
+                String.format(Locale.ROOT, "%.3f", picked.get(0).score()));
         return true;
     }
 
@@ -232,6 +241,13 @@ public class PromotionServiceImpl implements PromotionService {
     }
 
     /** 文案只拼真实信号，不编数字 */
+    /** 多商品文案：每件沿用原模板「...，要不要看看？」，多件按换行拼接（不美化话术） */
+    private String buildPromotionText(List<Scored> picked) {
+        return picked.stream().map(this::buildReason)
+                .collect(java.util.stream.Collectors.joining("\n"));
+    }
+
+    /** 单件商品的真实卖点，不编数字 */
     private String buildReason(Scored scored) {
         List<String> parts = new ArrayList<>();
         if (scored.priceDrop() > 0) {

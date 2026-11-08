@@ -11,7 +11,9 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.time.Duration;
 import java.util.Iterator;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -44,27 +46,31 @@ public class PromotionAgentNotifier {
     }
 
     /** @return true=已写入 agent 会话；false=agent 不可用/发送失败（不标记当天已推） */
-    public boolean deliver(long userId, Product product, String reasonText) {
-        if (!agentGateway.configured() || product == null) {
+    public boolean deliver(long userId, List<Product> products, String text) {
+        if (!agentGateway.configured() || products == null || products.isEmpty()) {
             log.warn("智能推广跳过：agent 未配置或商品为空，userId={}", userId);
             return false;
         }
         try {
             String sessionId = resolveSessionId(userId);
             Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("text", reasonText);
-            Map<String, Object> card = new LinkedHashMap<>();
-            card.put("productId", String.valueOf(product.getId()));
-            card.put("name", product.getName() == null ? "" : product.getName());
-            card.put("image", product.getMainImage() == null ? "" : product.getMainImage());
-            card.put("price", product.getPrice() == null ? "" : product.getPrice().toPlainString());
-            card.put("stock", product.getStock() == null ? "" : String.valueOf(product.getStock()));
-            card.put("sales", product.getSales() == null ? "" : String.valueOf(product.getSales()));
-            card.put("rating", "");
-            card.put("merchantName", "");
-            card.put("specText", "");
-            card.put("categoryName", "");
-            payload.put("product", card);
+            payload.put("text", text);
+            List<Map<String, Object>> cards = new ArrayList<>();
+            for (Product product : products) {
+                Map<String, Object> card = new LinkedHashMap<>();
+                card.put("productId", String.valueOf(product.getId()));
+                card.put("name", product.getName() == null ? "" : product.getName());
+                card.put("image", product.getMainImage() == null ? "" : product.getMainImage());
+                card.put("price", product.getPrice() == null ? "" : product.getPrice().toPlainString());
+                card.put("stock", product.getStock() == null ? "" : String.valueOf(product.getStock()));
+                card.put("sales", product.getSales() == null ? "" : String.valueOf(product.getSales()));
+                card.put("rating", "");
+                card.put("merchantName", "");
+                card.put("specText", "");
+                card.put("categoryName", "");
+                cards.add(card);
+            }
+            payload.put("products", cards);
 
             Iterator<Event> events = agentGateway.internalEvent(userId, sessionId, EVENT,
                     objectMapper.writeValueAsString(payload), "", DEADLINE);
@@ -77,8 +83,8 @@ public class PromotionAgentNotifier {
                 }
             }
             sessionMapper.touch(sessionId, userId);
-            log.info("智能推广已写入客服会话：userId={}，sessionId={}，商品={}",
-                    userId, sessionId, product.getId());
+            log.info("智能推广已写入客服会话：userId={}，sessionId={}，商品 {} 件",
+                    userId, sessionId, products.size());
             return true;
         } catch (RuntimeException e) {
             log.warn("智能推广写入 agent 会话异常：userId={}, err={}", userId, e.getMessage());

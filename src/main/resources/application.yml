@@ -105,6 +105,8 @@ itsmygo:
     # 登录后 0~N 秒随机延迟发送（不再用固定时间扫全量，避免瞬时尖峰）
     login-delay-seconds: ${PROMOTION_LOGIN_DELAY_SECONDS:300}
     batch-size: ${PROMOTION_BATCH_SIZE:200}
+    # 一次推送最多带几件商品（卡片顺序与文案 ①②③ 对应）
+    max-products: ${PROMOTION_MAX_PRODUCTS:3}
   # 售后（M30）：商家审核超时自动同意、退货超时自动确认收货；扫描式，无需 MQ
   after-sale:
     enabled: ${AFTER_SALE_SCAN_ENABLED:true}

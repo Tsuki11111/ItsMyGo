@@ -169,15 +169,22 @@ class PromotionServiceTest extends ApiTestBase {
         long userId = createUser();
         AgentPreference preference = setPreference(userId, true);
         assertThat(preference.getLastPromotionDate()).isNull();
-        long productId = createPromotionProduct();
+        long productA = createPromotionProduct();
+        long productB = createPromotionProduct();
+        long productC = createPromotionProduct();
 
         assertThat(promotionService.notifyForUser(userId)).isTrue();
 
         String payload = capturePromotionPayload(1);
-        assertThat(payload).contains("\"productId\":\"" + productId + "\"")
+        assertThat(payload).contains("\"productId\":\"" + productA + "\"")
+                .contains("\"productId\":\"" + productB + "\"")
+                .contains("\"productId\":\"" + productC + "\"")
                 .contains("最近 30 天降价约 90%")
                 .contains("已售 1000 件")
-                .contains("评分 5.0 分");
+                .contains("评分 5.0 分")
+                .contains("要不要看看？");
+        // 三件商品各一行，旧话术模板不变
+        assertThat(payload.split("要不要看看？", -1).length - 1).isGreaterThanOrEqualTo(3);
 
         LocalDate today = LocalDate.now(ZoneId.of("Asia/Shanghai"));
         assertThat(preferenceMapper.selectById(userId).getLastPromotionDate()).isEqualTo(today);

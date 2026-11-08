@@ -2783,8 +2783,8 @@ orderId）、顾客未读 +1；发货前改地址成功且商家收到 SYSTEM �
 
 - `common/promotion/PromotionAgentNotifier`：取该用户**最近一个 agent 会话**
   （`agent_sessions`，没有就新建并登记归属），以内部事件 `promotion-push` 调 agent
-  （不跑主模型）；payload 含推广文案与商品卡字段（productId/name/image/price/stock/
-  sales/...），**不再往顾客—店铺聊天写消息**。
+  （不跑主模型）；payload 含推广文案与**商品卡数组**（products，字段 productId/name/
+  image/price/stock/sales/...），**不再往顾客—店铺聊天写消息**。
 - rag_helper `_run_internal_event` 收到后把一条 assistant 消息（带 `products` 商品卡）
   写进该会话历史；前端 AgentChatPanel 打开历史即可看到、商品卡可点进详情。
 - agent 不可用/写入失败时返回 false：**不标记当天已推**，留给下次触发。
@@ -2800,9 +2800,10 @@ orderId）、顾客未读 +1；发货前改地址成功且商家收到 SYSTEM �
   - **相似 0.25**：用户最近 5 笔已支付订单的商品 `categoryId` / `brand`，命中候选各加 0.5；
   - **销量 0.20**：`sales / 候选集最高 sales`；
   - **评分 0.10**：`可见评价均分 / 5`，无评价按 0（批量走 `ReviewMapper.statsByProductIds`）。
-- 取总分最高（同分比销量）且大于 0 的商品；文案只拼真实信号，例如
-  「最近 30 天降价约 90%，评分 5.0 分，已售 1000 件，要不要看看？」，
-  百分比由降价比例四舍五入一位、销量/评分直接来自库，不编数字。
+- 取总分前 **N 件**（`itsmygo.promotion.max-products`，默认 3；同分比销量）且分数 > 0；
+  文案**沿用原模板**，每件一行「最近 30 天降价约 90%，已售 1000 件，评分 5.0 分，
+  要不要看看？」；多件按换行拼接。百分比由降价比例四舍五入一位、销量/评分直接来自库，
+  不编数字。
 - 发前再查偏好：`promotion_enabled=1` 且 `last_promotion_date != 今天`；发送成功后写
   `last_promotion_date`，保证同一用户每天最多 1 条。用户/店铺/商品异常只记日志跳过。
 
