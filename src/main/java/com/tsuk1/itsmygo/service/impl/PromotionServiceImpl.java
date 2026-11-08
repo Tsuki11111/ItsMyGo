@@ -54,8 +54,9 @@ public class PromotionServiceImpl implements PromotionService {
     private static final double WEIGHT_SALES = 0.20;
     private static final double WEIGHT_RATING = 0.10;
 
-    /** 一次推送最多带几件商品（卡片顺序与文案顺序一致） */
-    private static final int MAX_PRODUCT_CAP = 5;
+    /** 一次推送最多带几件商品；①②③ 与前端卡片顺序一一对应 */
+    private static final String[] CIRCLED = {"①", "②", "③", "④", "⑤"};
+    private static final int MAX_PRODUCT_CAP = CIRCLED.length;
 
     private final AgentPreferenceMapper preferenceMapper;
     private final UserMapper userMapper;
@@ -241,10 +242,16 @@ public class PromotionServiceImpl implements PromotionService {
     }
 
     /** 文案只拼真实信号，不编数字 */
-    /** 多商品文案：每件沿用原模板「...，要不要看看？」，多件按换行拼接（不美化话术） */
+    /** 多商品文案：每件沿用原模板，前面加序号（①②③）与卡片顺序一一对应 */
     private String buildPromotionText(List<Scored> picked) {
-        return picked.stream().map(this::buildReason)
-                .collect(java.util.stream.Collectors.joining("\n"));
+        StringBuilder text = new StringBuilder();
+        for (int i = 0; i < picked.size(); i++) {
+            if (i > 0) {
+                text.append("\n");
+            }
+            text.append(CIRCLED[i]).append(" ").append(buildReason(picked.get(i)));
+        }
+        return text.toString();
     }
 
     /** 单件商品的真实卖点，不编数字 */

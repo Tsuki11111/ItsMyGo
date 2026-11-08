@@ -2801,9 +2801,9 @@ orderId）、顾客未读 +1；发货前改地址成功且商家收到 SYSTEM �
   - **销量 0.20**：`sales / 候选集最高 sales`；
   - **评分 0.10**：`可见评价均分 / 5`，无评价按 0（批量走 `ReviewMapper.statsByProductIds`）。
 - 取总分前 **N 件**（`itsmygo.promotion.max-products`，默认 3；同分比销量）且分数 > 0；
-  文案**沿用原模板**，每件一行「最近 30 天降价约 90%，已售 1000 件，评分 5.0 分，
-  要不要看看？」；多件按换行拼接。百分比由降价比例四舍五入一位、销量/评分直接来自库，
-  不编数字。
+  文案**沿用原模板**，每件一行，前面加序号 **①②③**（与前端商品卡顺序一一对应），
+  如「① 最近 30 天降价约 90%，已售 1000 件，评分 5.0 分，要不要看看？」；
+  百分比由降价比例四舍五入一位、销量/评分直接来自库，不编数字。
 - 发前再查偏好：`promotion_enabled=1` 且 `last_promotion_date != 今天`；发送成功后写
   `last_promotion_date`，保证同一用户每天最多 1 条。用户/店铺/商品异常只记日志跳过。
 
@@ -2819,7 +2819,9 @@ orderId）、顾客未读 +1；发货前改地址成功且商家收到 SYSTEM �
   `LIMIT itsmygo.promotion.batch-size`，逐个代理调 `notifyForUser`，单用户异常捕获后继续。
 
 **前端**：不需要新增聊天消息类型（历史里的 assistant 消息自带 `products`，沿用现有
-AgentChatPanel 的商品卡渲染）；原来「顾客—店铺聊天」的 PROMOTION 类型与渲染已移除。
+AgentChatPanel 的商品卡渲染）；商品卡操作层级调整为「**查看详情**」为主按钮、
+「让买小购下单」为文字按钮（避免多张卡三连大粉块抢戏）；原来「顾客—店铺聊天」的
+PROMOTION 类型与渲染已移除。
 
 **测试**：新增 5 条——`ProductPriceHistoryTest` 2 条（商品新建/改价/同价不重复、
 规格改价带 `sku_id`）；`PromotionServiceTest` 3 条（发送 1 条且标记今天、同日不再发、

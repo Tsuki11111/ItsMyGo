@@ -41,10 +41,11 @@ const hasStock = computed(() => Number(props.product.stock || 0) > 0)
       <p v-if="product.specText" class="spec">{{ product.specText }}</p>
 
       <div class="actions">
-        <router-link :to="`/product/${product.productId}`" class="detail-link">
+        <router-link :to="`/product/${product.productId}`" class="detail-btn">
           查看详情
         </router-link>
-        <el-button size="small" type="primary" :disabled="!hasStock" @click="emit('buy', product)">
+        <el-button size="small" text type="primary" :disabled="!hasStock"
+                   @click="emit('buy', product)">
           让买小购下单
         </el-button>
       </div>
@@ -157,10 +158,18 @@ const hasStock = computed(() => Number(props.product.stock || 0) > 0)
   margin-top: 3px;
 }
 
-.detail-link {
+.detail-btn {
+  padding: 4px 14px;
   font-size: 12px;
-  color: var(--c-pink);
+  font-weight: 600;
+  color: #fff;
   text-decoration: none;
+  background: var(--c-pink);
+  border-radius: 999px;
+}
+
+.detail-btn:hover {
+  opacity: 0.88;
 }
 
 .actions :deep(.el-button span) {
