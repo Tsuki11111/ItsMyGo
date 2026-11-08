@@ -275,55 +275,6 @@ public class ChatServiceImpl implements ChatService {
 
     @Override
     @Transactional
-    public ChatMessageView sendPromotionMessage(long userId, long merchantId, long productId,
-                                                String reasonText) {
-        Merchant merchant = merchantMapper.selectById(merchantId);
-        if (merchant == null || !Merchant.ACTIVE.equals(merchant.getStatus())) {
-            throw new BizException(ResultCode.BAD_REQUEST, "店铺不存在或已停用");
-        }
-        Product product = productMapper.selectById(productId);
-        if (product == null || !Objects.equals(product.getMerchantId(), merchantId)) {
-            throw new BizException(ResultCode.NOT_FOUND, "商品不存在");
-        }
-        if (!Integer.valueOf(1).equals(product.getStatus())
-                || product.getStock() == null || product.getStock() <= 0) {
-            throw new BizException(ResultCode.BAD_REQUEST, "商品已下架或没有库存");
-        }
-        if (!StringUtils.hasText(reasonText)) {
-            throw new BizException(ResultCode.BAD_REQUEST, "推广理由不能为空");
-        }
-        String content = reasonText.trim();
-        if (content.length() > MAX_TEXT_LENGTH) {
-            content = content.substring(0, MAX_TEXT_LENGTH);
-        }
-
-        conversationMapper.insertIgnore(userId, merchantId);
-        Conversation conversation = conversationMapper.selectOne(Wrappers.<Conversation>lambdaQuery()
-                .eq(Conversation::getCustomerUserId, userId)
-                .eq(Conversation::getMerchantId, merchantId));
-        if (conversation == null) {
-            throw new BizException(ResultCode.INTERNAL_ERROR, "会话创建失败");
-        }
-
-        ChatCard.Product card = new ChatCard.Product(product.getId(), product.getName(),
-                product.getMainImage(), product.getPrice(), product.getMerchantId(),
-                product.getStatus());
-        String cardData;
-        try {
-            cardData = objectMapper.writeValueAsString(card);
-        } catch (Exception e) {
-            throw new BizException(ResultCode.INTERNAL_ERROR, "商品卡片生成失败");
-        }
-        // sender_type=MERCHANT：顾客未读 +1；sender_user_id 店主优先、平台自营店取管理员兜底
-        ChatMessage message = appendMessage(conversation, merchantSenderId(merchant, userId),
-                ChatMessage.SENDER_MERCHANT, ChatMessage.TYPE_PROMOTION, content, cardData);
-        log.info("已发送智能推广：用户 {}，店铺 {}，商品 {}",
-                userId, merchantId, productId);
-        return toMessageView(message);
-    }
-
-    @Override
-    @Transactional
     public void notifyOrderAddressChanged(Order order) {
         if (order == null || order.getUserId() == null || order.getMerchantId() == null) {
             return;
@@ -811,7 +762,6 @@ public class ChatServiceImpl implements ChatService {
             case ChatMessage.TYPE_IMAGE -> "[图片]";
             case ChatMessage.TYPE_PRODUCT -> "[商品] " + content;
             case ChatMessage.TYPE_ORDER -> "[订单] " + content;
-            case ChatMessage.TYPE_PROMOTION -> "[推荐] " + content;
             default -> content.length() <= PREVIEW_LENGTH
                     ? content : content.substring(0, PREVIEW_LENGTH) + "…";
         };

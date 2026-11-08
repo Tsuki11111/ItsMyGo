@@ -43,13 +43,6 @@ public interface ChatService {
      */
     ChatMessageView sendOrderConfirmRequest(Order order);
 
-    /**
-     * 智能推广内部调用：在「顾客—店铺」会话里以商家身份发一条 PROMOTION 商品卡。
-     * 校验店铺 ACTIVE、商品在售且有库存；顾客未读 +1、SSE 实时推送。
-     * 发送失败抛 {@code BizException}，由调用方决定是否记日志跳过。
-     */
-    ChatMessageView sendPromotionMessage(long userId, long merchantId, long productId, String reasonText);
-
     /** 顾客在发货前修改收货地址后，给商家发一条 SYSTEM 消息同步新地址。 */
     void notifyOrderAddressChanged(Order order);
 

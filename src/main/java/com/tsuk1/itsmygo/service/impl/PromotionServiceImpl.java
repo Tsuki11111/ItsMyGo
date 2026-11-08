@@ -10,7 +10,7 @@ import com.tsuk1.itsmygo.mapper.OrderMapper;
 import com.tsuk1.itsmygo.mapper.ProductMapper;
 import com.tsuk1.itsmygo.mapper.ReviewMapper;
 import com.tsuk1.itsmygo.mapper.UserMapper;
-import com.tsuk1.itsmygo.service.ChatService;
+import com.tsuk1.itsmygo.common.promotion.PromotionAgentNotifier;
 import com.tsuk1.itsmygo.service.ProductPriceHistoryService;
 import com.tsuk1.itsmygo.service.PromotionService;
 import lombok.extern.slf4j.Slf4j;
@@ -60,7 +60,7 @@ public class PromotionServiceImpl implements PromotionService {
     private final OrderItemMapper orderItemMapper;
     private final ReviewMapper reviewMapper;
     private final ProductPriceHistoryService priceHistoryService;
-    private final ChatService chatService;
+    private final PromotionAgentNotifier agentNotifier;
     private final ObjectProvider<PromotionService> selfProvider;
     private final int batchSize;
 
@@ -71,7 +71,7 @@ public class PromotionServiceImpl implements PromotionService {
                                 OrderItemMapper orderItemMapper,
                                 ReviewMapper reviewMapper,
                                 ProductPriceHistoryService priceHistoryService,
-                                ChatService chatService,
+                                PromotionAgentNotifier agentNotifier,
                                 ObjectProvider<PromotionService> selfProvider,
                                 @Value("${itsmygo.promotion.batch-size:200}") int batchSize) {
         this.preferenceMapper = preferenceMapper;
@@ -81,7 +81,7 @@ public class PromotionServiceImpl implements PromotionService {
         this.orderItemMapper = orderItemMapper;
         this.reviewMapper = reviewMapper;
         this.priceHistoryService = priceHistoryService;
-        this.chatService = chatService;
+        this.agentNotifier = agentNotifier;
         this.selfProvider = selfProvider;
         this.batchSize = batchSize;
     }
@@ -153,8 +153,10 @@ public class PromotionServiceImpl implements PromotionService {
         }
 
         String reason = buildReason(best);
-        chatService.sendPromotionMessage(userId, best.product().getMerchantId(),
-                best.product().getId(), reason);
+        // 推广写进「客服智能体」会话历史（不是顾客—店铺聊天）
+        if (!agentNotifier.deliver(userId, best.product(), reason)) {
+            return false;
+        }
         preferenceMapper.markPromotionSent(userId, today);
         log.info("智能推广已发送：用户 {}，商品 {}，得分 {}", userId,
                 best.product().getId(), String.format(Locale.ROOT, "%.3f", best.score()));

@@ -1622,8 +1622,9 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 
 **实现**：`V34__product_price_history.sql`（含存量基线）；商品/规格改价写历史；
 `PromotionService` 按降价 0.45 / 相似购买 0.25 / 销量 0.20 / 评分 0.10 打分，
-排除近 30 天买过的商品；`ChatService.sendPromotionMessage` 以商家身份发
-`contentType=PROMOTION` 商品卡（未读 + SSE）；**触发改为登录后 0~5 分钟随机抖动**
+排除近 30 天买过的商品；**投放改到「客服智能体会话」**（`PromotionAgentNotifier`
+走内部事件 `promotion-push`，agent 写 assistant 历史 + 商品卡；不再进顾客—店铺聊天）；
+**触发为登录后 0~5 分钟随机抖动**
 （`PromotionLoginTrigger`，Redis 按用户+日期去重，`last_promotion_date` 每天最多 1 条），
 不再用固定 cron 扫全量，避免用户量大时同一时刻的并发尖峰。
 

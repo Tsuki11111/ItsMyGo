@@ -22,11 +22,10 @@ const props = defineProps<{
 }>()
 
 const productCard = computed(() =>
-  props.message.contentType === 'PRODUCT' || props.message.contentType === 'PROMOTION'
+  props.message.contentType === 'PRODUCT'
     ? (props.message.card as ChatProductCard | null)
     : null,
 )
-const isPromotion = computed(() => props.message.contentType === 'PROMOTION')
 const orderCard = computed(() =>
   props.message.contentType === 'ORDER' || props.message.contentType === 'ORDER_CONFIRM'
     ? (props.message.card as ChatOrderCard | null)
@@ -127,10 +126,6 @@ function formatTime(value: string): string {
       />
 
       <template v-else-if="productCard">
-        <div v-if="isPromotion" class="promotion-head">
-          <span class="promotion-label">为你推荐</span>
-          <span class="promotion-reason">{{ message.content }}</span>
-        </div>
         <RouterLink :to="`/product/${productCard.productId}`" class="card product-card">
           <div class="card-thumb">
             <ProductImage
@@ -331,27 +326,6 @@ function formatTime(value: string): string {
   padding: 6px;
   color: inherit;
   text-decoration: none;
-}
-
-.promotion-head {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 1px 6px 5px;
-  border-bottom: 1px dashed var(--c-border);
-  margin-bottom: 5px;
-}
-
-.promotion-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--c-pink);
-}
-
-.promotion-reason {
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--c-text-2);
 }
 
 .card-thumb {

@@ -2762,8 +2762,9 @@ orderId）、顾客未读 +1；发货前改地址成功且商家收到 SYSTEM �
 
 ### 3.42 智能推广（价格历史 + 推荐打分 + 登录后随机延迟）（2026-11-07）
 
-**需求**：顾客在客服设置里打开「智能推广」后，每天最多收 1 条「可能感兴趣的商品」
-到站内聊天；商品卡可点进详情，消息复用现有会话 / 未读 / SSE，不新建通知表。
+**需求**：顾客在客服设置里打开「智能推广」后，每天最多收 1 条「可能感兴趣的商品」。
+**投放位置是客服智能体会话**（AgentChatPanel 的历史），不是顾客—店铺聊天；
+商品卡可点进详情，不新建通知表。
 
 **价格历史（V34）**：
 
@@ -2778,15 +2779,15 @@ orderId）、顾客未读 +1；发货前改地址成功且商家收到 SYSTEM �
     变了记 `update`（`sku_id` 与 `product_id` 都填）；新建 SKU 不另记，避免同一商品多条重复基线。
 - 批量查窗口内最高价用 `ProductPriceHistoryMapper.selectMaxPricesSince`，避免逐商品 N+1。
 
-**消息类型与发送**：
+**投放通道：客服智能体会话（内部事件）**：
 
-- `ChatMessage.TYPE_PROMOTION = "PROMOTION"`；`cardData` 复用 `ChatCard.Product` 快照，
-  `content` 放推广理由；会话列表预览为 `[推荐] …`。
-- `ChatService.sendPromotionMessage(userId, merchantId, productId, reasonText)`：
-  校验店铺 `ACTIVE`、商品属于该店且 `status=1`、`stock>0`、理由非空；
-  `insertIgnore` 顾客—店铺会话后以 `sender_type=MERCHANT` 插入消息。
-  `sender_user_id` 店主优先，平台自营店取启用中的 ADMIN 兜底（与订单确认卡共用
-  `merchantSenderId`）。`appendMessage` 自动让顾客未读 +1，并在事务提交后推 SSE。
+- `common/promotion/PromotionAgentNotifier`：取该用户**最近一个 agent 会话**
+  （`agent_sessions`，没有就新建并登记归属），以内部事件 `promotion-push` 调 agent
+  （不跑主模型）；payload 含推广文案与商品卡字段（productId/name/image/price/stock/
+  sales/...），**不再往顾客—店铺聊天写消息**。
+- rag_helper `_run_internal_event` 收到后把一条 assistant 消息（带 `products` 商品卡）
+  写进该会话历史；前端 AgentChatPanel 打开历史即可看到、商品卡可点进详情。
+- agent 不可用/写入失败时返回 false：**不标记当天已推**，留给下次触发。
 
 **推荐打分（`PromotionService` / `PromotionServiceImpl`）**：
 
@@ -2816,12 +2817,12 @@ orderId）、顾客未读 +1；发货前改地址成功且商家收到 SYSTEM �
 - `PromotionService.runDaily()` 保留作手动/测试批量入口（不再被定时器调用），
   `LIMIT itsmygo.promotion.batch-size`，逐个代理调 `notifyForUser`，单用户异常捕获后继续。
 
-**前端**：`ChatContentType` 增加 `PROMOTION`；`MessageBubble` 对 `PROMOTION` 复用商品卡渲染，
-卡片上方显示「为你推荐」与推广理由，样式只做小改。
+**前端**：不需要新增聊天消息类型（历史里的 assistant 消息自带 `products`，沿用现有
+AgentChatPanel 的商品卡渲染）；原来「顾客—店铺聊天」的 PROMOTION 类型与渲染已移除。
 
 **测试**：新增 5 条——`ProductPriceHistoryTest` 2 条（商品新建/改价/同价不重复、
 规格改价带 `sku_id`）；`PromotionServiceTest` 3 条（发送 1 条且标记今天、同日不再发、
-偏好关闭不发、`runDaily` 批量只处理开启用户、登录触发随机延迟/去重/Redis 降级）。全量 `./mvnw.cmd test` **319 条全绿**
+偏好关闭不发、`runDaily` 批量只处理开启用户、登录触发随机延迟/去重/Redis 降级）。全量 `./mvnw.cmd test` **323 条全绿**
 （基线 303 + 5）；`cd frontend && npm run build` EXITCODE=0。
 
 ### 3.43 个人消费报告（聚合口径 + 页面 + agent 工具）（2026-11-07）

@@ -92,7 +92,7 @@ Authorization: Bearer <token>
 | 字段 | 取值 |
 |---|---|
 | `senderType` | `CUSTOMER` / `MERCHANT` / `AGENT`（买小购代发的平台客服消息） |
-| `contentType` | `TEXT` / `IMAGE` / `PRODUCT` / `ORDER` / `ORDER_CONFIRM` / `PROMOTION` |
+| `contentType` | `TEXT` / `IMAGE` / `PRODUCT` / `ORDER` / `ORDER_CONFIRM` |
 
 ### 1.6 权限标记
 
@@ -414,7 +414,7 @@ Authorization: Bearer <token>
 - `PRODUCT`：`card` 为商品快照。
 - `ORDER`：`card` 为订单快照。
 - `ORDER_CONFIRM`：商家自动发的订单确认快照（同一份订单 `card`）；顾客侧渲染「信息无误 / 修改地址」，发货前可改收货地址。
-- `PROMOTION`：智能推广用商家身份发的推荐商品卡（`card` 为商品快照），`content` 是推广理由
+- `ORDER_CONFIRM`：商家自动发的订单确认卡（同 `ORDER` 快照，顾客侧可「信息无误 / 修改地址」）。
   （如「最近 30 天降价约 15%，这款评分 4.5 分，要不要看看？」）；顾客侧渲染「为你推荐」+ 理由 + 商品卡。
   仅由后端定时任务按 `itsmygo.promotion.*` 配置发送，不开放给聊天发送接口。
 

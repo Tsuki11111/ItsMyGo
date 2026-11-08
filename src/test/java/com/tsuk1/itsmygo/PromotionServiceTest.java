@@ -1,11 +1,10 @@
 package com.tsuk1.itsmygo;
 
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import agent.v1.Event;
 import com.tsuk1.itsmygo.common.Roles;
+import com.tsuk1.itsmygo.common.agent.AgentGateway;
 import com.tsuk1.itsmygo.entity.AgentPreference;
 import com.tsuk1.itsmygo.entity.Category;
-import com.tsuk1.itsmygo.entity.ChatMessage;
-import com.tsuk1.itsmygo.entity.Conversation;
 import com.tsuk1.itsmygo.entity.Merchant;
 import com.tsuk1.itsmygo.entity.Product;
 import com.tsuk1.itsmygo.entity.ProductPriceHistory;
@@ -14,27 +13,42 @@ import com.tsuk1.itsmygo.entity.Review;
 import com.tsuk1.itsmygo.entity.User;
 import com.tsuk1.itsmygo.mapper.AgentPreferenceMapper;
 import com.tsuk1.itsmygo.mapper.CategoryMapper;
-import com.tsuk1.itsmygo.mapper.ChatMessageMapper;
-import com.tsuk1.itsmygo.mapper.ConversationMapper;
 import com.tsuk1.itsmygo.mapper.ProductMapper;
 import com.tsuk1.itsmygo.mapper.ProductPriceHistoryMapper;
 import com.tsuk1.itsmygo.mapper.ProductSkuMapper;
 import com.tsuk1.itsmygo.mapper.ReviewMapper;
 import com.tsuk1.itsmygo.mapper.UserMapper;
 import com.tsuk1.itsmygo.service.PromotionService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.util.List;
+import java.util.Collections;
+import java.util.Iterator;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
-/** 智能推广：每天最多 1 条、偏好关闭不发、批量路径只处理开启推广的用户。 */
+/**
+ * 智能推广：写进「客服智能体会话」（内部事件 promotion-push），每天最多 1 条；
+ * 偏好关闭不发；批量路径只处理开启推广的启用用户。
+ */
 class PromotionServiceTest extends ApiTestBase {
+
+    private static final String EVENT = "promotion-push";
 
     @Autowired
     private PromotionService promotionService;
@@ -60,11 +74,15 @@ class PromotionServiceTest extends ApiTestBase {
     @Autowired
     private ReviewMapper reviewMapper;
 
-    @Autowired
-    private ConversationMapper conversationMapper;
+    @MockitoBean
+    private AgentGateway agentGateway;
 
-    @Autowired
-    private ChatMessageMapper chatMessageMapper;
+    @BeforeEach
+    void stubAgent() {
+        when(agentGateway.configured()).thenReturn(true);
+        when(agentGateway.internalEvent(anyLong(), anyString(), anyString(), anyString(),
+                anyString(), any())).thenReturn(Collections.<Event>emptyIterator());
+    }
 
     private long createUser() {
         User user = new User();
@@ -85,7 +103,7 @@ class PromotionServiceTest extends ApiTestBase {
         return preferenceMapper.selectById(userId);
     }
 
-    /** 造一个一定能赢的商品：30 天前 100 元、现价 10 元，销量高、评分 5 分 */
+    /** 造一个一定能赢的商品：30 天前 100 元、现价 10 元、销量高、评分 5 分 */
     private long createPromotionProduct() {
         Category category = new Category();
         category.setParentId(0L);
@@ -139,20 +157,15 @@ class PromotionServiceTest extends ApiTestBase {
         return product.getId();
     }
 
-    private List<ChatMessage> promotionMessages(long userId) {
-        Conversation conversation = conversationMapper.selectOne(Wrappers.<Conversation>lambdaQuery()
-                .eq(Conversation::getCustomerUserId, userId)
-                .eq(Conversation::getMerchantId, Merchant.PLATFORM_MERCHANT_ID));
-        if (conversation == null) {
-            return List.of();
-        }
-        return chatMessageMapper.selectList(Wrappers.<ChatMessage>lambdaQuery()
-                .eq(ChatMessage::getConversationId, conversation.getId())
-                .eq(ChatMessage::getContentType, ChatMessage.TYPE_PROMOTION));
+    private String capturePromotionPayload(int expectedCalls) {
+        ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
+        verify(agentGateway, times(expectedCalls)).internalEvent(anyLong(), anyString(),
+                eq(EVENT), payload.capture(), anyString(), any());
+        return payload.getValue();
     }
 
     @Test
-    void sendsOnePromotionPerDayAndMarksPreference() {
+    void sendsOnePromotionIntoAgentSessionPerDay() {
         long userId = createUser();
         AgentPreference preference = setPreference(userId, true);
         assertThat(preference.getLastPromotionDate()).isNull();
@@ -160,26 +173,19 @@ class PromotionServiceTest extends ApiTestBase {
 
         assertThat(promotionService.notifyForUser(userId)).isTrue();
 
-        List<ChatMessage> messages = promotionMessages(userId);
-        assertThat(messages).hasSize(1);
-        ChatMessage message = messages.get(0);
-        assertThat(message.getSenderType()).isEqualTo(ChatMessage.SENDER_MERCHANT);
-        assertThat(message.getCardData()).contains("\"productId\":" + productId);
-        assertThat(message.getContent()).contains("最近 30 天降价约 90%")
+        String payload = capturePromotionPayload(1);
+        assertThat(payload).contains("\"productId\":\"" + productId + "\"")
+                .contains("最近 30 天降价约 90%")
                 .contains("已售 1000 件")
                 .contains("评分 5.0 分");
-
-        Conversation conversation = conversationMapper.selectOne(Wrappers.<Conversation>lambdaQuery()
-                .eq(Conversation::getCustomerUserId, userId)
-                .eq(Conversation::getMerchantId, Merchant.PLATFORM_MERCHANT_ID));
-        assertThat(conversation.getCustomerUnread()).isEqualTo(1);
 
         LocalDate today = LocalDate.now(ZoneId.of("Asia/Shanghai"));
         assertThat(preferenceMapper.selectById(userId).getLastPromotionDate()).isEqualTo(today);
 
-        // 同一天再调：不再发
+        // 同一天再调：不再发、也不会再调 agent
         assertThat(promotionService.notifyForUser(userId)).isFalse();
-        assertThat(promotionMessages(userId)).hasSize(1);
+        verify(agentGateway, times(1)).internalEvent(anyLong(), anyString(), eq(EVENT),
+                anyString(), anyString(), any());
     }
 
     @Test
@@ -189,7 +195,9 @@ class PromotionServiceTest extends ApiTestBase {
         createPromotionProduct();
 
         assertThat(promotionService.notifyForUser(userId)).isFalse();
-        assertThat(promotionMessages(userId)).isEmpty();
+
+        verify(agentGateway, never()).internalEvent(anyLong(), anyString(), eq(EVENT),
+                anyString(), anyString(), any());
         assertThat(preferenceMapper.selectById(userId).getLastPromotionDate()).isNull();
     }
 
@@ -206,9 +214,19 @@ class PromotionServiceTest extends ApiTestBase {
         int sent = promotionService.runDaily();
 
         assertThat(sent).isGreaterThanOrEqualTo(2);
-        assertThat(promotionMessages(enabledA)).hasSize(1);
-        assertThat(promotionMessages(enabledB)).hasSize(1);
-        assertThat(promotionMessages(disabled)).isEmpty();
+        assertThat(preferenceMapper.selectById(enabledA).getLastPromotionDate()).isNotNull();
+        assertThat(preferenceMapper.selectById(enabledB).getLastPromotionDate()).isNotNull();
         assertThat(preferenceMapper.selectById(disabled).getLastPromotionDate()).isNull();
+    }
+
+    @Test
+    void agentUnavailableDoesNotMarkSent() {
+        when(agentGateway.configured()).thenReturn(false);
+        long userId = createUser();
+        setPreference(userId, true);
+        createPromotionProduct();
+
+        assertThat(promotionService.notifyForUser(userId)).isFalse();
+        assertThat(preferenceMapper.selectById(userId).getLastPromotionDate()).isNull();
     }
 }
