@@ -83,7 +83,11 @@ class CacheAsideTest {
                         Mockito.mock(com.tsuk1.itsmygo.mapper.ProductSkuMapper.class), bloomFilter,
                         cacheHelper, stockService, productSkuService, merchantMapper,
                         Mockito.mock(com.tsuk1.itsmygo.service.StorageService.class),
-                        Mockito.mock(com.tsuk1.itsmygo.service.ProductPriceHistoryService.class));
+                        Mockito.mock(com.tsuk1.itsmygo.service.ProductPriceHistoryService.class),
+                        Mockito.mock(com.tsuk1.itsmygo.mapper.ProductSpecMapper.class),
+                        Mockito.mock(com.tsuk1.itsmygo.mapper.ProductSpecValueMapper.class),
+                        Mockito.mock(com.tsuk1.itsmygo.mapper.ProductPriceHistoryMapper.class),
+                        Mockito.mock(com.tsuk1.itsmygo.common.product.ProductReferenceChecker.class));
 
         countingService.detailForCustomer(createdProductId);
         countingService.detailForCustomer(createdProductId);

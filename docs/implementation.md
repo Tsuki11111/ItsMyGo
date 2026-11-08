@@ -2971,3 +2971,29 @@ PROMOTION 类型与渲染已移除。
 
 **测试**：`ProductCleanupTest` 2 条（dry-run 不落库→执行归档→无引用清理、SKU 同步删除；
 有收藏引用时只归档不删除）。
+
+### 3.47 交付前 P0 整改（2026-11-08）
+
+**1. 已支付订单禁止取消**
+- `OrderStatus.cancellable()` 只保留 `PENDING_PAYMENT`；
+- `OrderServiceImpl.cancel()` 先查 `paid_at`，非空 → `BAD_REQUEST`「已支付订单请申请退款/售后」（防绕过状态机）；
+- 前端 `OrderDetail`：`cancelable` 只认待支付；已支付显示「申请退款」，复用
+  `AfterSaleApplyDialog`（`REFUND_ONLY`）；
+- 测试：`OrderControllerTest#paidOrderCannotBeCancelled`（支付后取消 400、订单仍 PAID）。
+
+**2. 演示账号提示构建期隔离**
+- `Login.vue` 的演示文案改为 `demoHint` 常量：`import.meta.env.DEV ||
+  VITE_SHOW_DEMO_HINT === 'true'`，否则空串；
+- 交付构建（`npm run build:web`）产物已 grep 验证无「演示账号 / testuser」字样；
+- `.env.example` 增加 `VITE_SHOW_DEMO_HINT=false`；dev 库 `testuser.role` 已修正为 CUSTOMER；
+- 生产只由 `BOOTSTRAP_ADMIN_*` 创建管理员，不创建 testuser。
+
+**3. 商品硬删除引用保护**
+- 新增 `common/product/ProductReferenceChecker`（订单/售后明细、购物车、评价、问大家、收藏、足迹），
+  自动清理任务与硬删除共用；
+- `ProductServiceImpl.delete`：有引用 → `CONFLICT(409)`；无引用才删商品 + SKU + 规格/规格值 +
+  价格历史，清商品缓存；图片不删；
+- `ResultCode` 增加 `CONFLICT(409)`；
+- 测试：`AdminProductDeleteTest` 2 条（有订单引用 409、无引用 200 且 SKU 清空）。
+
+**验证**：全量 **337 条**通过；`type-check` / `build:web` 通过，dist 无演示提示。

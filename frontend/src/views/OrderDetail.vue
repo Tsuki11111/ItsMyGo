@@ -34,10 +34,8 @@ let creatingTimer: number | undefined
 
 const order = computed(() => view.value?.order ?? null)
 const payable = computed(() => order.value?.status === 'PENDING_PAYMENT')
-/** 待支付 / 待发货可取消；待收货之后只能走退款 */
-const cancelable = computed(() =>
-  order.value?.status === 'PENDING_PAYMENT' || order.value?.status === 'PAID',
-)
+/** 只有待支付可取消；已支付统一走退款/售后，避免“取消但不退款” */
+const cancelable = computed(() => order.value?.status === 'PENDING_PAYMENT')
 const confirmable = computed(() => order.value?.status === 'SHIPPED')
 /** 付过钱且还没退过：待发货 / 待收货 / 已完成 */
 const refundable = computed(() =>
@@ -288,7 +286,7 @@ onMounted(load)
             :disabled="acting"
             @click="afterSaleVisible = true"
           >
-            申请售后
+            {{ order.status === 'PAID' ? '申请退款' : '申请售后' }}
           </button>
         </div>
       </section>

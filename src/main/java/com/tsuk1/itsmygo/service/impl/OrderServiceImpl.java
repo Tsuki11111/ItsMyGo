@@ -822,6 +822,10 @@ public class OrderServiceImpl implements OrderService {
         if (OrderStatus.CREATING.name().equals(order.getStatus())) {
             throw new BizException(ResultCode.BAD_REQUEST, "订单创建中，请稍候再操作");
         }
+        // 已支付订单不能走取消：否则会回滚库存/券但不退钱，形成“已付款又已取消”的坏数据
+        if (order.getPaidAt() != null) {
+            throw new BizException(ResultCode.BAD_REQUEST, "已支付订单请申请退款/售后");
+        }
         OrderStatus current = OrderStatus.valueOf(order.getStatus());
         if (!current.cancellable()) {
             throw new BizException(ResultCode.BAD_REQUEST,

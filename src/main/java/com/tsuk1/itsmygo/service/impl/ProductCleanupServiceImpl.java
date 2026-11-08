@@ -3,31 +3,20 @@ package com.tsuk1.itsmygo.service.impl;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.tsuk1.itsmygo.common.RedisCacheHelper;
 import com.tsuk1.itsmygo.common.product.ProductCleanupProperties;
+import com.tsuk1.itsmygo.common.product.ProductReferenceChecker;
 import com.tsuk1.itsmygo.dto.ProductCleanupReport;
-import com.tsuk1.itsmygo.entity.AfterSaleItem;
 import com.tsuk1.itsmygo.entity.CartItem;
-import com.tsuk1.itsmygo.entity.OrderItem;
 import com.tsuk1.itsmygo.entity.Product;
 import com.tsuk1.itsmygo.entity.ProductPriceHistory;
-import com.tsuk1.itsmygo.entity.ProductQuestion;
 import com.tsuk1.itsmygo.entity.ProductSku;
 import com.tsuk1.itsmygo.entity.ProductSpec;
 import com.tsuk1.itsmygo.entity.ProductSpecValue;
-import com.tsuk1.itsmygo.entity.Review;
-import com.tsuk1.itsmygo.entity.UserFavorite;
-import com.tsuk1.itsmygo.entity.UserFootprint;
-import com.tsuk1.itsmygo.mapper.AfterSaleItemMapper;
 import com.tsuk1.itsmygo.mapper.CartItemMapper;
-import com.tsuk1.itsmygo.mapper.OrderItemMapper;
 import com.tsuk1.itsmygo.mapper.ProductMapper;
 import com.tsuk1.itsmygo.mapper.ProductPriceHistoryMapper;
-import com.tsuk1.itsmygo.mapper.ProductQuestionMapper;
 import com.tsuk1.itsmygo.mapper.ProductSkuMapper;
 import com.tsuk1.itsmygo.mapper.ProductSpecMapper;
 import com.tsuk1.itsmygo.mapper.ProductSpecValueMapper;
-import com.tsuk1.itsmygo.mapper.ReviewMapper;
-import com.tsuk1.itsmygo.mapper.UserFavoriteMapper;
-import com.tsuk1.itsmygo.mapper.UserFootprintMapper;
 import com.tsuk1.itsmygo.service.NotificationService;
 import com.tsuk1.itsmygo.service.ProductCleanupService;
 import lombok.extern.slf4j.Slf4j;
@@ -41,7 +30,7 @@ import java.util.List;
 /**
  * 长期下架商品处理：
  * 1. 下架超过 offShelfDays → 归档（archived_at，可恢复）；
- * 2. 归档超过 archiveGraceDays 且**无任何引用**（订单/售后/购物车/评价/问答/收藏/足迹/价格历史）
+ * 2. 归档超过 archiveGraceDays 且**无任何引用**（订单/售后/购物车/评价/问答/收藏/足迹）
  *    → 物理删除商品 + SKU + 规格；图片不删（避免误伤订单快照，后续可做对象存储清理任务）。
  */
 @Slf4j
@@ -56,13 +45,8 @@ public class ProductCleanupServiceImpl implements ProductCleanupService {
     private final ProductSpecMapper productSpecMapper;
     private final ProductSpecValueMapper productSpecValueMapper;
     private final CartItemMapper cartItemMapper;
-    private final OrderItemMapper orderItemMapper;
-    private final AfterSaleItemMapper afterSaleItemMapper;
-    private final ReviewMapper reviewMapper;
-    private final ProductQuestionMapper productQuestionMapper;
-    private final UserFavoriteMapper userFavoriteMapper;
-    private final UserFootprintMapper userFootprintMapper;
     private final ProductPriceHistoryMapper priceHistoryMapper;
+    private final ProductReferenceChecker referenceChecker;
     private final RedisCacheHelper cacheHelper;
     private final NotificationService notificationService;
     private final ProductCleanupProperties properties;
@@ -72,13 +56,8 @@ public class ProductCleanupServiceImpl implements ProductCleanupService {
                                      ProductSpecMapper productSpecMapper,
                                      ProductSpecValueMapper productSpecValueMapper,
                                      CartItemMapper cartItemMapper,
-                                     OrderItemMapper orderItemMapper,
-                                     AfterSaleItemMapper afterSaleItemMapper,
-                                     ReviewMapper reviewMapper,
-                                     ProductQuestionMapper productQuestionMapper,
-                                     UserFavoriteMapper userFavoriteMapper,
-                                     UserFootprintMapper userFootprintMapper,
                                      ProductPriceHistoryMapper priceHistoryMapper,
+                                     ProductReferenceChecker referenceChecker,
                                      RedisCacheHelper cacheHelper,
                                      NotificationService notificationService,
                                      ProductCleanupProperties properties) {
@@ -87,13 +66,8 @@ public class ProductCleanupServiceImpl implements ProductCleanupService {
         this.productSpecMapper = productSpecMapper;
         this.productSpecValueMapper = productSpecValueMapper;
         this.cartItemMapper = cartItemMapper;
-        this.orderItemMapper = orderItemMapper;
-        this.afterSaleItemMapper = afterSaleItemMapper;
-        this.reviewMapper = reviewMapper;
-        this.productQuestionMapper = productQuestionMapper;
-        this.userFavoriteMapper = userFavoriteMapper;
-        this.userFootprintMapper = userFootprintMapper;
         this.priceHistoryMapper = priceHistoryMapper;
+        this.referenceChecker = referenceChecker;
         this.cacheHelper = cacheHelper;
         this.notificationService = notificationService;
         this.properties = properties;
@@ -141,7 +115,7 @@ public class ProductCleanupServiceImpl implements ProductCleanupService {
         int purged = 0;
         int skipped = 0;
         for (Product product : purgeCandidates) {
-            if (hasReferences(product.getId())) {
+            if (referenceChecker.hasReferences(product.getId())) {
                 skipped++;
                 continue;
             }
@@ -164,25 +138,6 @@ public class ProductCleanupServiceImpl implements ProductCleanupService {
         return report;
     }
 
-    /** 有任何用户/交易数据引用就不物理删除（只归档，保留历史） */
-    private boolean hasReferences(Long productId) {
-        return count(orderItemMapper.selectCount(Wrappers.<OrderItem>lambdaQuery()
-                .eq(OrderItem::getProductId, productId))) > 0
-                || count(afterSaleItemMapper.selectCount(Wrappers.<AfterSaleItem>lambdaQuery()
-                .eq(AfterSaleItem::getProductId, productId))) > 0
-                || count(cartItemMapper.selectCount(Wrappers.<CartItem>lambdaQuery()
-                .eq(CartItem::getProductId, productId))) > 0
-                || count(reviewMapper.selectCount(Wrappers.<Review>lambdaQuery()
-                .eq(Review::getProductId, productId))) > 0
-                || count(productQuestionMapper.selectCount(Wrappers.<ProductQuestion>lambdaQuery()
-                .eq(ProductQuestion::getProductId, productId))) > 0
-                || count(userFavoriteMapper.selectCount(Wrappers.<UserFavorite>lambdaQuery()
-                .eq(UserFavorite::getProductId, productId))) > 0
-                || count(userFootprintMapper.selectCount(Wrappers.<UserFootprint>lambdaQuery()
-                .eq(UserFootprint::getProductId, productId))) > 0;
-        // 价格历史是商品内部数据，随商品一起清理，不算“引用”
-    }
-
     private void purge(Long productId) {
         List<ProductSpec> specs = productSpecMapper.selectList(Wrappers.<ProductSpec>lambdaQuery()
                 .eq(ProductSpec::getProductId, productId));
@@ -200,10 +155,6 @@ public class ProductCleanupServiceImpl implements ProductCleanupService {
         productMapper.deleteById(productId);
         cacheHelper.evict(RedisCacheHelper.key(CACHE_KEY_PREFIX + productId));
         log.info("已物理清理无引用归档商品: productId={}", productId);
-    }
-
-    private long count(Long value) {
-        return value == null ? 0 : value;
     }
 
     private void notifyAdmins(ProductCleanupReport report) {

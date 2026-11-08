@@ -13,6 +13,11 @@ const userStore = useUserStore()
 const mode = ref<'login' | 'register'>('login')
 const formRef = ref<FormInstance>()
 const submitting = ref(false)
+/** 演示账号提示：仅 DEV 构建或显式 VITE_SHOW_DEMO_HINT=true 时显示（交付构建默认不出现） */
+const demoHint =
+  import.meta.env.DEV || import.meta.env.VITE_SHOW_DEMO_HINT === 'true'
+    ? '演示账号：testuser / 123456'
+    : ''
 
 const form = reactive({
   username: '',
@@ -150,8 +155,8 @@ async function submit() {
         <RouterLink to="/privacy" target="_blank" rel="noopener">《隐私政策》</RouterLink>
       </p>
 
-      <!-- 练手项目的演示账号，方便直接上手；真上线要拿掉 -->
-      <p class="hint">演示账号：testuser / 123456</p>
+      <!-- 仅开发/显式演示构建展示；正式交付构建不带演示入口 -->
+      <p v-if="demoHint" class="hint">{{ demoHint }}</p>
     </div>
   </div>
 </template>

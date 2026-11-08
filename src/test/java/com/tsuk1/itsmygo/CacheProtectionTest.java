@@ -74,7 +74,11 @@ class CacheProtectionTest {
                 Mockito.mock(com.tsuk1.itsmygo.mapper.ProductSkuMapper.class), bloomFilter,
                 cacheHelper, stockService, productSkuService, merchantMapper,
                 Mockito.mock(com.tsuk1.itsmygo.service.StorageService.class),
-                Mockito.mock(com.tsuk1.itsmygo.service.ProductPriceHistoryService.class));
+                Mockito.mock(com.tsuk1.itsmygo.service.ProductPriceHistoryService.class),
+                Mockito.mock(com.tsuk1.itsmygo.mapper.ProductSpecMapper.class),
+                Mockito.mock(com.tsuk1.itsmygo.mapper.ProductSpecValueMapper.class),
+                Mockito.mock(com.tsuk1.itsmygo.mapper.ProductPriceHistoryMapper.class),
+                Mockito.mock(com.tsuk1.itsmygo.common.product.ProductReferenceChecker.class));
 
         long ghostId = 999_999_999L;
         assertThatThrownBy(() -> service.detailForCustomer(ghostId))
@@ -105,7 +109,11 @@ class CacheProtectionTest {
                 Mockito.mock(com.tsuk1.itsmygo.mapper.ProductSkuMapper.class), bloomFilter,
                 cacheHelper, stockService, productSkuService, merchantMapper,
                 Mockito.mock(com.tsuk1.itsmygo.service.StorageService.class),
-                Mockito.mock(com.tsuk1.itsmygo.service.ProductPriceHistoryService.class));
+                Mockito.mock(com.tsuk1.itsmygo.service.ProductPriceHistoryService.class),
+                Mockito.mock(com.tsuk1.itsmygo.mapper.ProductSpecMapper.class),
+                Mockito.mock(com.tsuk1.itsmygo.mapper.ProductSpecValueMapper.class),
+                Mockito.mock(com.tsuk1.itsmygo.mapper.ProductPriceHistoryMapper.class),
+                Mockito.mock(com.tsuk1.itsmygo.common.product.ProductReferenceChecker.class));
         assertThat(service.detailForCustomer(createdProductId).getId()).isEqualTo(createdProductId);
         assertThat(dbQueries.get()).isEqualTo(1);
     }

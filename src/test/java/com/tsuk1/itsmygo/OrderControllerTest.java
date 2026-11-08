@@ -433,6 +433,28 @@ class OrderControllerTest extends ApiTestBase {
         assertProductStock(token, productId, 5);
     }
 
+    /** 已支付订单不能走取消：必须走退款/售后，避免“已付款又取消、钱没退” */
+    @Test
+    void paidOrderCannotBeCancelled() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        String token = customerToken("c" + System.nanoTime());
+        long productId = createProduct(admin, "PaidCancel", "10.00", 5);
+        long addressId = createAddress(token);
+        addToCart(token, productId, 1);
+        long orderId = placeOrder(token, addressId);
+
+        mockMvc.perform(post("/api/orders/" + orderId + "/pay").header("Authorization", bearer(token)))
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.order.status").value("PAID"));
+
+        mockMvc.perform(post("/api/orders/" + orderId + "/cancel").header("Authorization", bearer(token)))
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.message").value("已支付订单请申请退款/售后"));
+
+        mockMvc.perform(get("/api/orders/" + orderId).header("Authorization", bearer(token)))
+                .andExpect(jsonPath("$.data.order.status").value("PAID"));
+    }
+
     @Test
     void placingOrderWithEmptySelectionIsRejected() throws Exception {
         String token = customerToken("c" + System.nanoTime());

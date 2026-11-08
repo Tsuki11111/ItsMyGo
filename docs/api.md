@@ -620,6 +620,8 @@ Authorization: Bearer <token>
 - `status` 支持逗号分隔的多个枚举，如 `PAID,SHIPPED`。
 - `previewLimit=0` 返回全部明细。
 - 支付是模拟支付：直接改状态为 `PAID` 并写支付流水。
+- **已支付订单不能取消**：`POST /cancel` 只允许 `PENDING_PAYMENT`；`PAID` 调取消返回
+  `code=400`「已支付订单请申请退款/售后」，退款统一走售后单（`REFUND_ONLY`）。
 - **支付成功后自动发订单确认卡**：商家身份在会话里发一条 `ORDER_CONFIRM` 卡片
   （订单号/商品/金额），顾客可「信息无误」或「修改地址」；确认只是聊天提醒，**不阻塞发货**。
 - **发货前可改收货地址**：`POST /api/orders/{id}/address`，`addressId` 必须是当前用户
@@ -898,6 +900,9 @@ Authorization: Bearer <token>
 - `status`：1 上架 / 0 下架；`lowStock=true` 只返回有 SKU `stock <= 10` 的商品。
 - 批量上下架只改商品状态，更新后清商品详情缓存；单个商品仍可走 `PUT /{id}`。
 - 新建商品默认归属平台自营（merchantId=1），也可显式指定。
+- `DELETE /api/admin/products/{id}`：**有订单/售后/购物车/评价/问大家/收藏/足迹引用时返回
+  `code=409`**，只允许删除无任何业务引用的商品；删除会同步清理 SKU、规格/规格值与价格历史，
+  图片对象不删。
 - `rebuild-bloom` 用于修复手工 SQL/导入脚本写入、未进入布隆过滤器的商品。
 
 ### 17.4 订单

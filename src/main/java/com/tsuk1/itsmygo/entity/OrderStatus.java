@@ -57,9 +57,9 @@ public enum OrderStatus {
         };
     }
 
-    /** 取消要回滚库存；只有「还没发货」的两个状态可以取消（创建中由异步补账收尾） */
+    /** 取消要回滚库存；只有「还没付款」的订单可以取消（已支付统一走退款/售后） */
     public boolean cancellable() {
-        return this == PENDING_PAYMENT || this == PAID;
+        return this == PENDING_PAYMENT;
     }
 
     /** 可以申请退款的状态：付过钱、且还没退过 */

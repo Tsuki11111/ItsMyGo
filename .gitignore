@@ -49,3 +49,6 @@ frontend/e2e-*.log
 .rag-helper-dir
 .itsmygo-dir
 .dev-logs/
+
+# 本地验收/截图产物（不入库）
+.qa/

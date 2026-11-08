@@ -6,17 +6,24 @@ import com.tsuk1.itsmygo.common.ProductBloomFilter;
 import com.tsuk1.itsmygo.common.RedisCacheHelper;
 import com.tsuk1.itsmygo.common.ResultCode;
 import com.tsuk1.itsmygo.common.exception.BizException;
+import com.tsuk1.itsmygo.common.product.ProductReferenceChecker;
 import com.tsuk1.itsmygo.dto.BrandView;
 import com.tsuk1.itsmygo.dto.PageResponse;
 import com.tsuk1.itsmygo.dto.ProductRequest;
 import com.tsuk1.itsmygo.dto.ProductSkuView;
 import com.tsuk1.itsmygo.dto.StockView;
 import com.tsuk1.itsmygo.entity.Product;
+import com.tsuk1.itsmygo.entity.ProductPriceHistory;
 import com.tsuk1.itsmygo.entity.ProductSku;
+import com.tsuk1.itsmygo.entity.ProductSpec;
+import com.tsuk1.itsmygo.entity.ProductSpecValue;
 import com.tsuk1.itsmygo.entity.Merchant;
 import com.tsuk1.itsmygo.mapper.MerchantMapper;
 import com.tsuk1.itsmygo.mapper.ProductMapper;
+import com.tsuk1.itsmygo.mapper.ProductPriceHistoryMapper;
 import com.tsuk1.itsmygo.mapper.ProductSkuMapper;
+import com.tsuk1.itsmygo.mapper.ProductSpecMapper;
+import com.tsuk1.itsmygo.mapper.ProductSpecValueMapper;
 import com.tsuk1.itsmygo.service.ProductPriceHistoryService;
 import com.tsuk1.itsmygo.service.ProductService;
 import com.tsuk1.itsmygo.service.ProductSkuService;
@@ -59,12 +66,20 @@ public class ProductServiceImpl implements ProductService {
     private final MerchantMapper merchantMapper;
     private final StorageService storageService;
     private final ProductPriceHistoryService priceHistoryService;
+    private final ProductSpecMapper productSpecMapper;
+    private final ProductSpecValueMapper productSpecValueMapper;
+    private final ProductPriceHistoryMapper priceHistoryMapper;
+    private final ProductReferenceChecker referenceChecker;
 
     public ProductServiceImpl(ProductMapper productMapper, ProductSkuMapper productSkuMapper,
                               ProductBloomFilter bloomFilter, RedisCacheHelper cacheHelper,
                               StockService stockService, ProductSkuService productSkuService,
                               MerchantMapper merchantMapper, StorageService storageService,
-                              ProductPriceHistoryService priceHistoryService) {
+                              ProductPriceHistoryService priceHistoryService,
+                              ProductSpecMapper productSpecMapper,
+                              ProductSpecValueMapper productSpecValueMapper,
+                              ProductPriceHistoryMapper priceHistoryMapper,
+                              ProductReferenceChecker referenceChecker) {
         this.productMapper = productMapper;
         this.productSkuMapper = productSkuMapper;
         this.bloomFilter = bloomFilter;
@@ -74,6 +89,10 @@ public class ProductServiceImpl implements ProductService {
         this.merchantMapper = merchantMapper;
         this.storageService = storageService;
         this.priceHistoryService = priceHistoryService;
+        this.productSpecMapper = productSpecMapper;
+        this.productSpecValueMapper = productSpecValueMapper;
+        this.priceHistoryMapper = priceHistoryMapper;
+        this.referenceChecker = referenceChecker;
     }
 
     @Override
@@ -315,8 +334,26 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
+    @Transactional
     public void delete(Long id, Long merchantId) {
         requireOwned(id, merchantId);
+        if (referenceChecker.hasReferences(id)) {
+            throw new BizException(ResultCode.CONFLICT,
+                    "该商品有订单/售后/用户数据引用，不能删除，请下架或归档");
+        }
+        List<ProductSpec> specs = productSpecMapper.selectList(Wrappers.<ProductSpec>lambdaQuery()
+                .eq(ProductSpec::getProductId, id));
+        if (!specs.isEmpty()) {
+            List<Long> specIds = specs.stream().map(ProductSpec::getId).toList();
+            productSpecValueMapper.delete(Wrappers.<ProductSpecValue>lambdaQuery()
+                    .in(ProductSpecValue::getSpecId, specIds));
+        }
+        productSpecMapper.delete(Wrappers.<ProductSpec>lambdaQuery()
+                .eq(ProductSpec::getProductId, id));
+        productSkuMapper.delete(Wrappers.<ProductSku>lambdaQuery()
+                .eq(ProductSku::getProductId, id));
+        priceHistoryMapper.delete(Wrappers.<ProductPriceHistory>lambdaQuery()
+                .eq(ProductPriceHistory::getProductId, id));
         productMapper.deleteById(id);
         cacheHelper.evict(cacheKey(id));
     }

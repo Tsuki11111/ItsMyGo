@@ -1,4 +1,4 @@
-# HANDOFF · 一次买够（ItsMyGo）
+﻿# HANDOFF · 一次买够（ItsMyGo）
 
 > **读者**：下一个接手本项目的 Claude 会话
 > **性质**：本项目**状态层的权威源** —— 做到哪、下一步做什么、踩过哪些坑。
@@ -39,7 +39,7 @@
 ## 1. 当前状态一句话
 
 **交易闭环、多商户、AI 客服、运营后台、平台政策、压测、售后、下单异步补账、后台站内通知、Docker 部署均已完成（2026-11-08）。**
-后端自动化测试 **329 条**（本地；CI 跑 325 条，跳过 4 条依赖 MinIO 的用例）。数据库 schema 到 **v37**。
+后端自动化测试 **337 条**（本地；CI 跑 333 条，跳过 4 条依赖 MinIO 的用例）。数据库 schema 到 **v37**。
 
 **待评审/待办**：权限管理 P2.1（邀请管理员时选子角色，补完才能打开 `RBAC_ENABLED`）；
 商品归档清理默认关闭 + dry-run，需先在本地/演示确认报告后再打开 `PRODUCT_CLEANUP_ENABLED`。
@@ -1600,6 +1600,24 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 
 ## 6. 历史记录
 
+### 2026-11-08 · 交付前 P0 整改（取消/演示账号/商品硬删除）
+
+**背景**：交付验收发现 3 个 P0——已支付订单可取消且不退款、登录页演示账号 + dev 库 testuser 为
+ADMIN、管理员可硬删除有订单引用的商品。
+
+**修复**：
+- **P0-1**：`PAID` 不再可取消（`OrderStatus.cancellable` 只留 `PENDING_PAYMENT`），
+  `cancel()` 对 `paid_at` 非空返回 400「已支付订单请申请退款/售后」；前端已支付订单显示
+  「申请退款」走售后退款；
+- **P0-2**：登录页演示提示改为 `VITE_SHOW_DEMO_HINT` 构建期开关（DEV 默认显示），交付构建
+  `dist` 已无演示字样；dev 库 `testuser` 已降为 CUSTOMER；生产只保留 bootstrap 管理员；
+- **P0-3**：新增 `ProductReferenceChecker`，`DELETE /api/admin/products/{id}` 有引用返回 409；
+  无引用才删商品 + SKU + 规格 + 价格历史；自动清理任务复用同一判断。
+
+**验证**：全量 **337 条**通过；新增 `paidOrderCannotBeCancelled`、`AdminProductDeleteTest` 2 条；
+前端 `type-check` / `build:web` 通过；dev 库已修正演示账号角色（历史 15 条“已支付又取消”坏数据
+建议在交付库重置时清理，不自动改资金数据）。
+
 ### 2026-11-08 · 商品卡「查看详情」改为新标签页打开
 
 **现象**：点「让买小购下单」后、模型还在生成时点商品卡「查看详情」，本次生成会被终止。
@@ -1736,7 +1754,7 @@ Playwright 实测：取消后点「重新下单」，页面出现新的「订单
 `PRODUCT_CLEANUP`；默认开关关闭 + dry-run。
 
 **验证**：`ProductCleanupTest` 2 条（dry-run 不落库→归档→无引用清理；有收藏引用只归档）；
-全量 **329 条**通过；前端无改动（复用现有页面）。
+全量 **337 条**通过；前端无改动（复用现有页面）。
 
 ### 2026-11-08 · 权限管理 P1/P2 基础（RBAC，V36）
 
@@ -1758,7 +1776,7 @@ Playwright 实测：取消后点「重新下单」，页面出现新的「订单
 自定义角色/权限管理 UI 按设计不做。
 
 **验证**：新增 `RbacPermissionTest` 3 条（客服可看不可发货/退款、财务可退款不可发货、
-历史管理员回退全权）；全量 **329 条**通过；前端 `type-check` / `build:web` 通过。
+历史管理员回退全权）；全量 **337 条**通过；前端 `type-check` / `build:web` 通过。
 
 ### 2026-11-08 · 管理端发货权限收敛到平台自营店（D25）
 
@@ -3654,3 +3672,5 @@ JwtAuthenticationFilter）、`service/AuthService`、`service/AddressService`、
 - 需求分析 + 技术选型定稿 → `docs/decisions-ecommerce.md`
 - 启动共用 `mysql` 容器，建 `its_mygo` 库并授权 `tsuk1` 账号
 - 确认复用共用中间件的方案与命名约定（§4.3、§4.4）
+
+
