@@ -772,7 +772,7 @@ onBeforeUnmount(() => {
         <div class="settings-row">
           <div class="settings-text">
             <p class="settings-name">流式输出</p>
-            <p class="settings-desc">逐字显示回复</p>
+            <p class="settings-desc">流式下发最终回复</p>
           </div>
           <el-switch v-model="preferences.streamEnabled" />
         </div>
