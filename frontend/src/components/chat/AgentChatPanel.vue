@@ -203,6 +203,15 @@ const visibleActions = computed(() =>
   }),
 )
 
+/** 底部只展示最新一张卡，旧的收进「查看历史操作」，避免卡片越堆越多 */
+const showActionHistory = ref(false)
+const latestAction = computed(() =>
+  visibleActions.value.length
+    ? visibleActions.value[visibleActions.value.length - 1]
+    : null,
+)
+const olderActions = computed(() => visibleActions.value.slice(0, -1))
+
 const TRACE_LABELS: Record<string, string> = {
   delegate: '派发',
   tool: '工具',
@@ -346,6 +355,7 @@ async function selectSession(command: unknown) {
   sessionId.value = id
   persistSession(id)
   stopTyping()
+  showActionHistory.value = false
   messages.value = []
   actions.value = []
   await loadHistory(id)
@@ -531,6 +541,7 @@ function newSession() {
     void stop()
   }
   stopTyping()
+  showActionHistory.value = false
   sessionId.value = null
   runId.value = ''
   persistSession(null)
@@ -776,13 +787,28 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div v-if="visibleActions.length" class="action-list">
+      <div v-if="latestAction" class="action-list">
         <AgentActionCard
-          v-for="action in visibleActions"
-          :key="action.actionNo"
-          :action="action"
+          :key="latestAction.actionNo"
+          :action="latestAction"
           @updated="onActionUpdated"
         />
+        <button
+          v-if="olderActions.length"
+          type="button"
+          class="action-history-toggle"
+          @click="showActionHistory = !showActionHistory"
+        >
+          {{ showActionHistory ? '收起历史操作' : `查看历史操作（${olderActions.length}）` }}
+        </button>
+        <template v-if="showActionHistory">
+          <AgentActionCard
+            v-for="action in olderActions.slice().reverse()"
+            :key="action.actionNo"
+            :action="action"
+            @updated="onActionUpdated"
+          />
+        </template>
       </div>
     </div>
 
@@ -953,6 +979,20 @@ onBeforeUnmount(() => {
 
 .action-list {
   margin-top: 4px;
+}
+
+.action-history-toggle {
+  margin: 4px 0 2px;
+  padding: 0;
+  font-size: 12px;
+  color: var(--c-text-3);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.action-history-toggle:hover {
+  color: var(--c-pink);
 }
 
 .welcome p {
