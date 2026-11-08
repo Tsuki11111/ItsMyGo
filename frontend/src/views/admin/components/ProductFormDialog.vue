@@ -14,8 +14,6 @@ const props = defineProps<{
   categories: CategoryNode[]
   /** 商家后台复用：走 /api/merchant/** 而不是 /api/admin/** */
   merchant?: boolean
-  /** 打开时默认展示的页签（列表「规格」按钮直接进规格页） */
-  initialTab?: 'basic' | 'specs'
 }>()
 
 const emit = defineEmits<{
@@ -62,7 +60,7 @@ watch(
     if (!open) return
 
     createdProduct.value = null
-    activeTab.value = props.initialTab ?? 'basic'
+    activeTab.value = 'basic'
     const product = props.product
     Object.assign(
       form,

@@ -3,18 +3,16 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ProductFormDialog from './components/ProductFormDialog.vue'
-import StockAdjustDialog from './components/StockAdjustDialog.vue'
 import ProductImage from '@/components/ProductImage.vue'
 import {
   batchUpdateProductStatus,
   fetchAdminCategories,
   fetchAdminMerchants,
   fetchAdminProducts,
-  fetchProductSkus,
   rebuildBloomFilter,
   updateProduct,
 } from '@/api/admin'
-import type { AdminMerchantView, CategoryNode, Product, ProductSku } from '@/api/types'
+import type { AdminMerchantView, CategoryNode, Product } from '@/api/types'
 import { fetchProduct } from '@/api/product'
 
 const route = useRoute()
@@ -34,10 +32,6 @@ const selected = ref<Product[]>([])
 
 const formVisible = ref(false)
 const editingProduct = ref<Product | null>(null)
-const editInitialTab = ref<'basic' | 'specs'>('basic')
-const stockVisible = ref(false)
-const stockProductId = ref<number | null>(null)
-const stockSku = ref<ProductSku | null>(null)
 
 /** 分类名映射：管理端商品列表只给 categoryId */
 const categoryNameById = computed(() => {
@@ -129,18 +123,6 @@ async function batchStatus(onSale: boolean) {
   await load()
 }
 
-async function openStock(row: Product) {
-  const view = await fetchProductSkus(row.id)
-  if (view.skus.length !== 1) {
-    // 多规格的库存分散在多个 SKU 上，直接进合并后的规格页签
-    openEdit(row, 'specs')
-    return
-  }
-  stockProductId.value = row.id
-  stockSku.value = view.skus[0]
-  stockVisible.value = true
-}
-
 function onPageChange(next: number) {
   page.value = next
   load()
@@ -154,13 +136,11 @@ function onSizeChange(next: number) {
 
 function openCreate() {
   editingProduct.value = null
-  editInitialTab.value = 'basic'
   formVisible.value = true
 }
 
-function openEdit(row: Product, tab: 'basic' | 'specs' = 'basic') {
+function openEdit(row: Product) {
   editingProduct.value = row
-  editInitialTab.value = tab
   formVisible.value = true
 }
 
@@ -348,11 +328,9 @@ onMounted(async () => {
       <el-table-column prop="updatedAt" label="更新时间" width="150">
         <template #default="{ row }">{{ formatTime(row.updatedAt) }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="190">
+      <el-table-column label="操作" width="100">
         <template #default="{ row }">
           <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
-          <el-button link type="primary" @click="openEdit(row, 'specs')">规格</el-button>
-          <el-button link type="primary" @click="openStock(row)">库存</el-button>
         </template>
       </el-table-column>
       <template #empty>
@@ -376,15 +354,7 @@ onMounted(async () => {
       v-model="formVisible"
       :product="editingProduct"
       :categories="categories"
-      :initial-tab="editInitialTab"
       @saved="load"
-    />
-
-    <StockAdjustDialog
-      v-model="stockVisible"
-      :product-id="stockProductId ?? 0"
-      :sku="stockSku"
-      @updated="load"
     />
   </div>
 </template>

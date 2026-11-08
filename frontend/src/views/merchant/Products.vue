@@ -18,7 +18,6 @@ const loading = ref(false)
 
 const formVisible = ref(false)
 const editingProduct = ref<Product | null>(null)
-const editInitialTab = ref<'basic' | 'specs'>('basic')
 
 const categoryNameById = computed(() => {
   const map = new Map<number, string>()
@@ -81,9 +80,8 @@ function openCreate() {
   formVisible.value = true
 }
 
-function openEdit(row: Product, tab: 'basic' | 'specs' = 'basic') {
+function openEdit(row: Product) {
   editingProduct.value = row
-  editInitialTab.value = tab
   formVisible.value = true
 }
 
@@ -192,7 +190,6 @@ onMounted(async () => {
       <el-table-column label="操作" width="140" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
-          <el-button link type="primary" @click="openEdit(row, 'specs')">规格</el-button>
         </template>
       </el-table-column>
       <template #empty>
@@ -216,7 +213,6 @@ onMounted(async () => {
       v-model="formVisible"
       :product="editingProduct"
       :categories="categories"
-      :initial-tab="editInitialTab"
       merchant
       @saved="load"
     />
