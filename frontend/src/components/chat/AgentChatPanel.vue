@@ -1218,7 +1218,9 @@ onBeforeUnmount(() => {
 
 .product-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+  /* 单张卡不再拉满整行（约 220px 宽）；多张自动排多列，最多 4 列 */
+  grid-template-columns: repeat(auto-fit, minmax(180px, 220px));
+  justify-content: start;
   gap: 10px;
   margin-top: 12px;
 }
