@@ -24,6 +24,7 @@ import {
   stopAgent,
   streamAgentMessage,
 } from '@/api/agent'
+import { fetchOrders } from '@/api/order'
 import AgentActionCard from './AgentActionCard.vue'
 import AgentFormCard from './AgentFormCard.vue'
 import AgentProductCardView from './AgentProductCard.vue'
@@ -40,6 +41,7 @@ import type {
   AgentTraceEvent,
   AgentUsageEvent,
   ChatScope,
+  Order,
 } from '@/api/types'
 
 interface UiMessage {
@@ -79,6 +81,8 @@ const expandedTraces = ref<Record<string, boolean>>({})
 const activeAssistantId = ref<string | null>(null)
 /** 已提交的表单（按 formId）：本轮置灰，等下一轮回复 */
 const submittedForms = ref<Record<string, boolean>>({})
+/** 智能下单确认后生成、仍未支付的订单；用轻提示条给「去支付」入口（不占用位卡片） */
+const unpaidOrders = ref<Order[]>([])
 /** 流式输出开启时，最终回答到达后逐字展示（中间轮次文本不回放） */
 let typingTimer: ReturnType<typeof setInterval> | null = null
 
@@ -239,6 +243,7 @@ function findMessage(id: string): UiMessage | undefined {
 }
 
 function onActionUpdated(updated: AgentActionView) {
+  void refreshUnpaidOrders()
   const index = actions.value.findIndex((item) => item.actionNo === updated.actionNo)
   if (index >= 0) actions.value[index] = updated
   else actions.value.push(updated)
@@ -263,6 +268,7 @@ function buyProduct(product: AgentProductCard) {
 function onVisibilityChange() {
   if (document.visibilityState === 'visible' && sessionId.value && !streaming.value) {
     void loadActions(sessionId.value)
+    void refreshUnpaidOrders()
   }
 }
 
@@ -270,6 +276,15 @@ async function scrollToBottom() {
   await nextTick()
   const el = scrollEl.value
   if (el) el.scrollTop = el.scrollHeight
+}
+
+async function refreshUnpaidOrders() {
+  try {
+    const page = await fetchOrders({ status: 'PENDING_PAYMENT', size: 5, previewLimit: 0 })
+    unpaidOrders.value = (page.records || []).map((item) => item.order)
+  } catch {
+    unpaidOrders.value = []
+  }
 }
 
 async function loadActions(id: string | null) {
@@ -575,6 +590,7 @@ onMounted(async () => {
     // 偏好加载失败不影响聊天
   }
   await refreshSessions()
+  void refreshUnpaidOrders()
   const saved = sessionKey.value ? localStorage.getItem(sessionKey.value) : null
   const target = saved || sessions.value[0]?.sessionId || null
   if (target) {
@@ -778,6 +794,19 @@ onBeforeUnmount(() => {
           @updated="onActionUpdated"
         />
       </div>
+
+      <router-link
+        v-if="unpaidOrders.length"
+        :to="`/order/${unpaidOrders[0].id}`"
+        class="pay-tip"
+      >
+        <span class="pay-tip-text">
+          待支付：订单 {{ unpaidOrders[0].orderNo }}
+          <template v-if="unpaidOrders.length > 1">等 {{ unpaidOrders.length }} 笔</template>
+        </span>
+        <span class="pay-tip-amount">¥{{ Number(unpaidOrders[0].totalAmount || 0).toFixed(2) }}</span>
+        <span class="pay-tip-action">去支付 →</span>
+      </router-link>
     </div>
 
     <div class="composer">
@@ -947,6 +976,40 @@ onBeforeUnmount(() => {
 
 .action-list {
   margin-top: 4px;
+}
+
+.pay-tip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: #8a5a00;
+  text-decoration: none;
+  background: #fff8e6;
+  border: 1px solid #ffe1a8;
+  border-radius: 8px;
+}
+
+.pay-tip-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pay-tip-amount {
+  flex: none;
+  font-weight: 600;
+  color: #d9534f;
+}
+
+.pay-tip-action {
+  flex: none;
+  font-weight: 600;
+  color: var(--c-pink);
 }
 
 .action-history-toggle {
