@@ -57,6 +57,8 @@ interface UiMessage {
   webOnly: boolean
   error: string
   stopped: boolean
+  /** final 到达的完整回答；打字机期间 text 是逐步填充的，兜底判断用这个 */
+  finalAnswer?: string
 }
 
 const props = defineProps<{ mode: ChatScope }>()
@@ -417,6 +419,7 @@ async function sendMessage(preset?: string, formResult?: AgentFormResult,
         if (!preferences.value.streamEnabled) assistant.text += event.delta
         break
       case 'final':
+        assistant.finalAnswer = event.answer || ''
         if (preferences.value.streamEnabled && event.answer) {
           startTyping(assistantId, event.answer)
         } else {
@@ -463,9 +466,9 @@ async function sendMessage(preset?: string, formResult?: AgentFormResult,
       abortController.signal,
     )
     const assistant = findMessage(assistantId)
-    if (assistant && !assistant.text && !assistant.error
-        && !assistant.stopped && assistant.images.length === 0
-        && assistant.forms.length === 0) {
+    if (assistant && !assistant.text && !assistant.finalAnswer
+        && !assistant.error && !assistant.stopped
+        && assistant.images.length === 0 && assistant.forms.length === 0) {
       assistant.error = '客服没有返回内容，请重试'
     }
   } catch (error) {
