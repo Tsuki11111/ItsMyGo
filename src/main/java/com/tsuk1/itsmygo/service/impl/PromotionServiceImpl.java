@@ -242,23 +242,30 @@ public class PromotionServiceImpl implements PromotionService {
     }
 
     /** 文案只拼真实信号，不编数字 */
-    /** 多商品文案：一句总起 + ①②③ 逐条真实卖点 + 一句统一 CTA（不再每行重复「要不要看看？」） */
+    /** 多商品文案：按最强卖点选开头 + ①②③ 逐条真实卖点 + 一句统一 CTA */
     private String buildPromotionText(List<Scored> picked) {
-        StringBuilder text = new StringBuilder();
-        if (picked.size() == 1) {
-            text.append("给你挑了一件最近值得看的商品，价格和口碑都不错：\n");
-        } else {
-            text.append("给你挑了 ").append(picked.size())
-                    .append(" 件最近值得看的，价格和口碑都不错：\n");
-        }
+        StringBuilder text = new StringBuilder(buildPromotionIntro(picked));
         for (int i = 0; i < picked.size(); i++) {
-            if (i > 0) {
-                text.append("\n");
-            }
-            text.append(CIRCLED[i]).append(" ").append(buildSignals(picked.get(i)));
+            text.append("\n").append(CIRCLED[i]).append(" ").append(buildSignals(picked.get(i)));
         }
-        text.append("\n点商品卡看详情，有看中的直接跟我说，我帮你下单～");
+        text.append("\n点商品卡看详情，想买哪件直接回我，我帮您下单～");
         return text.toString();
+    }
+
+    /** 开头按最强信号换说法，避免每条推荐都一个腔调 */
+    private String buildPromotionIntro(List<Scored> picked) {
+        Scored top = picked.get(0);
+        String count = picked.size() == 1 ? "一件" : picked.size() + " 件";
+        if (top.priceDrop() >= 0.05) {
+            return "最近有几件价格挺合适，帮您挑出来了：";
+        }
+        if (top.categoryHit() || top.brandHit()) {
+            return "按您之前买过的类型挑了几件，看看合不合心意：";
+        }
+        if (top.rating() >= 4.5) {
+            return "最近口碑不错的几件，帮您整理好了：";
+        }
+        return "给您找了 " + count + " 最近值得看的，帮您整理好了：";
     }
 
     /** 单件商品的真实卖点，不编数字（不带 CTA，CTA 由整体文案统一收） */
@@ -267,17 +274,17 @@ public class PromotionServiceImpl implements PromotionService {
         if (scored.priceDrop() > 0) {
             double percent = Math.round(scored.priceDrop() * 1000) / 10.0;
             if (percent >= 0.1) {
-                parts.add("最近 30 天降价约 " + formatNumber(percent) + "%");
+                parts.add("近 30 天降了约 " + formatNumber(percent) + "%");
             } else {
-                parts.add("最近 30 天价格有下降");
+                parts.add("近 30 天价格有下降");
             }
         }
         if (scored.categoryHit() && scored.brandHit()) {
-            parts.add("和你之前买过的商品同品牌同类");
+            parts.add("和您之前买过的同品牌同类");
         } else if (scored.categoryHit()) {
-            parts.add("和你之前买过的商品同类");
+            parts.add("和您之前买过的同类");
         } else if (scored.brandHit()) {
-            parts.add("和你之前买过的商品同品牌");
+            parts.add("和您之前买过的同品牌");
         }
         if (scored.rating() > 0) {
             parts.add(String.format(Locale.ROOT, "评分 %.1f 分", scored.rating()));

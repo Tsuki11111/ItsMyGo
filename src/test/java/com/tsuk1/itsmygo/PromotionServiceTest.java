@@ -179,13 +179,15 @@ class PromotionServiceTest extends ApiTestBase {
         assertThat(payload).contains("\"productId\":\"" + productA + "\"")
                 .contains("\"productId\":\"" + productB + "\"")
                 .contains("\"productId\":\"" + productC + "\"")
-                .contains("最近 30 天降价约 90%")
+                .contains("近 30 天降了约 90%")
                 .contains("已售 1000 件")
                 .contains("评分 5.0 分")
-                .contains("给你挑了 3 件最近值得看的")
+                .contains("最近有几件价格挺合适")
+                .contains("近 30 天降了约 90%")
                 .contains("①")
                 .contains("②")
-                .contains("点商品卡看详情");
+                .contains("点商品卡看详情")
+                .contains("我帮您下单");
         // 不再每行重复同一句 CTA
         assertThat(payload).doesNotContain("要不要看看？");
 
