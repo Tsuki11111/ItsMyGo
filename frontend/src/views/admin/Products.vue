@@ -3,7 +3,6 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ProductFormDialog from './components/ProductFormDialog.vue'
-import SkuEditorDialog from './components/SkuEditorDialog.vue'
 import StockAdjustDialog from './components/StockAdjustDialog.vue'
 import ProductImage from '@/components/ProductImage.vue'
 import {
@@ -35,8 +34,7 @@ const selected = ref<Product[]>([])
 
 const formVisible = ref(false)
 const editingProduct = ref<Product | null>(null)
-const skuVisible = ref(false)
-const skuProduct = ref<Product | null>(null)
+const editInitialTab = ref<'basic' | 'specs'>('basic')
 const stockVisible = ref(false)
 const stockProductId = ref<number | null>(null)
 const stockSku = ref<ProductSku | null>(null)
@@ -134,8 +132,8 @@ async function batchStatus(onSale: boolean) {
 async function openStock(row: Product) {
   const view = await fetchProductSkus(row.id)
   if (view.skus.length !== 1) {
-    // 多规格的库存分散在多个 SKU 上，直接进规格编辑器
-    openSku(row)
+    // 多规格的库存分散在多个 SKU 上，直接进合并后的规格页签
+    openEdit(row, 'specs')
     return
   }
   stockProductId.value = row.id
@@ -156,17 +154,14 @@ function onSizeChange(next: number) {
 
 function openCreate() {
   editingProduct.value = null
+  editInitialTab.value = 'basic'
   formVisible.value = true
 }
 
-function openEdit(row: Product) {
+function openEdit(row: Product, tab: 'basic' | 'specs' = 'basic') {
   editingProduct.value = row
+  editInitialTab.value = tab
   formVisible.value = true
-}
-
-function openSku(row: Product) {
-  skuProduct.value = row
-  skuVisible.value = true
 }
 
 /**
@@ -356,7 +351,7 @@ onMounted(async () => {
       <el-table-column label="操作" width="190">
         <template #default="{ row }">
           <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
-          <el-button link type="primary" @click="openSku(row)">规格</el-button>
+          <el-button link type="primary" @click="openEdit(row, 'specs')">规格</el-button>
           <el-button link type="primary" @click="openStock(row)">库存</el-button>
         </template>
       </el-table-column>
@@ -381,10 +376,9 @@ onMounted(async () => {
       v-model="formVisible"
       :product="editingProduct"
       :categories="categories"
+      :initial-tab="editInitialTab"
       @saved="load"
     />
-
-    <SkuEditorDialog v-model="skuVisible" :product="skuProduct" @saved="load" />
 
     <StockAdjustDialog
       v-model="stockVisible"

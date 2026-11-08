@@ -8,14 +8,14 @@ import { fetchMerchantProductSkus, saveMerchantProductSkus } from '@/api/merchan
 import type { Product, ProductSku, SkuSavePayload } from '@/api/types'
 
 const props = defineProps<{
-  modelValue: boolean
+  /** 商品已创建/已存在时才有 id；新建商品在保存基础信息后由父组件传入 */
+  productId: number | null
   product: Product | null
   /** 商家后台复用：走 /api/merchant/** */
   merchant?: boolean
 }>()
 
 const emit = defineEmits<{
-  'update:modelValue': [value: boolean]
   saved: []
 }>()
 
@@ -95,12 +95,12 @@ function rebuild() {
 }
 
 async function load() {
-  if (!props.product) return
+  if (!props.productId) return
 
   loading.value = true
   try {
     const fetchFn = props.merchant ? fetchMerchantProductSkus : fetchProductSkus
-    const view = await fetchFn(props.product.id)
+    const view = await fetchFn(props.productId)
     nextTempId = -1
     originalSkus.value = view.skus
     originalByKey = new Map(view.skus.map((sku) => [sku.specValueIds, sku]))
@@ -123,10 +123,11 @@ async function load() {
 }
 
 watch(
-  () => props.modelValue,
-  (open) => {
-    if (open) load()
+  () => props.productId,
+  (id) => {
+    if (id) load()
   },
+  { immediate: true },
 )
 
 function valueOf(row: SkuRow, specIndex: number): string {
@@ -177,9 +178,9 @@ function onStockUpdated(updated: ProductSku) {
 
 /** 只刷新已有 SKU 的库存，不覆盖表单里还没保存的价格/图片 */
 async function refreshStock() {
-  if (!props.product) return
+  if (!props.productId) return
   const fetchFn = props.merchant ? fetchMerchantProductSkus : fetchProductSkus
-  const view = await fetchFn(props.product.id)
+  const view = await fetchFn(props.productId)
   originalByKey = new Map(view.skus.map((sku) => [sku.specValueIds, sku]))
   originalSkus.value = view.skus
   for (const row of rows.value) {
@@ -220,12 +221,12 @@ function validate(): string | null {
 }
 
 async function submit() {
-  if (!props.product) return
+  if (!props.productId) return false
 
   const error = validate()
   if (error) {
     ElMessage.warning(error)
-    return
+    return false
   }
 
   // 原 SKU 的 key 不在当前组合里 = 保存后会被删掉，库存/销量一起没
@@ -258,29 +259,27 @@ async function submit() {
     })),
   }
 
-  saving.value = true
+    saving.value = true
   try {
     const saveFn = props.merchant ? saveMerchantProductSkus : saveProductSkus
-    await saveFn(props.product.id, payload)
+    await saveFn(props.productId, payload)
     ElMessage.success('规格与 SKU 已保存')
     emit('saved')
-    emit('update:modelValue', false)
+    return true
   } finally {
     saving.value = false
   }
 }
+
+defineExpose({
+  save: submit,
+  hasSpecs: () => specs.value.length > 0,
+  loading,
+})
 </script>
 
 <template>
-  <el-dialog
-    :model-value="modelValue"
-    :title="`规格与 SKU · ${product?.name ?? ''}`"
-    width="920px"
-    top="5vh"
-    class="sku-editor-dialog"
-    :close-on-click-modal="false"
-    @update:model-value="emit('update:modelValue', $event)"
-  >
+  <div class="sku-editor-panel">
     <div v-loading="loading">
       <el-alert
         type="info"
@@ -303,7 +302,7 @@ async function submit() {
 
         <el-empty
           v-if="specs.length === 0"
-          description="当前是单规格商品，只有一条默认 SKU"
+          description="当前是单规格商品：价格/库存请在「基础信息」维护；需要多规格时点「添加规格」"
           :image-size="60"
         />
 
@@ -325,7 +324,7 @@ async function submit() {
         </div>
       </div>
 
-      <div class="matrix">
+      <div v-if="specs.length" class="matrix">
         <span class="section-title">SKU 组合</span>
         <el-table :data="rows" border size="small" class="matrix-table">
           <el-table-column
@@ -378,31 +377,23 @@ async function submit() {
           </el-table-column>
         </el-table>
       </div>
-
-      <p class="foot-tip">
-        新 SKU 的库存在这里填；已有 SKU 的库存只读，点「调整」改 ——
-        库存该由下单和取消来动，不能被改价顺手冲掉。
-      </p>
     </div>
-
-    <template #footer>
-      <el-button @click="emit('update:modelValue', false)">取消</el-button>
-      <el-button type="primary" :loading="saving" :disabled="loading" @click="submit">
-        保存
-      </el-button>
-    </template>
 
     <StockAdjustDialog
       v-model="adjustVisible"
-      :product-id="product?.id ?? 0"
+      :product-id="productId ?? 0"
       :sku="adjustTarget?.existing ?? null"
       :merchant="merchant"
       @updated="onStockUpdated"
     />
-  </el-dialog>
+  </div>
 </template>
 
 <style scoped>
+.sku-editor-panel {
+  min-height: 120px;
+}
+
 .tip {
   margin-bottom: 16px;
 }

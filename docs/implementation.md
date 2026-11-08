@@ -3032,3 +3032,19 @@ PROMOTION 类型与渲染已移除。
 **验证**：管理员实测数据概览点待办 → 订单抽屉自动打开；通知 link
 `/admin/orders?orderId=829`、`/admin/after-sales?afterSaleId=1` 直达详情；
 低库存 `productId` 打开商品编辑弹窗；`type-check` / `build:web` 通过。
+
+### 3.50 商品编辑与规格编辑合并弹窗（2026-11-08）
+
+**改动**：
+- 抽出 `SkuEditorPanel.vue`（原 `SkuEditorDialog` 的内容区），暴露 `save()` / `hasSpecs()`，
+  不再自带弹窗外壳；原 `SkuEditorDialog.vue` 删除；
+- `ProductFormDialog.vue` 改为双页签「基础信息 / 规格与库存」+ 单个保存按钮：
+  - 编辑已存在商品：先保存基础信息；若规格页已有规格，再在同一弹窗内保存规格/SKU；
+    单规格商品（无规格）跳过规格保存，价格/库存由商品级字段同步默认 SKU；
+  - 新建商品：创建后留在弹窗并切到规格页签，可继续维护 SKU，再保存关闭；
+  - 列表「规格」按钮通过 `initial-tab` 直接打开规格页签；
+- 管理端与商家端商品列表移除独立 `SkuEditorDialog` 引用。
+
+**验证**：`type-check` / `build:web` 通过；实测给单规格商品新增「颜色/黑色」规格并保存，
+接口 `PUT /products/{id}` + `PUT /products/{id}/skus` 均 200，SKU 表生成；有旧 SKU 删除时
+仍弹确认（避免误删库存/销量）。
