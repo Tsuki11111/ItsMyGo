@@ -16,6 +16,10 @@ public interface AgentActionService {
 
     AgentActionView prepareOrder(long userId, String sessionId, AgentOrderDraftRequest request);
 
+    /** 修改待确认的下单草稿（地址/数量），复用 prepare 的校验与重新计价 */
+    AgentActionView updateOrderDraft(long userId, String actionNo,
+                                     AgentOrderDraftRequest request);
+
     AgentActionView prepareRefund(long userId, String sessionId, AgentRefundDraftRequest request);
 
     AgentActionView prepareUrgeShipment(long userId, String sessionId,

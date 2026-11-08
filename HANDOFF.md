@@ -1600,6 +1600,26 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 
 ## 6. 历史记录
 
+### 2026-11-08 · 下单确认卡支持修改地址 / 数量
+
+**需求**：下单卡片原来完全只读，用户没法改地址或数量，只能取消重来。
+
+**实现**：
+- 后端新增 `PUT /api/agent/actions/{actionNo}/order-draft`：只允许
+  `PENDING_CONFIRM` 的 `CREATE_ORDER` 草稿；复用 `buildOrderDraft` 重新校验
+  （地址归属、上下架、库存、数量 1–99）并重新计价，更新 payload/summary，
+  actionNo 不变；确认时按最新快照执行；他人草稿 404，已确认/取消/过期不能改。
+- `AgentActionServiceImpl` 把原 prepareOrder 的校验/计价抽成 `buildOrderDraft`，
+  prepare 与 update 共用；`lineView` 补 `skuId` 供前端编辑。
+- 前端 `AgentActionCard`：订单卡增加「修改」→ 编辑态（地址下拉、数量步进器、
+  保存修改/取消修改），保存后直接刷新卡片；商品/规格变更仍提示取消后重新准备。
+- 测试：`AgentActionControllerTest` 新增「可改草稿（数量 1→3，总价/库存/确认执行都对）」
+  和「不能改别人的草稿」，共 9 条通过；全量测试见提交前结果。
+- 实测（Playwright）：下单卡点修改把数量改成 2，卡片立即变为 ×2 / ¥318.00；
+  保存后恢复确认态，无报错。
+
+
+
 ### 2026-11-08 · 流式最终回答「打字机」展示
 
 **背景**：rag_helper 改为只回放最终回答（中间工具轮次文本不再推），前端不能再靠 delta

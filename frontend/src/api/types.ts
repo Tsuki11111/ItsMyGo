@@ -1011,6 +1011,9 @@ export type AgentActionStatus =
   | 'EXPIRED'
 
 export interface AgentActionItem {
+  /** 下单草稿可编辑用；旧的已生成草稿可能没有 */
+  productId?: number
+  skuId?: number
   productName: string
   specText?: string
   quantity: number

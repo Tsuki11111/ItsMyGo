@@ -2,8 +2,14 @@
 import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { RefreshLeft, Bell, ShoppingCart } from '@element-plus/icons-vue'
-import { cancelAgentAction, confirmAgentAction } from '@/api/agent'
+import { fetchAddresses } from '@/api/address'
+import {
+  cancelAgentAction,
+  confirmAgentAction,
+  updateAgentOrderDraft,
+} from '@/api/agent'
 import type {
+  Address,
   AgentActionView,
   AgentOrderResult,
   AgentOrderSummary,
@@ -21,11 +27,18 @@ const props = defineProps<{ action: AgentActionView }>()
 const emit = defineEmits<{ updated: [action: AgentActionView] }>()
 
 const busy = ref(false)
+const editing = ref(false)
+const saving = ref(false)
+const addresses = ref<Address[]>([])
+const editAddressId = ref<number | null>(null)
+/** 数量按商品+规格为 key，避免跨分组索引错位 */
+const editQuantities = ref<Record<string, number>>({})
 const isOrder = computed(() => props.action.type === 'CREATE_ORDER')
 const isUrge = computed(() => props.action.type === 'URGE_SHIPMENT')
 const isUrgeRefund = computed(() => props.action.type === 'URGE_REFUND')
 const isRefund = computed(() => props.action.type === 'APPLY_REFUND')
 const pending = computed(() => props.action.status === 'PENDING_CONFIRM')
+const canEdit = computed(() => isOrder.value && pending.value && !busy.value && !saving.value)
 const canAct = computed(() => pending.value && !busy.value)
 const orderSummary = computed(() => props.action.summary as AgentOrderSummary)
 const refundSummary = computed(() => props.action.summary as AgentRefundSummary)
@@ -176,6 +189,63 @@ async function cancel() {
     busy.value = false
   }
 }
+
+function qtyKey(item: { productId?: number; skuId?: number }): string {
+  return `${item.productId ?? ''}-${item.skuId ?? ''}`
+}
+
+async function startEdit() {
+  if (!canEdit.value) return
+  editing.value = true
+  editAddressId.value = orderSummary.value.address?.id ?? null
+  editQuantities.value = {}
+  for (const group of orderSummary.value.groups) {
+    for (const item of group.items) {
+      if (item.productId && item.skuId) {
+        editQuantities.value[qtyKey(item)] = item.quantity
+      }
+    }
+  }
+  try {
+    addresses.value = await fetchAddresses()
+  } catch {
+    addresses.value = []
+  }
+}
+
+function cancelEdit() {
+  editing.value = false
+}
+
+async function saveEdit() {
+  if (saving.value) return
+  if (!editAddressId.value) {
+    ElMessage.warning('请选择收货地址')
+    return
+  }
+  const items = Object.entries(editQuantities.value).map(([key, quantity]) => {
+    const [productId, skuId] = key.split('-').map(Number)
+    return { productId, skuId, quantity }
+  })
+  if (!items.length || items.some((item) => !item.productId || !item.skuId)) {
+    ElMessage.warning('这张草稿缺少商品/规格信息，请取消后让买小购重新准备')
+    return
+  }
+  saving.value = true
+  try {
+    const updated = await updateAgentOrderDraft(props.action.actionNo, {
+      addressId: editAddressId.value,
+      items,
+    })
+    emit('updated', updated)
+    editing.value = false
+    ElMessage.success('草稿已更新，请核对后确认')
+  } catch {
+    // http.ts 已提示业务错误
+  } finally {
+    saving.value = false
+  }
+}
 </script>
 
 <template>
@@ -198,7 +268,18 @@ async function cancel() {
     </header>
 
     <template v-if="isOrder">
-      <div v-if="orderSummary.address" class="address">
+      <div v-if="editing" class="address edit-address">
+        <el-select v-model="editAddressId" size="small" placeholder="选择收货地址"
+                   style="width: 100%">
+          <el-option
+            v-for="address in addresses"
+            :key="address.id"
+            :label="`${address.receiver} ${address.phone} ${address.province}${address.city}${address.district}${address.detail}`"
+            :value="address.id"
+          />
+        </el-select>
+      </div>
+      <div v-else-if="orderSummary.address" class="address">
         <div class="address-line">
           <strong>{{ orderSummary.address.receiver }}</strong>
           <span>{{ orderSummary.address.phone }}</span>
@@ -222,7 +303,17 @@ async function cancel() {
               {{ item.productName }}
               <small v-if="item.specText">（{{ item.specText }}）</small>
             </span>
-            <span class="line-qty">×{{ item.quantity }}</span>
+            <span v-if="editing" class="line-qty">
+              <el-input-number
+                v-model="editQuantities[qtyKey(item)]"
+                size="small"
+                :min="1"
+                :max="99"
+                controls-position="right"
+                style="width: 96px"
+              />
+            </span>
+            <span v-else class="line-qty">×{{ item.quantity }}</span>
             <span class="line-price">¥{{ item.subtotal || item.unitPrice }}</span>
           </div>
           <div class="group-total">小计 ¥{{ group.total }}</div>
@@ -332,17 +423,29 @@ async function cancel() {
     </p>
 
     <div v-if="pending" class="actions">
-      <el-button
-        type="primary"
-        size="small"
-        :loading="busy"
-        :disabled="!canAct"
-        @click="confirm"
-      >
-        {{ isOrder ? '确认下单' : isUrge ? '确认催发货' : isUrgeRefund ? '确认催退款' : '确认提交退款申请' }}
-      </el-button>
-      <el-button size="small" :disabled="!canAct" @click="cancel">取消</el-button>
+      <template v-if="isOrder && editing">
+        <el-button type="primary" size="small" :loading="saving" @click="saveEdit">
+          保存修改
+        </el-button>
+        <el-button size="small" :disabled="saving" @click="cancelEdit">取消修改</el-button>
+      </template>
+      <template v-else>
+        <el-button v-if="isOrder && canEdit" size="small" @click="startEdit">修改</el-button>
+        <el-button
+          type="primary"
+          size="small"
+          :loading="busy"
+          :disabled="!canAct"
+          @click="confirm"
+        >
+          {{ isOrder ? '确认下单' : isUrge ? '确认催发货' : isUrgeRefund ? '确认催退款' : '确认提交退款申请' }}
+        </el-button>
+        <el-button size="small" :disabled="!canAct" @click="cancel">取消</el-button>
+      </template>
     </div>
+    <p v-if="pending && isOrder" class="note edit-tip">
+      可改收货地址和数量；商品/规格如需变更，请取消本卡后让买小购重新准备。
+    </p>
   </section>
 </template>
 

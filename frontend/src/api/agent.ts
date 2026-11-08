@@ -106,6 +106,19 @@ export function confirmAgentAction(actionNo: string): Promise<AgentActionView> {
   return post<AgentActionView>(`/agent/actions/${encodeURIComponent(actionNo)}/confirm`)
 }
 
+export interface AgentOrderDraftPayload {
+  addressId: number
+  items: Array<{ productId: number; skuId: number; quantity: number }>
+}
+
+/** 修改待确认的下单草稿（地址/数量）；确认后不能再改 */
+export function updateAgentOrderDraft(
+  actionNo: string,
+  payload: AgentOrderDraftPayload,
+): Promise<AgentActionView> {
+  return put<AgentActionView>(`/agent/actions/${encodeURIComponent(actionNo)}/order-draft`, payload)
+}
+
 export function cancelAgentAction(actionNo: string): Promise<AgentActionView> {
   return post<AgentActionView>(`/agent/actions/${encodeURIComponent(actionNo)}/cancel`)
 }

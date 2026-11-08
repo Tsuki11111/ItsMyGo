@@ -14,6 +14,7 @@ import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 
@@ -138,6 +139,70 @@ class AgentActionControllerTest extends ApiTestBase {
                         .param("sessionId", "sess-test"))
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.length()").value(1));
+    }
+
+    private String updateOrderDraft(String token, String actionNo, long addressId,
+                                    long productId, long skuId, int quantity) throws Exception {
+        return mockMvc.perform(put("/api/agent/actions/" + actionNo + "/order-draft")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"addressId":%d,"items":[{"productId":%d,"skuId":%d,"quantity":%d}]}
+                                """.formatted(addressId, productId, skuId, quantity)))
+                .andExpect(jsonPath("$.code").value(200))
+                .andReturn().getResponse().getContentAsString();
+    }
+
+    @Test
+    void canEditOrderDraftBeforeConfirm() throws Exception {
+        String username = "ae" + System.nanoTime();
+        String token = customerToken(username);
+        long uid = userId(username);
+        String admin = adminToken("adm" + System.nanoTime());
+        long productId = createProductForTest(admin, "可编辑草稿商品" + System.nanoTime(), "10.00", 10);
+        long skuId = defaultSkuId(productId);
+        long addressId = createAddress(token);
+
+        String actionNo = prepareOrder(ticket(uid), addressId, productId, skuId, 1);
+        String edited = updateOrderDraft(token, actionNo, addressId, productId, skuId, 3);
+        assertThat(edited).contains("可编辑草稿商品");
+        mockMvc.perform(get("/api/agent/actions")
+                        .header("Authorization", bearer(token))
+                        .param("sessionId", "sess-test"))
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data[0].actionNo").value(actionNo))
+                .andExpect(jsonPath("$.data[0].summary.totalAmount").value("30.00"))
+                .andExpect(jsonPath("$.data[0].summary.itemCount").value(3))
+                .andExpect(jsonPath("$.data[0].summary.groups[0].items[0].quantity").value(3))
+                .andExpect(jsonPath("$.data[0].summary.groups[0].items[0].productId").value(productId));
+
+        // 确认执行时用的是修改后的快照
+        String confirmed = confirm(token, actionNo);
+        assertThat(objectMapper.readTree(confirmed).path("data").path("result")
+                .path("orders").get(0).path("totalAmount").asText()).isEqualTo("30.00");
+        assertThat(productSkuMapper.selectById(skuId).getStock()).isEqualTo(7);
+    }
+
+    @Test
+    void cannotEditOtherUsersDraft() throws Exception {
+        String aName = "ag" + System.nanoTime();
+        String bName = "ah" + System.nanoTime();
+        String aToken = customerToken(aName);
+        String bToken = customerToken(bName);
+        long aId = userId(aName);
+        String admin = adminToken("adm" + System.nanoTime());
+        long productId = createProductForTest(admin, "越权草稿商品" + System.nanoTime(), "10.00", 5);
+        long skuId = defaultSkuId(productId);
+        long addressId = createAddress(aToken);
+        String actionNo = prepareOrder(ticket(aId), addressId, productId, skuId, 1);
+
+        mockMvc.perform(put("/api/agent/actions/" + actionNo + "/order-draft")
+                        .header("Authorization", bearer(bToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"addressId":%d,"items":[{"productId":%d,"skuId":%d,"quantity":2}]}
+                                """.formatted(addressId, productId, skuId)))
+                .andExpect(jsonPath("$.code").value(404));
     }
 
     @Test

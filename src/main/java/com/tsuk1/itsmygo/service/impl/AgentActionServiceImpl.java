@@ -126,6 +126,60 @@ public class AgentActionServiceImpl implements AgentActionService {
     public AgentActionView prepareOrder(long userId, String sessionId,
                                         AgentOrderDraftRequest request) {
         requireEnabled();
+        OrderDraft draft = buildOrderDraft(userId, request);
+        // 幂等：同一会话里对同一份订单内容重复点「让买小购下单」时，返回已有草稿卡片，
+        // 不再重复生成（否则用户会看到多张一模一样的「订单待确认」）。
+        String payloadJson = json(draft.payload());
+        List<AgentAction> pendingOrders = actionMapper.selectList(
+                Wrappers.<AgentAction>lambdaQuery()
+                        .eq(AgentAction::getUserId, userId)
+                        .eq(AgentAction::getSessionId, sessionId)
+                        .eq(AgentAction::getType, AgentActionType.CREATE_ORDER.name())
+                        .eq(AgentAction::getStatus, AgentActionStatus.PENDING_CONFIRM.name())
+                        .gt(AgentAction::getExpiresAt, LocalDateTime.now())
+                        .orderByDesc(AgentAction::getId)
+                        .last("LIMIT 5"));
+        for (AgentAction existing : pendingOrders) {
+            if (payloadJson.equals(existing.getPayloadJson())) {
+                log.info("重复的订单草稿，返回已有卡片：{}", existing.getActionNo());
+                return toView(existing);
+            }
+        }
+
+        AgentAction action = newAction(userId, sessionId, AgentActionType.CREATE_ORDER,
+                draft.payload(), draft.summary(), null);
+        String token = orderService.issueToken(userId);
+        redis.opsForValue().set(TOKEN_PREFIX + action.getActionNo(), token,
+                Duration.ofSeconds(properties.expirySeconds()));
+        actionMapper.insert(action);
+        return toView(action);
+    }
+
+    @Override
+    public AgentActionView updateOrderDraft(long userId, String actionNo,
+                                            AgentOrderDraftRequest request) {
+        requireEnabled();
+        AgentAction action = requireOwned(userId, actionNo);
+        if (!AgentActionType.CREATE_ORDER.name().equals(action.getType())) {
+            throw new BizException(ResultCode.BAD_REQUEST, "只有下单草稿支持修改");
+        }
+        if (!AgentActionStatus.PENDING_CONFIRM.name().equals(action.getStatus())) {
+            throw new BizException(ResultCode.BAD_REQUEST, "该草稿已确认或取消，不能再修改");
+        }
+        if (action.getExpiresAt() != null && action.getExpiresAt().isBefore(LocalDateTime.now())) {
+            throw new BizException(ResultCode.BAD_REQUEST, "草稿已过期，请重新发起下单");
+        }
+        // 复用 prepare 的校验与重新计价：用户只改草稿，不直接动订单
+        OrderDraft draft = buildOrderDraft(userId, request);
+        action.setPayloadJson(json(draft.payload()));
+        action.setSummaryJson(json(draft.summary()));
+        actionMapper.updateById(action);
+        log.info("下单草稿已修改：{}", actionNo);
+        return toView(action);
+    }
+
+    /** 校验 + 重新计价 + 生成 payload/summary；prepare 与 update 共用 */
+    private OrderDraft buildOrderDraft(long userId, AgentOrderDraftRequest request) {
         if (request == null || request.items() == null || request.items().isEmpty()) {
             throw new BizException(ResultCode.BAD_REQUEST, "请指定要购买的商品");
         }
@@ -229,33 +283,10 @@ public class AgentActionServiceImpl implements AgentActionService {
             item.put("quantity", line.quantity());
             return item;
         }).toList());
+        return new OrderDraft(payload, summary);
+    }
 
-        // 幂等：同一会话里对同一份订单内容重复点「让买小购下单」时，返回已有草稿卡片，
-        // 不再重复生成（否则用户会看到多张一模一样的「订单待确认」）。
-        String payloadJson = json(payload);
-        List<AgentAction> pendingOrders = actionMapper.selectList(
-                Wrappers.<AgentAction>lambdaQuery()
-                        .eq(AgentAction::getUserId, userId)
-                        .eq(AgentAction::getSessionId, sessionId)
-                        .eq(AgentAction::getType, AgentActionType.CREATE_ORDER.name())
-                        .eq(AgentAction::getStatus, AgentActionStatus.PENDING_CONFIRM.name())
-                        .gt(AgentAction::getExpiresAt, LocalDateTime.now())
-                        .orderByDesc(AgentAction::getId)
-                        .last("LIMIT 5"));
-        for (AgentAction existing : pendingOrders) {
-            if (payloadJson.equals(existing.getPayloadJson())) {
-                log.info("重复的订单草稿，返回已有卡片：{}", existing.getActionNo());
-                return toView(existing);
-            }
-        }
-
-        AgentAction action = newAction(userId, sessionId, AgentActionType.CREATE_ORDER,
-                payload, summary, null);
-        String token = orderService.issueToken(userId);
-        redis.opsForValue().set(TOKEN_PREFIX + action.getActionNo(), token,
-                Duration.ofSeconds(properties.expirySeconds()));
-        actionMapper.insert(action);
-        return toView(action);
+    private record OrderDraft(Map<String, Object> payload, Map<String, Object> summary) {
     }
 
     @Override
@@ -1019,6 +1050,7 @@ public class AgentActionServiceImpl implements AgentActionService {
     private Map<String, Object> lineView(Line line) {
         Map<String, Object> view = new LinkedHashMap<>();
         view.put("productId", line.product().getId());
+        view.put("skuId", line.sku().getId());
         view.put("productName", nullToEmpty(line.product().getName()));
         view.put("specText", nullToEmpty(line.sku().getSpecText()));
         view.put("quantity", line.quantity());

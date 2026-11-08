@@ -3,12 +3,15 @@ package com.tsuk1.itsmygo.controller;
 import com.tsuk1.itsmygo.common.Result;
 import com.tsuk1.itsmygo.common.ratelimit.RateLimit;
 import com.tsuk1.itsmygo.dto.agent.AgentActionView;
+import com.tsuk1.itsmygo.dto.agent.AgentOrderDraftRequest;
 import com.tsuk1.itsmygo.security.CurrentUser;
 import com.tsuk1.itsmygo.service.AgentActionService;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -42,6 +45,15 @@ public class AgentActionController {
     public Result<AgentActionView> confirm(@AuthenticationPrincipal CurrentUser user,
                                            @PathVariable String actionNo) {
         return Result.ok(actionService.confirm(user.id(), actionNo));
+    }
+
+    /** 待确认下单草稿可改地址/数量；确认接口已经固定快照，确认后不能再改 */
+    @RateLimit(scene = "agent-action", limit = 20, windowSeconds = 60, byUser = true)
+    @PutMapping("/{actionNo}/order-draft")
+    public Result<AgentActionView> updateOrderDraft(@AuthenticationPrincipal CurrentUser user,
+                                                    @PathVariable String actionNo,
+                                                    @RequestBody AgentOrderDraftRequest request) {
+        return Result.ok(actionService.updateOrderDraft(user.id(), actionNo, request));
     }
 
     @RateLimit(scene = "agent-action", limit = 10, windowSeconds = 60, byUser = true)
