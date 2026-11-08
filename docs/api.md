@@ -1838,3 +1838,22 @@ specText, unitPrice, quantity, refundAmount, createdAt`
 - 管理员无角色行（历史数据）：按 SUPER_ADMIN 兼容；
 - 商家/顾客不参与该权限码体系，仍用 `hasRole + 归属校验`；
 - 权限变更后权限缓存 60s 内生效（`RbacService.evict` 可立即失效）。
+
+## 27. 商品归档清理（2026-11-08）
+
+`POST /api/admin/products/cleanup?dryRun=true`（ADMIN + `admin:product:manage`，进审计）
+
+```
+{ "code": 200, "data": {
+  "dryRun": true,
+  "archiveCandidates": 3,   // 待归档（下架超过 180 天）
+  "archived": 0,            // dry-run 恒为 0；执行时为实际归档数
+  "purgeCandidates": 1,     // 可物理清理（归档满 30 天且无引用）
+  "purged": 0,              // dry-run 恒为 0；执行时为实际清理数
+  "skippedReferenced": 2    // 有订单/售后/评价/收藏等引用，跳过物理删除
+} }
+```
+
+- 默认配置 `PRODUCT_CLEANUP_ENABLED=false`、`PRODUCT_CLEANUP_DRY_RUN=true`；
+- 有候选/执行时给管理员发站内通知（`PRODUCT_CLEANUP`）；
+- 重新上架会清空 `archived_at`；物理删除不可恢复。

@@ -9,6 +9,7 @@ import com.tsuk1.itsmygo.common.agent.KnowledgeImportProperties;
 import com.tsuk1.itsmygo.common.agent.LogisticsProperties;
 import com.tsuk1.itsmygo.common.order.OrderCreateProperties;
 import com.tsuk1.itsmygo.common.order.OrderTimeoutProperties;
+import com.tsuk1.itsmygo.common.product.ProductCleanupProperties;
 import com.tsuk1.itsmygo.common.ratelimit.RateLimitProperties;
 import com.tsuk1.itsmygo.common.rbac.RbacProperties;
 import org.mybatis.spring.annotation.MapperScan;
@@ -24,7 +25,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         AgentActionProperties.class, AgentEvalProperties.class, LogisticsProperties.class,
         KnowledgeImportProperties.class, OrderTimeoutProperties.class,
         AdminGovernanceProperties.class, AfterSaleProperties.class,
-        OrderCreateProperties.class, RbacProperties.class})
+        OrderCreateProperties.class, RbacProperties.class, ProductCleanupProperties.class})
 public class ItsMyGoApplication {
 
     public static void main(String[] args) {

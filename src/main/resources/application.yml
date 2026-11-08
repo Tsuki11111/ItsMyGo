@@ -47,6 +47,13 @@ itsmygo:
   # 管理端 RBAC（默认关闭 = 管理员拥有全部权限，兼容旧行为；灰度验证后再开）
   rbac:
     enabled: ${RBAC_ENABLED:false}
+  # 长期下架商品：自动归档 + 无引用商品物理清理（默认关闭 + dry-run）
+  product-cleanup:
+    enabled: ${PRODUCT_CLEANUP_ENABLED:false}
+    dry-run: ${PRODUCT_CLEANUP_DRY_RUN:true}
+    off-shelf-days: ${PRODUCT_CLEANUP_OFF_SHELF_DAYS:180}
+    archive-grace-days: ${PRODUCT_CLEANUP_ARCHIVE_GRACE_DAYS:30}
+    scan-interval-ms: ${PRODUCT_CLEANUP_SCAN_INTERVAL_MS:86400000}
   # 复用本机共用 MinIO 实例，靠 bucket 与 rag_helper 隔离
   minio:
     # 后端连接地址（容器内可用 http://minio:9000）

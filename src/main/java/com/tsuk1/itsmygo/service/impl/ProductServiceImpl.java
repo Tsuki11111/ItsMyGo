@@ -165,9 +165,14 @@ public class ProductServiceImpl implements ProductService {
             throw new BizException(ResultCode.BAD_REQUEST, "请选择 1–100 个商品");
         }
         int status = onSale ? ON_SALE : 0;
-        int updated = productMapper.update(null, Wrappers.<Product>lambdaUpdate()
+        var update = Wrappers.<Product>lambdaUpdate()
                 .in(Product::getId, ids)
-                .set(Product::getStatus, status));
+                .set(Product::getStatus, status);
+        if (onSale) {
+            // 重新上架 = 取消归档
+            update.set(Product::getArchivedAt, null);
+        }
+        int updated = productMapper.update(null, update);
         for (Long id : ids) {
             cacheHelper.evict(cacheKey(id));
         }
@@ -284,11 +289,21 @@ public class ProductServiceImpl implements ProductService {
         String previousMainImage = product.getMainImage();
         BigDecimal previousPrice = product.getPrice();
         apply(product, request);
+        if (Integer.valueOf(ON_SALE).equals(product.getStatus())) {
+            // 编辑后为在售 = 取消归档
+            product.setArchivedAt(null);
+        }
         if (!Objects.equals(previousMainImage, product.getMainImage())
                 || !StringUtils.hasText(product.getThumbImage())) {
             product.setThumbImage(storageService.ensureProductThumbnail(product.getMainImage()));
         }
         productMapper.updateById(product);
+        if (Integer.valueOf(ON_SALE).equals(product.getStatus())) {
+            // updateById 默认忽略 null 字段，归档标记需要显式清空
+            productMapper.update(null, Wrappers.<Product>lambdaUpdate()
+                    .eq(Product::getId, id)
+                    .set(Product::getArchivedAt, null));
+        }
         // 单规格商品的价与库存也挂在它那条默认 SKU 上，得跟着改（里面会一并刷库存计数器）。
         // 配了多规格的商品这里什么都不做 —— 那种要走管理端的分规格接口
         productSkuService.syncDefaultSku(product);

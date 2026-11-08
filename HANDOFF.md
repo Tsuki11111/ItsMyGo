@@ -39,10 +39,10 @@
 ## 1. 当前状态一句话
 
 **交易闭环、多商户、AI 客服、运营后台、平台政策、压测、售后、下单异步补账、后台站内通知、Docker 部署均已完成（2026-11-08）。**
-后端自动化测试 **327 条**（本地；CI 跑 323 条，跳过 4 条依赖 MinIO 的用例）。数据库 schema 到 **v36**。
+后端自动化测试 **329 条**（本地；CI 跑 325 条，跳过 4 条依赖 MinIO 的用例）。数据库 schema 到 **v37**。
 
-**待评审的下一项设计**：权限管理（RBAC）—— 管理端子角色 + 权限码 + 数据范围，
-设计已写入 `requirements §2.9` 与 `architecture §3.7 / D26`，**评审通过后再落 V36 与代码**。
+**待评审/待办**：权限管理 P2.1（邀请管理员时选子角色，补完才能打开 `RBAC_ENABLED`）；
+商品归档清理默认关闭 + dry-run，需先在本地/演示确认报告后再打开 `PRODUCT_CLEANUP_ENABLED`。
 
 - **交易**：商品 / SKU、购物车、按店拆单、支付、发货、收货、取消、超时关单、退款；
   库存与优惠券回滚。
@@ -65,6 +65,10 @@
   4 个管理员子角色；`@EnableMethodSecurity` + 管理端 `@PreAuthorize` + 403；
   前端权限 store / 菜单过滤 / 订单操作按钮；`itsmygo.rbac.enabled` 默认 **false**（兼容旧行为）；
   **邀请管理员时选角色（P2.1）待补**，补完再打开开关。
+- **商品归档/清理（2026-11-08，V37）**：下架满 180 天自动归档（`products.archived_at`，可恢复）；
+  归档满 30 天且无订单/售后/评价/问答/收藏/足迹引用才物理清理；默认
+  `PRODUCT_CLEANUP_ENABLED=false` + dry-run，先出报告；手动预演
+  `POST /api/admin/products/cleanup?dryRun=true`。
 - **环境分层（2026-11-07 定）**：**开发** = `dev-infra/`（只起中间件）+ 本机应用
   （Vite 5173 / 后端 8080 / rag_helper venv）；**演示** = `./deploy.sh` 本地 Docker 全栈
   （根 `docker-compose.yml`，8088）；**生产** = 内网 VM 离线包（同款根 compose +
@@ -1596,6 +1600,24 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 
 ## 6. 历史记录
 
+### 2026-11-08 · 商品归档与自动清理（V37）
+
+**背景**：下架商品长期留在库里；需要自动处理“长期未上架”的商品，但不能破坏订单/售后/评价历史。
+
+**规则**：
+- 下架满 `PRODUCT_CLEANUP_OFF_SHELF_DAYS`（默认 180 天）→ 自动归档（`products.archived_at`），
+  清购物车失效行与缓存，可恢复（重新上架/编辑为在售清空归档标记）；
+- 归档满 `ARCHIVE_GRACE_DAYS`（默认 30 天）且**无引用**（订单/售后/购物车/评价/问大家/收藏/足迹）
+  才物理删除商品 + SKU + 规格 + 价格历史；有引用只归档不删；
+- 图片对象暂不删除（订单快照可能引用）；dry-run 只出报告。
+
+**实现**：V37 加 `archived_at` + 索引；`ProductCleanupService/Job`（Redis 锁、定时扫描）；
+`POST /api/admin/products/cleanup?dryRun=true` 手动预演（进审计）；有候选时给管理员发站内通知
+`PRODUCT_CLEANUP`；默认开关关闭 + dry-run。
+
+**验证**：`ProductCleanupTest` 2 条（dry-run 不落库→归档→无引用清理；有收藏引用只归档）；
+全量 **329 条**通过；前端无改动（复用现有页面）。
+
 ### 2026-11-08 · 权限管理 P1/P2 基础（RBAC，V36）
 
 **背景**：平台只有 3 个硬编码角色 + 归属校验，所有 ADMIN 权限一样，无法区分客服/运营/财务/超管。
@@ -1616,7 +1638,7 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 自定义角色/权限管理 UI 按设计不做。
 
 **验证**：新增 `RbacPermissionTest` 3 条（客服可看不可发货/退款、财务可退款不可发货、
-历史管理员回退全权）；全量 **327 条**通过；前端 `type-check` / `build:web` 通过。
+历史管理员回退全权）；全量 **329 条**通过；前端 `type-check` / `build:web` 通过。
 
 ### 2026-11-08 · 管理端发货权限收敛到平台自营店（D25）
 

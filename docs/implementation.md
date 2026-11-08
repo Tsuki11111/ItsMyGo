@@ -2939,3 +2939,29 @@ PROMOTION 类型与渲染已移除。
 自定义角色/权限管理 UI 按设计不做。打开 `RBAC_ENABLED=true` 前需补邀请选角色，否则新管理员等同超管。
 
 **测试**：`RbacPermissionTest` 3 条（客服只能看不能发货/退款、财务可退款不能发货、历史管理员回退全权）。
+
+### 3.46 商品归档与自动清理（2026-11-08）
+
+**迁移 V37**：`products.archived_at`（自动归档时间）+ 索引 `(status, archived_at, updated_at)`。
+
+**服务 `ProductCleanupServiceImpl.run(dryRun)`**：
+1. 候选归档：`status=0 && archived_at IS NULL && updated_at <= now-offShelfDays(180)`；
+   非 dry-run 时 CAS 写 `archived_at`（条件仍 status=0/archived_at 为空），并删除该商品的
+   购物车行、清商品详情缓存；
+2. 候选清理：`status=0 && archived_at <= now-archiveGraceDays(30)`；
+   对每个商品检查引用（订单明细/售后明细/购物车/评价/问大家/收藏/足迹），有引用则跳过；
+   无引用才删除 商品 + SKU + 规格/规格值 + 价格历史（图片对象保留，避免误伤快照）；
+3. 有候选/执行时给管理员发站内通知 `PRODUCT_CLEANUP`（带数量），dry-run 每天去重。
+
+**定时任务**：`ProductCleanupJob`（`@ConditionalOnProperty itsmygo.product-cleanup.enabled`），
+每日扫描 + Redis 锁防重入；配置：`PRODUCT_CLEANUP_ENABLED`（默认 false）、
+`PRODUCT_CLEANUP_DRY_RUN`（默认 true）、`OFF_SHELF_DAYS`（180）、`ARCHIVE_GRACE_DAYS`（30）、
+`SCAN_INTERVAL_MS`（86400000）。
+
+**手动预演**：`POST /api/admin/products/cleanup?dryRun=true`（`admin:product:manage`，进审计）。
+
+**恢复**：重新上架（批量上下架或编辑为在售）会清空 `archived_at`；物理删除的商品不可恢复
+（因此要求先归档满宽限期 + 无引用）。
+
+**测试**：`ProductCleanupTest` 2 条（dry-run 不落库→执行归档→无引用清理、SKU 同步删除；
+有收藏引用时只归档不删除）。

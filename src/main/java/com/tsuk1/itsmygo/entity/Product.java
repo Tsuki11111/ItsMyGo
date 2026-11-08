@@ -52,6 +52,9 @@ public class Product {
     /** 1 上架 / 0 下架 */
     private Integer status;
 
+    /** 自动归档时间（长期下架）；归档商品对顾客不可见，可恢复上架 */
+    private LocalDateTime archivedAt;
+
     private LocalDateTime createdAt;
 
     private LocalDateTime updatedAt;

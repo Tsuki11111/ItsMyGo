@@ -9,11 +9,13 @@ import com.tsuk1.itsmygo.common.exception.BizException;
 import com.tsuk1.itsmygo.dto.AdjustSkuStockRequest;
 import com.tsuk1.itsmygo.dto.PageResponse;
 import com.tsuk1.itsmygo.dto.ProductBatchStatusRequest;
+import com.tsuk1.itsmygo.dto.ProductCleanupReport;
 import com.tsuk1.itsmygo.dto.ProductRequest;
 import com.tsuk1.itsmygo.dto.ProductSkuView;
 import com.tsuk1.itsmygo.dto.SkuSaveRequest;
 import com.tsuk1.itsmygo.entity.Product;
 import com.tsuk1.itsmygo.entity.ProductSku;
+import com.tsuk1.itsmygo.service.ProductCleanupService;
 import com.tsuk1.itsmygo.service.ProductService;
 import com.tsuk1.itsmygo.service.ProductSkuService;
 import jakarta.validation.Valid;
@@ -36,12 +38,15 @@ public class AdminProductController {
     private final ProductService productService;
     private final ProductSkuService productSkuService;
     private final ProductBloomFilter bloomFilter;
+    private final ProductCleanupService productCleanupService;
 
     public AdminProductController(ProductService productService, ProductSkuService productSkuService,
-                                  ProductBloomFilter bloomFilter) {
+                                  ProductBloomFilter bloomFilter,
+                                  ProductCleanupService productCleanupService) {
         this.productService = productService;
         this.productSkuService = productSkuService;
         this.bloomFilter = bloomFilter;
+        this.productCleanupService = productCleanupService;
     }
 
     @GetMapping
@@ -88,6 +93,14 @@ public class AdminProductController {
     @AdminAudit(action = "PRODUCT_UPDATE", label = "修改商品", targetType = "PRODUCT")
     public Result<Product> update(@PathVariable Long id, @Valid @RequestBody ProductRequest request) {
         return Result.ok(productService.update(id, request));
+    }
+
+    /** 手动触发一次归档/清理扫描（默认 dry-run；定时任务见 ProductCleanupJob） */
+    @PreAuthorize("hasAuthority('admin:product:manage')")
+    @PostMapping("/cleanup")
+    @AdminAudit(action = "PRODUCT_CLEANUP", label = "商品归档清理", targetType = "PRODUCT")
+    public Result<ProductCleanupReport> cleanup(@RequestParam(defaultValue = "true") boolean dryRun) {
+        return Result.ok(productCleanupService.run(dryRun));
     }
 
     @PreAuthorize("hasAuthority('admin:product:manage')")
