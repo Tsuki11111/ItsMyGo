@@ -2752,7 +2752,7 @@ orderId）、顾客未读 +1；发货前改地址成功且商家收到 SYSTEM �
 
 - `AgentChatPanel` 标题栏新增齿轮按钮（`Setting` 图标），打开 `el-dialog`；
   三个 `el-switch` 带说明文案：智能推广「每天为你推荐可能感兴趣的商品」、
-  联网搜索「允许联网查询最新信息」、流式输出「逐字显示回复」。
+  联网搜索「允许联网查询最新信息」、流式输出「流式下发最终回复（中间工具轮次文本不回放）」。
 - 打开弹窗 GET 偏好，点「保存」PUT 全量覆盖，成功 `ElMessage.success('设置已保存')`
   并关闭弹窗；失败 `ElMessage.error`。弹窗 `append-to-body`，避免被聊天面板的
   `overflow: hidden` 裁切。

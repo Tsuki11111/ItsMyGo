@@ -1696,8 +1696,9 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 
 **实现**：`V33__user_agent_preferences.sql`（默认推广关/联网开/流式关）；
 `GET/PUT /api/agent/preferences`；每轮 Converse 把联网/流式偏好写进 gRPC
-`ConverseRequest` 的 optional 字段；rag_helper `stream=true` 时逐 token 推 `delta`，
+`ConverseRequest` 的 optional 字段；rag_helper `stream=true` 时推最终回答的 `delta`，
 前端把增量追加到本轮回复、final 到达后整段替换。设置入口在客服面板标题栏齿轮弹窗。
+2026-11-08 补充：工具轮次的中间文本不再回放，只流式最终回答（见 rag_helper HANDOFF §3.81）。
 
 **验证**：全量 313 条全绿；联合栈实测流式开 111 个 delta 且拼接=final、关 0 delta。
 

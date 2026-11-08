@@ -1527,7 +1527,7 @@ refundReason, refundAppliedAt, note}`。
 |---|---|---|---|
 | 智能推广 | `promotionEnabled` | `false` | 每天为你推荐可能感兴趣的商品；**本次只持久化**，推广能力是后续任务 |
 | 联网搜索 | `webSearchEnabled` | `true` | 允许联网查询最新信息；默认开，与旧行为一致 |
-| 流式输出 | `streamEnabled` | `false` | 逐字显示回复；默认关，关闭时 agent 只推 `final` |
+| 流式输出 | `streamEnabled` | `false` | 流式下发**最终回复**；默认关，关闭时 agent 只推 `final`。工具轮次的中间文本不回放（避免生成结束被 final 整段替换） |
 
 - `GET /api/agent/preferences` → `{promotionEnabled, webSearchEnabled, streamEnabled}`
 - `PUT /api/agent/preferences`：body 同上，**三个字段全量必传**（`@NotNull`，缺任何一个 → 400），
@@ -1536,7 +1536,7 @@ refundReason, refundAppliedAt, note}`。
 - 保存在下一轮 `POST /api/agent/converse` 生效：Java 读取当前用户设置，写进 gRPC
   `ConverseRequest.enable_web_search` / `ConverseRequest.stream`（proto 的 optional 字段）。
   老客户端 / 未设置时后端仍按默认值下发，行为与旧版一致（联网开、流式关）。
-- `stream=true` 时 agent 会先推若干 `delta` 事件（见 §19.2），前端逐字追加；
+- `stream=true` 时 agent 会推**最终回复**的若干 `delta` 事件（见 §19.2；中间工具轮次文本不推），前端追加后再由 `final` 整段替换；
   `final` 到达时用 `final.answer` 覆盖占位文本，避免重复。
 
 ```json
