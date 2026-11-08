@@ -125,6 +125,11 @@ function formatTime(value: string): string {
         class="chat-image"
       />
 
+      <template v-else-if="message.contentType === 'PROMOTION'">
+        <p class="promotion-label">智能推荐</p>
+        <p class="text">{{ message.content }}</p>
+      </template>
+
       <template v-else-if="productCard">
         <RouterLink :to="`/product/${productCard.productId}`" class="card product-card">
           <div class="card-thumb">
@@ -171,6 +176,9 @@ function formatTime(value: string): string {
           </div>
         </div>
       </template>
+
+      <!-- 未知/历史消息类型兜底：至少展示文本，不能渲染成只有时间的空气泡 -->
+      <p v-else-if="message.content" class="text">{{ message.content }}</p>
 
       <el-dialog v-model="addressDialog" title="修改收货地址" width="420px" append-to-body>
         <div v-loading="addressLoading" class="address-list">
@@ -309,6 +317,13 @@ function formatTime(value: string): string {
   line-height: 1.6;
   color: var(--c-text);
   white-space: pre-wrap;
+}
+
+.promotion-label {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--c-pink);
 }
 
 .chat-image {

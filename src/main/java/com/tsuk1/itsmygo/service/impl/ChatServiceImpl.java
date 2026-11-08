@@ -762,6 +762,7 @@ public class ChatServiceImpl implements ChatService {
             case ChatMessage.TYPE_IMAGE -> "[图片]";
             case ChatMessage.TYPE_PRODUCT -> "[商品] " + content;
             case ChatMessage.TYPE_ORDER -> "[订单] " + content;
+            case ChatMessage.TYPE_PROMOTION -> "[推荐] " + content;
             default -> content.length() <= PREVIEW_LENGTH
                     ? content : content.substring(0, PREVIEW_LENGTH) + "…";
         };

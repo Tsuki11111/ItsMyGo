@@ -1,4 +1,4 @@
-﻿# HANDOFF · 一次买够（ItsMyGo）
+# HANDOFF · 一次买够（ItsMyGo）
 
 > **读者**：下一个接手本项目的 Claude 会话
 > **性质**：本项目**状态层的权威源** —— 做到哪、下一步做什么、踩过哪些坑。
@@ -1599,6 +1599,18 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 **不算服务端错误**，不要进 ERROR 日志/告警。
 
 ## 6. 历史记录
+
+### 2026-11-08 · 修复 PROMOTION 消息空气泡（聊天页 11:28）
+
+**现象**：顾客/管理端聊天页左上角出现只有「11:28」的空气泡。定位到 `messages` 表存在
+`content_type=PROMOTION` 的智能推广消息，前端类型枚举和 `MessageBubble` 都没处理该类型，
+所有分支不命中，只渲染了时间。
+
+**修复**：前端补 `PROMOTION` 类型和「智能推荐 + 文案」渲染；未知类型统一兜底展示
+`message.content`；后端补 `TYPE_PROMOTION` 与会话预览 `[推荐] …`；api.md 同步。
+
+**验证**：`/admin/messages/19` 实测两条推广消息正常显示；`ChatControllerTest` 13 条通过；
+前端 `type-check` / `build:web` 通过。
 
 ### 2026-11-08 · 交付前 P0 整改（取消/演示账号/商品硬删除）
 
@@ -3672,5 +3684,8 @@ JwtAuthenticationFilter）、`service/AuthService`、`service/AddressService`、
 - 需求分析 + 技术选型定稿 → `docs/decisions-ecommerce.md`
 - 启动共用 `mysql` 容器，建 `its_mygo` 库并授权 `tsuk1` 账号
 - 确认复用共用中间件的方案与命名约定（§4.3、§4.4）
+
+
+
 
 

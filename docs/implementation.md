@@ -2997,3 +2997,19 @@ PROMOTION 类型与渲染已移除。
 - 测试：`AdminProductDeleteTest` 2 条（有订单引用 409、无引用 200 且 SKU 清空）。
 
 **验证**：全量 **337 条**通过；`type-check` / `build:web` 通过，dist 无演示提示。
+
+### 3.48 聊天消息类型兜底（PROMOTION，2026-11-08）
+
+**现象**：聊天页左上出现只有时间「11:28」的空气泡；对应 `messages` 行 `content_type=PROMOTION`
+（智能推广文案），前端 `ChatContentType` 没这个类型、`MessageBubble` 也没有分支，卡片类模板全都
+不命中，只剩右下角时间。
+
+**修复**：
+- `frontend/src/api/types.ts` 增加 `PROMOTION`；
+- `MessageBubble` 增加「智能推荐」标签 + 文案分支；并对**未知/历史类型**兜底渲染
+  `message.content`，以后新增类型不会再出现空气泡；
+- 后端 `ChatMessage.TYPE_PROMOTION` + 会话列表预览 `[推荐] …`；
+- api.md 补 `PROMOTION` 说明（chat 记录按文案渲染，agent 会话内的推广仍由 AgentChatPanel 渲染商品卡）。
+
+**验证**：`type-check` / `build:web` 通过；管理端 `/admin/messages/19` 实测两条 PROMOTION 消息渲染
+为「智能推荐 + 已售 413 件，要不要看看？」；`ChatControllerTest` 13 条通过。
