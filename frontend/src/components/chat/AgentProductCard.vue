@@ -10,7 +10,8 @@ const hasStock = computed(() => Number(props.product.stock || 0) > 0)
 
 <template>
   <article class="product-card">
-    <router-link :to="`/product/${product.productId}`" class="image-link">
+    <router-link :to="`/product/${product.productId}`" class="image-link"
+                   target="_blank" rel="noopener">
       <img
         v-if="product.image"
         :src="product.image"
@@ -22,7 +23,8 @@ const hasStock = computed(() => Number(props.product.stock || 0) > 0)
     </router-link>
 
     <div class="product-body">
-      <router-link :to="`/product/${product.productId}`" class="product-name">
+      <router-link :to="`/product/${product.productId}`" class="product-name"
+                     target="_blank" rel="noopener">
         {{ product.name }}
       </router-link>
 
@@ -41,7 +43,8 @@ const hasStock = computed(() => Number(props.product.stock || 0) > 0)
       <p v-if="product.specText" class="spec">{{ product.specText }}</p>
 
       <div class="actions">
-        <router-link :to="`/product/${product.productId}`" class="detail-btn">
+        <router-link :to="`/product/${product.productId}`" class="detail-btn"
+                     target="_blank" rel="noopener">
           查看详情
         </router-link>
         <el-button size="small" text type="primary" :disabled="!hasStock || busy"
