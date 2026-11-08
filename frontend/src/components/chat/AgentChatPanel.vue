@@ -33,7 +33,6 @@ import type {
   AgentFormRequest,
   AgentFormResult,
   AgentImage,
-  AgentOrderResult,
   AgentPreferences,
   AgentProductCard,
   AgentSessionView,
@@ -183,34 +182,21 @@ const canSend = computed(() => input.value.trim().length > 0 && !streaming.value
  * - 已取消 / 已过期：隐藏
  * - 已完成：默认隐藏；但下单成功且订单还没支付时保留，否则用户没有「去支付」入口
  */
+/**
+ * 底部只展示「还要用户操作」的卡片：待确认 / 执行中。
+ * 确认、取消、过期、失败后立即从视图消失，不留下历史卡。
+ */
 const visibleActions = computed(() =>
-  actions.value.filter((action) => {
-    if (action.status === 'PENDING_CONFIRM'
-        || action.status === 'EXECUTING'
-        || action.status === 'FAILED') {
-      return true
-    }
-    if (action.status === 'SUCCEEDED' && action.type === 'CREATE_ORDER') {
-      const result = action.result as AgentOrderResult | null
-      return !!result?.orders.some((order) => order.status === 'PENDING_PAYMENT')
-    }
-    // 已取消/已过期的卡片保留 30 分钟，用户能看到「已取消」而不是卡片直接消失
-    if (action.status === 'CANCELLED' || action.status === 'EXPIRED') {
-      const created = new Date(action.createdAt).getTime()
-      return !Number.isNaN(created) && Date.now() - created < 30 * 60 * 1000
-    }
-    return false
-  }),
+  actions.value.filter(
+    (action) => action.status === 'PENDING_CONFIRM' || action.status === 'EXECUTING',
+  ),
 )
 
-/** 底部只展示最新一张卡，旧的收进「查看历史操作」，避免卡片越堆越多 */
-const showActionHistory = ref(false)
-const latestAction = computed(() =>
-  visibleActions.value.length
-    ? visibleActions.value[visibleActions.value.length - 1]
-    : null,
-)
-const olderActions = computed(() => visibleActions.value.slice(0, -1))
+/**
+ * 同一时刻只显示一张卡：按创建顺序（先进先出）。
+ * 用户确认/取消后这张卡消失，下一张待确认卡才出现 —— 多件商品就按顺序逐张弹。
+ */
+const activeAction = computed(() => visibleActions.value[0] || null)
 
 const TRACE_LABELS: Record<string, string> = {
   delegate: '派发',
@@ -355,7 +341,6 @@ async function selectSession(command: unknown) {
   sessionId.value = id
   persistSession(id)
   stopTyping()
-  showActionHistory.value = false
   messages.value = []
   actions.value = []
   await loadHistory(id)
@@ -541,7 +526,6 @@ function newSession() {
     void stop()
   }
   stopTyping()
-  showActionHistory.value = false
   sessionId.value = null
   runId.value = ''
   persistSession(null)
@@ -787,28 +771,12 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div v-if="latestAction" class="action-list">
+      <div v-if="activeAction" class="action-list">
         <AgentActionCard
-          :key="latestAction.actionNo"
-          :action="latestAction"
+          :key="activeAction.actionNo"
+          :action="activeAction"
           @updated="onActionUpdated"
         />
-        <button
-          v-if="olderActions.length"
-          type="button"
-          class="action-history-toggle"
-          @click="showActionHistory = !showActionHistory"
-        >
-          {{ showActionHistory ? '收起历史操作' : `查看历史操作（${olderActions.length}）` }}
-        </button>
-        <template v-if="showActionHistory">
-          <AgentActionCard
-            v-for="action in olderActions.slice().reverse()"
-            :key="action.actionNo"
-            :action="action"
-            @updated="onActionUpdated"
-          />
-        </template>
       </div>
     </div>
 
