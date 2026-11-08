@@ -1,4 +1,4 @@
-﻿# HANDOFF · 一次买够（ItsMyGo）
+# HANDOFF · 一次买够（ItsMyGo）
 
 > **读者**：下一个接手本项目的 Claude 会话
 > **性质**：本项目**状态层的权威源** —— 做到哪、下一步做什么、踩过哪些坑。
@@ -460,11 +460,14 @@ taskkill //PID <pid> //F                          # 杀
 cd dev-infra
 docker compose --env-file .env up -d
 docker compose --env-file .env ps
+# 可选知识图谱（默认不启动）
+docker compose --env-file .env --profile kg up -d neo4j
 ```
 
 容器名 / 端口 / 数据卷都与旧的一致：`mysql` 3306、`redis` 6379、`minio` 9000/9001、
-`its-my-go-rabbitmq` 5672/15672、`mongo` 27017、`milvus-standalone` 19530、
-`neo4j` 7687（另含 `mongo-express` / `attu` / `milvus-etcd`）。
+`its-my-go-rabbitmq` 5672/15672、`mongo` 27017、`milvus-standalone` 19530
+（另含 `mongo-express` / `attu` / `milvus-etcd`）；`neo4j` 7687 是**可选组件，默认不启动**，
+放在 `kg` profile 下，`NEO4J_ENABLED=false` 时无需拉起。
 
 - **演示环境**不用这份：`./deploy.sh`（根 `docker-compose.yml`，独立 `its-my-go-*` 卷，8088）；
 - **生产环境**在 VM 上用离线包（同款根 compose + offline 覆盖），与 `dev-infra` 无关；

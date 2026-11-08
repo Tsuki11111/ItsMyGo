@@ -177,9 +177,12 @@ services:
       milvus:
         condition: service_started
 
+  # ── 可选：知识图谱（默认不启动，避免无谓占用内存）──
+  # 需要时：docker compose --env-file .env --profile kg up -d neo4j
   neo4j:
     image: neo4j:5.26
     container_name: neo4j
+    profiles: ["kg"]
     restart: unless-stopped
     environment:
       NEO4J_AUTH: ${NEO4J_AUTH}

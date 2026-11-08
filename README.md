@@ -109,9 +109,11 @@ Spring Boot 单体 + Vue 3 前后端分离，经 **gRPC 接入 RAG 客服智能�
 
 ```bash
 cd dev-infra
-docker compose --env-file .env up -d      # mysql/redis/minio/mongo/milvus/neo4j/rabbitmq/...
+docker compose --env-file .env up -d      # mysql/redis/minio/mongo/milvus/rabbitmq/...
 docker compose --env-file .env ps        # 查看状态
 docker compose --env-file .env down      # 停止（external 数据卷不会删）
+# neo4j 是可选组件，默认不启动；需要知识图谱时：
+# docker compose --env-file .env --profile kg up -d neo4j
 ```
 
 > 不要在 ItsMyGo 仓库根跑全量 `docker compose up`：那会再起一套

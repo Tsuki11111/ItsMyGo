@@ -22,7 +22,7 @@ Docker Desktop 的 Containers 页面只显示一个 `dev-infra` 分组。
 | `mongo-express` | 8081 | Mongo 管理界面 |
 | `milvus-etcd` + `milvus-standalone` | 19530/9091 | rag_helper 向量库 |
 | `attu` | 8000 | Milvus 管理界面 |
-| `neo4j` | 7474/7687 | rag_helper 知识图谱 |
+| `neo4j` | 7474/7687 | rag_helper 知识图谱（**可选，默认不启动**，`--profile kg` 才起） |
 | `elasticsearch` / `kibana` / `qdrant` | 9200/5601/6333 | legacy（默认不启动，`--profile legacy` 才起） |
 
 ## 关键说明
@@ -39,8 +39,11 @@ Docker Desktop 的 Containers 页面只显示一个 `dev-infra` 分组。
 ```bash
 cd dev-infra      # 仓库根 / ItsMyGo 下
 
-# 启动全部基础设施
+# 启动全部基础设施（不含可选组件；neo4j 默认不启动）
 docker compose --env-file .env up -d
+
+# 可选：知识图谱（rag_helper 需要 NEO4J_ENABLED=true 时才用）
+docker compose --env-file .env --profile kg up -d neo4j
 
 # 只起/重启单个
 docker compose --env-file .env up -d mysql redis minio
