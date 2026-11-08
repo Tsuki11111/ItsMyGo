@@ -1444,11 +1444,15 @@ agent 服务在对话过程中需要实时数据时，会反向回调 Java 的�
 |---|---|---|---|---|
 | GET | `/api/agent/actions` | 登录 | `sessionId` | `AgentActionView[]` |
 | PUT | `/api/agent/actions/{actionNo}/order-draft` | 登录 | `{addressId, items:[{productId,skuId,quantity}]}` | `AgentActionView` |
+| POST | `/api/agent/actions/{actionNo}/reprepare` | 登录 | — | `AgentActionView`（新草稿） |
 | POST | `/api/agent/actions/{actionNo}/confirm` | 登录 | — | `AgentActionView` |
 | POST | `/api/agent/actions/{actionNo}/cancel` | 登录 | — | `AgentActionView` |
 
 - 确认接口**只收 actionNo**，业务参数全部来自服务端快照；客户端无法在确认时
   偷改数量 / 地址 / 金额。
+- **已取消/已过期的下单草稿可以重新下单**：`POST /reprepare` 复用原快照
+  （地址+商品行）重新走 prepare 校验/计价，生成一张**新的**待确认草稿（actionNo 不同），
+  原草稿保持已取消；仅本人可操作。
 - **待确认的下单草稿可以修改**：`PUT /order-draft` 只接受 `PENDING_CONFIRM` 的
   `CREATE_ORDER` 动作，复用 prepare 的库存/上下架/地址校验并**重新计价**；
   改完仍是同一张草稿（actionNo 不变），确认时按最新快照执行。已确认/已取消/已过期不能改；

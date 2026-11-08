@@ -119,6 +119,11 @@ export function updateAgentOrderDraft(
   return put<AgentActionView>(`/agent/actions/${encodeURIComponent(actionNo)}/order-draft`, payload)
 }
 
+/** 已取消/已过期的下单草稿重新生成待确认卡片 */
+export function reprepareAgentOrder(actionNo: string): Promise<AgentActionView> {
+  return post<AgentActionView>(`/agent/actions/${encodeURIComponent(actionNo)}/reprepare`)
+}
+
 export function cancelAgentAction(actionNo: string): Promise<AgentActionView> {
   return post<AgentActionView>(`/agent/actions/${encodeURIComponent(actionNo)}/cancel`)
 }

@@ -1600,6 +1600,19 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 
 ## 6. 历史记录
 
+### 2026-11-08 · 已取消的下单卡可「重新下单」
+
+**反馈**：取消下单卡后用户想再下单，卡片上没有入口。
+
+**实现**：`POST /api/agent/actions/{actionNo}/reprepare`：仅本人、仅 `CREATE_ORDER` 且
+状态为 `CANCELLED` / `EXPIRED` 的草稿可调用；从原 `payloadJson` 还原地址+商品行，
+重新走 `prepareOrder` 的校验/计价，生成**新的**待确认草稿（actionNo 不同），原卡保持已取消。
+前端已取消/已过期的下单卡增加「重新下单」按钮，点击后新卡入列、可直接确认。
+测试：`AgentActionControllerTest` 10 条（新增取消→reprepare→新草稿可确认）；
+Playwright 实测：取消后点「重新下单」，页面出现新的「订单待确认」卡。
+
+
+
 ### 2026-11-08 · 取消待确认卡片有明确反馈
 
 **现象**：用户在确认卡点「取消」后，卡片直接消失，只有一闪而过的 toast，用户不知道

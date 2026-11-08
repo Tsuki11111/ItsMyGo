@@ -1278,6 +1278,8 @@ SUCCEEDED / FAILED`，另有 `CANCELLED` / `EXPIRED`。
   `target_id` 存订单 id。
 
 **确认（浏览器调）**：
+- `POST /api/agent/actions/{actionNo}/reprepare`：已取消/已过期的下单草稿复用原 snapshot
+  重新 prepare 出新的待确认草稿；
 - `PUT /api/agent/actions/{actionNo}/order-draft`：待确认下单草稿可改地址/数量，
   复用 `buildOrderDraft` 重新校验与计价，只更新 payload/summary，actionNo 不变；
 - `POST /api/agent/actions/{actionNo}/confirm`，只收 actionNo，**不收业务参数**。

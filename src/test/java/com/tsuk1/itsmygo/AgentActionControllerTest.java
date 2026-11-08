@@ -206,6 +206,40 @@ class AgentActionControllerTest extends ApiTestBase {
     }
 
     @Test
+    void canReprepareCancelledDraft() throws Exception {
+        String username = "ai" + System.nanoTime();
+        String token = customerToken(username);
+        long uid = userId(username);
+        String admin = adminToken("adm" + System.nanoTime());
+        long productId = createProductForTest(admin, "重新下单商品" + System.nanoTime(), "10.00", 10);
+        long skuId = defaultSkuId(productId);
+        long addressId = createAddress(token);
+
+        String actionNo = prepareOrder(ticket(uid), addressId, productId, skuId, 1);
+        mockMvc.perform(post("/api/agent/actions/" + actionNo + "/cancel")
+                        .header("Authorization", bearer(token)))
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.status").value("CANCELLED"));
+
+        String body = mockMvc.perform(post("/api/agent/actions/" + actionNo + "/reprepare")
+                        .header("Authorization", bearer(token)))
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.status").value("PENDING_CONFIRM"))
+                .andExpect(jsonPath("$.data.summary.totalAmount").value("10.00"))
+                .andReturn().getResponse().getContentAsString();
+        String newActionNo = objectMapper.readTree(body).path("data").path("actionNo").asText();
+        assertThat(newActionNo).isNotEqualTo(actionNo);
+
+        // 原草稿仍是已取消，新草稿可正常确认
+        mockMvc.perform(get("/api/agent/actions")
+                        .header("Authorization", bearer(token))
+                        .param("sessionId", "sess-test"))
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.length()").value(2));
+        confirm(token, newActionNo);
+    }
+
+    @Test
     void anotherUserCannotConfirmOrSeeAction() throws Exception {
         String aName = "ab" + System.nanoTime();
         String bName = "ac" + System.nanoTime();

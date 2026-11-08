@@ -56,6 +56,14 @@ public class AgentActionController {
         return Result.ok(actionService.updateOrderDraft(user.id(), actionNo, request));
     }
 
+    /** 已取消/已过期的下单草稿一键重新生成待确认卡片 */
+    @RateLimit(scene = "agent-action", limit = 10, windowSeconds = 60, byUser = true)
+    @PostMapping("/{actionNo}/reprepare")
+    public Result<AgentActionView> reprepareOrder(@AuthenticationPrincipal CurrentUser user,
+                                                  @PathVariable String actionNo) {
+        return Result.ok(actionService.reprepareOrder(user.id(), actionNo));
+    }
+
     @RateLimit(scene = "agent-action", limit = 10, windowSeconds = 60, byUser = true)
     @PostMapping("/{actionNo}/cancel")
     public Result<AgentActionView> cancel(@AuthenticationPrincipal CurrentUser user,

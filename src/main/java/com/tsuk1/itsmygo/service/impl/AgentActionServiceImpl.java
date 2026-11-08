@@ -178,6 +178,34 @@ public class AgentActionServiceImpl implements AgentActionService {
         return toView(action);
     }
 
+    @Override
+    public AgentActionView reprepareOrder(long userId, String actionNo) {
+        requireEnabled();
+        AgentAction action = requireOwned(userId, actionNo);
+        if (!AgentActionType.CREATE_ORDER.name().equals(action.getType())) {
+            throw new BizException(ResultCode.BAD_REQUEST, "只有下单草稿支持重新下单");
+        }
+        if (!AgentActionStatus.CANCELLED.name().equals(action.getStatus())
+                && !AgentActionStatus.EXPIRED.name().equals(action.getStatus())) {
+            throw new BizException(ResultCode.BAD_REQUEST, "只有已取消或已过期的草稿可以重新下单");
+        }
+        JsonNode payload = readTree(action.getPayloadJson());
+        long addressId = payload.path("addressId").asLong();
+        List<AgentOrderDraftRequest.Item> items = new ArrayList<>();
+        for (JsonNode node : payload.path("items")) {
+            items.add(new AgentOrderDraftRequest.Item(
+                    node.path("productId").asLong(),
+                    node.path("skuId").asLong(),
+                    node.path("quantity").asInt()));
+        }
+        if (addressId <= 0 || items.isEmpty()) {
+            throw new BizException(ResultCode.BAD_REQUEST, "原草稿内容已失效，请重新告诉买小购准备");
+        }
+        // 复用 prepare：重新校验库存/地址并生成新的待确认草稿
+        return prepareOrder(userId, action.getSessionId(),
+                new AgentOrderDraftRequest(addressId, items));
+    }
+
     /** 校验 + 重新计价 + 生成 payload/summary；prepare 与 update 共用 */
     private OrderDraft buildOrderDraft(long userId, AgentOrderDraftRequest request) {
         if (request == null || request.items() == null || request.items().isEmpty()) {

@@ -6,6 +6,7 @@ import { fetchAddresses } from '@/api/address'
 import {
   cancelAgentAction,
   confirmAgentAction,
+  reprepareAgentOrder,
   updateAgentOrderDraft,
 } from '@/api/agent'
 import type {
@@ -39,6 +40,8 @@ const isUrgeRefund = computed(() => props.action.type === 'URGE_REFUND')
 const isRefund = computed(() => props.action.type === 'APPLY_REFUND')
 const pending = computed(() => props.action.status === 'PENDING_CONFIRM')
 const canEdit = computed(() => isOrder.value && pending.value && !busy.value && !saving.value)
+const canReprepare = computed(() => isOrder.value && !pending.value
+  && (props.action.status === 'CANCELLED' || props.action.status === 'EXPIRED'))
 const canAct = computed(() => pending.value && !busy.value)
 const orderSummary = computed(() => props.action.summary as AgentOrderSummary)
 const refundSummary = computed(() => props.action.summary as AgentRefundSummary)
@@ -229,6 +232,20 @@ async function startEdit() {
 
 function cancelEdit() {
   editing.value = false
+}
+
+async function reprepare() {
+  if (!canReprepare.value || busy.value) return
+  busy.value = true
+  try {
+    const updated = await reprepareAgentOrder(props.action.actionNo)
+    emit('updated', updated)
+    ElMessage.success('已重新生成下单草稿，请核对后确认')
+  } catch {
+    // http.ts 已提示业务错误
+  } finally {
+    busy.value = false
+  }
 }
 
 async function saveEdit() {
@@ -432,6 +449,11 @@ async function saveEdit() {
       </template>
     </div>
 
+    <div v-if="canReprepare" class="actions">
+      <el-button type="primary" size="small" :loading="busy" @click="reprepare">
+        重新下单
+      </el-button>
+    </div>
     <p v-if="action.status === 'CANCELLED'" class="cancelled-tip">
       已取消：这张{{ isOrder ? '下单草稿' : '待确认操作' }}已作废，不会执行；需要的话请重新告诉买小购。
     </p>

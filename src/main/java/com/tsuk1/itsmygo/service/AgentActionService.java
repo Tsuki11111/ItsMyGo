@@ -20,6 +20,9 @@ public interface AgentActionService {
     AgentActionView updateOrderDraft(long userId, String actionNo,
                                      AgentOrderDraftRequest request);
 
+    /** 已取消/已过期的下单草稿重新生成一张待确认草稿（复用原快照） */
+    AgentActionView reprepareOrder(long userId, String actionNo);
+
     AgentActionView prepareRefund(long userId, String sessionId, AgentRefundDraftRequest request);
 
     AgentActionView prepareUrgeShipment(long userId, String sessionId,
