@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import OrderDetailDrawer from '@/views/admin/components/OrderDetailDrawer.vue'
 import {
@@ -22,6 +22,7 @@ const loading = ref(false)
 const detailVisible = ref(false)
 const detailOrderId = ref<number | null>(null)
 const route = useRoute()
+const router = useRouter()
 
 async function load() {
   loading.value = true
@@ -112,13 +113,35 @@ async function reject(row: Order) {
   await load()
 }
 
+/** 站内通知直达：带 orderId 时自动打开订单详情 */
+function openOrderFromQuery() {
+  const raw = route.query.orderId
+  if (!raw) return
+  const id = Number(raw)
+  if (!Number.isFinite(id) || id <= 0) return
+  detailOrderId.value = id
+  detailVisible.value = true
+}
+
+// 已在本页时再点通知，只是 query 变化，不会重新 mount，必须监听
+watch(
+  () => route.query.orderId,
+  (value) => {
+    if (value) openOrderFromQuery()
+  },
+)
+
+// 关闭抽屉时去掉 orderId，保证下次点同一条通知还能触发 query 变化
+watch(detailVisible, (open) => {
+  if (open || !route.query.orderId) return
+  const query = { ...route.query }
+  delete query.orderId
+  void router.replace({ query })
+})
+
 onMounted(async () => {
+  openOrderFromQuery()
   await load()
-  // 站内通知直达：带 orderId 时自动打开订单详情
-  if (route.query.orderId) {
-    detailOrderId.value = Number(route.query.orderId)
-    detailVisible.value = true
-  }
 })
 </script>
 

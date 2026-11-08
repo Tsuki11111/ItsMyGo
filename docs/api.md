@@ -1,6 +1,6 @@
 # 一次买够 · 后端 API 接口文档
 
-> 适用版本：schema v35（2026-11-08，含 V35「站内通知」与 V34 价格历史等）
+> 适用版本：schema v38（2026-11-08，含 V35 站内通知、V36 RBAC、V37 商品归档、V38 通知旧链接回填）
 > 服务地址：`http://localhost:8080`（开发环境，前端经 Vite 代理 `/api` 访问）
 > 本文覆盖 `src/main/java/com/tsuk1/itsmygo/controller/` 下全部接口。
 
@@ -1814,7 +1814,7 @@ specText, unitPrice, quantity, refundAmount, createdAt`
 
 - `link` 直接指向业务详情：订单 `?orderId=`、售后 `?afterSaleId=`、商家审核
   `?merchantId=`、评测任务 `?jobId=`；前端页面读取查询参数后自动打开对应详情抽屉/弹窗。
-  历史数据的旧 `keyword=` 链接仍可打开列表页。
+  历史数据的旧 `keyword=<订单号>` 链接已由 V38 回填为 `?orderId=<id>`，点击同样直达。
 
 ### 25.2 未读数
 

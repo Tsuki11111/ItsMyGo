@@ -3040,12 +3040,19 @@ PROMOTION 类型与渲染已移除。
   评测 `?jobId=`（`OrderServiceImpl` / `AfterSaleServiceImpl` / `MerchantServiceImpl` /
   `AdminAgentEvalController`）。
 - 列表页读取 query 后自动打开现有详情：订单抽屉（管理端 + 商家端）、售后抽屉（两端）、
-  商户经营详情、商品编辑弹窗、评测任务视图；历史 `keyword=` 链接不破坏列表页。
+  商户经营详情、商品编辑弹窗、评测任务视图。
+- **重复点击 / 已在本页**：订单页用 `watch(() => route.query.orderId)` 监听，组件复用也会
+  打开抽屉；关闭抽屉时 `router.replace` 去掉 `orderId`，下次点同一条通知仍会触发 query 变化。
+- **历史 keyword 链接**：`V38__notification_order_links.sql` 关联 `orders.order_no`，把
+  `/admin/orders?keyword=<orderNo>`、`/merchant/orders?keyword=<orderNo>` 回填为
+  `?orderId=<id>`；售后链接不动，列表页不再需要兼容 keyword。
 - 不新增独立详情路由，避免复制页面与权限逻辑（D31）。
 
 **验证**：管理员实测数据概览点待办 → 订单抽屉自动打开；通知 link
 `/admin/orders?orderId=829`、`/admin/after-sales?afterSaleId=1` 直达详情；
-低库存 `productId` 打开商品编辑弹窗；`type-check` / `build:web` 通过。
+低库存 `productId` 打开商品编辑弹窗；已在 `/admin/orders` 时点通知 → 抽屉打开、关闭后
+query 清除、再点同一条可重开；历史通知（订单号 20261108171025833202）回填后打开订单 821；
+`type-check` / `build:web` 通过。
 
 ### 3.50 商品编辑与规格编辑合并弹窗（2026-11-08）
 

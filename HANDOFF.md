@@ -39,7 +39,7 @@
 ## 1. 当前状态一句话
 
 **交易闭环、多商户、AI 客服、运营后台、平台政策、压测、售后、下单异步补账、后台站内通知、Docker 部署均已完成（2026-11-08）。**
-后端自动化测试 **337 条**（本地；CI 跑 333 条，跳过 4 条依赖 MinIO 的用例）。数据库 schema 到 **v37**。
+后端自动化测试 **337 条**（本地；CI 跑 333 条，跳过 4 条依赖 MinIO 的用例）。数据库 schema 到 **v38**。
 
 **待办/注意**：RBAC P2.1（邀请管理员选子角色）与商户与商品运营二期已确认**不做**；
 因此 `RBAC_ENABLED` 保持默认 **false**（开启后新管理员无角色行会等同超管）。
@@ -194,8 +194,8 @@ role / merchantId 由 `AuthIdentityService` 按数据库实时推导（60 秒缓
 ### 3.3 数据库
 
 - 开发库 `its_mygo`、测试库 `its_mygo_test`（都在共用的 `mysql` 容器里，为什么要分开见 §5.20）
-- 迁移脚本在 `src/main/resources/db/migration/`，**当前 schema 版本 v30**
-  （2026-11-05 核对迁移目录：`V1`–`V30` 连续、无缺号）
+- 迁移脚本在 `src/main/resources/db/migration/`，**当前 schema 版本 v38**
+  （2026-11-08 核对迁移目录：`V1`–`V38` 连续、无缺号）
 - 已建表：`merchants`（V16，默认商户 id=1 平台自营；**V23 加发货地址
   `ship_province/city/district/address/lng/lat`**）、`users`（V1，V3 加 `role`，
   V12 加 `avatar`，**V16 加 `merchant_id`**，V25 加 `idx_user_role_status`）、
@@ -1610,6 +1610,27 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 **不算服务端错误**，不要进 ERROR 日志/告警。
 
 ## 6. 历史记录
+
+### 2026-11-08 · 通知点击订单直达（含历史链接）
+
+**反馈（用户）**：点「新订单待发货」通知没有直接打开订单详情。
+
+**原因**：
+- 管理端/商家端订单页只在 `onMounted()` 读一次 `route.query.orderId`；已经在订单列表页时
+  再点通知，路由只变 query、组件复用不重新挂载，所以抽屉不开；
+- 早期通知的 link 是 `?keyword=<订单号>`，订单页不识别，点击只能落到列表。
+
+**修复**：
+- `admin/Orders.vue`、`merchant/Orders.vue`：抽出 `openOrderFromQuery()`，增加
+  `watch(() => route.query.orderId)`；关闭抽屉时用 `router.replace` 去掉 `orderId`，
+  保证下次点同一条通知还能触发 query 变化重新打开；
+- `V38__notification_order_links.sql`：按订单号把历史
+  `/admin/orders?keyword=<orderNo>`、`/merchant/orders?keyword=<orderNo>` 回填成
+  `?orderId=<id>`（关联 `orders.order_no`）；售后 `afterSaleId` 链接不动。dev 库回填 14 条。
+
+**验证**：CDP 实测已在 `/admin/orders` 点铃铛 → `?orderId=831` 抽屉打开；关闭后 URL 去掉
+query；再点同一条仍能打开。历史通知（订单 20261108171025833202）点击后打开订单 821 详情。
+`type-check` / `build:web` 通过；`NotificationControllerTest` 3 条通过（Flyway V38 正常执行）。
 
 ### 2026-11-08 · 催发货改投商家站内通知
 
