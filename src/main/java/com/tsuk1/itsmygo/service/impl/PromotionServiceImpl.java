@@ -242,20 +242,27 @@ public class PromotionServiceImpl implements PromotionService {
     }
 
     /** 文案只拼真实信号，不编数字 */
-    /** 多商品文案：每件沿用原模板，前面加序号（①②③）与卡片顺序一一对应 */
+    /** 多商品文案：一句总起 + ①②③ 逐条真实卖点 + 一句统一 CTA（不再每行重复「要不要看看？」） */
     private String buildPromotionText(List<Scored> picked) {
         StringBuilder text = new StringBuilder();
+        if (picked.size() == 1) {
+            text.append("给你挑了一件最近值得看的商品，价格和口碑都不错：\n");
+        } else {
+            text.append("给你挑了 ").append(picked.size())
+                    .append(" 件最近值得看的，价格和口碑都不错：\n");
+        }
         for (int i = 0; i < picked.size(); i++) {
             if (i > 0) {
                 text.append("\n");
             }
-            text.append(CIRCLED[i]).append(" ").append(buildReason(picked.get(i)));
+            text.append(CIRCLED[i]).append(" ").append(buildSignals(picked.get(i)));
         }
+        text.append("\n点商品卡看详情，有看中的直接跟我说，我帮你下单～");
         return text.toString();
     }
 
-    /** 单件商品的真实卖点，不编数字 */
-    private String buildReason(Scored scored) {
+    /** 单件商品的真实卖点，不编数字（不带 CTA，CTA 由整体文案统一收） */
+    private String buildSignals(Scored scored) {
         List<String> parts = new ArrayList<>();
         if (scored.priceDrop() > 0) {
             double percent = Math.round(scored.priceDrop() * 1000) / 10.0;
@@ -279,7 +286,7 @@ public class PromotionServiceImpl implements PromotionService {
         if (sales > 0) {
             parts.add("已售 " + sales + " 件");
         }
-        return String.join("，", parts) + "，要不要看看？";
+        return String.join("，", parts);
     }
 
     private String formatNumber(double value) {

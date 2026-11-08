@@ -182,11 +182,12 @@ class PromotionServiceTest extends ApiTestBase {
                 .contains("最近 30 天降价约 90%")
                 .contains("已售 1000 件")
                 .contains("评分 5.0 分")
-                .contains("要不要看看？")
+                .contains("给你挑了 3 件最近值得看的")
                 .contains("①")
-                .contains("②");
-        // 三件商品各一行、带序号，旧话术模板不变
-        assertThat(payload.split("要不要看看？", -1).length - 1).isGreaterThanOrEqualTo(3);
+                .contains("②")
+                .contains("点商品卡看详情");
+        // 不再每行重复同一句 CTA
+        assertThat(payload).doesNotContain("要不要看看？");
 
         LocalDate today = LocalDate.now(ZoneId.of("Asia/Shanghai"));
         assertThat(preferenceMapper.selectById(userId).getLastPromotionDate()).isEqualTo(today);
