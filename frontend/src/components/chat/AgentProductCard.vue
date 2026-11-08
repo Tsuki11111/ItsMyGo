@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import type { AgentProductCard } from '@/api/types'
 
-const props = defineProps<{ product: AgentProductCard }>()
+const props = defineProps<{ product: AgentProductCard; busy?: boolean }>()
 const emit = defineEmits<{ buy: [product: AgentProductCard] }>()
 
 const hasStock = computed(() => Number(props.product.stock || 0) > 0)
@@ -44,9 +44,9 @@ const hasStock = computed(() => Number(props.product.stock || 0) > 0)
         <router-link :to="`/product/${product.productId}`" class="detail-btn">
           查看详情
         </router-link>
-        <el-button size="small" text type="primary" :disabled="!hasStock"
+        <el-button size="small" text type="primary" :disabled="!hasStock || busy"
                    @click="emit('buy', product)">
-          让买小购下单
+          {{ busy ? '处理中…' : '让买小购下单' }}
         </el-button>
       </div>
     </div>

@@ -228,7 +228,8 @@ function onActionUpdated(updated: AgentActionView) {
 /** 商品卡上的「让买小购下单」：把商品名与规格带回对话，由导购/订单子 agent 继续 */
 function buyProduct(product: AgentProductCard) {
   const spec = product.specText ? `，规格：${product.specText}` : ''
-  void sendMessage(`帮我买这个商品：${product.name}${spec}`)
+  void sendMessage(`帮我买这个商品：${product.name}${spec}`, undefined,
+                   { dedupeProducts: true })
 }
 
 /** 用户去订单页支付 / 商家处理退款后回到聊天：重新拉一次动作，卡片状态才会更新 */
@@ -260,12 +261,20 @@ async function loadHistory(savedSessionId: string) {
   loadingHistory.value = true
   try {
     const view = await fetchAgentHistory(savedSessionId, 30)
-    messages.value = view.messages.map((item, index) => ({
+    // 同一张商品卡在会话里只展示一次，避免「点下单后又出现一张同样的卡」
+    const seenProductIds = new Set<string>()
+    messages.value = view.messages.map((item, index) => {
+      const products = (item.products || []).filter((product) => {
+        if (seenProductIds.has(product.productId)) return false
+        seenProductIds.add(product.productId)
+        return true
+      })
+      return {
       id: `h-${index}`,
       role: item.role === 'user' ? 'user' : 'assistant',
       text: item.text,
       images: item.images || [],
-      products: item.products || [],
+      products,
       // GetHistory 里的表单是历史回放：只读展示，不可再提交
       forms: item.forms || [],
       formsReadonly: true,
@@ -274,7 +283,8 @@ async function loadHistory(savedSessionId: string) {
       webOnly: false,
       error: '',
       stopped: false,
-    }))
+      }
+    })
     await loadActions(savedSessionId)
     await scrollToBottom()
   } catch {
@@ -308,11 +318,19 @@ async function selectSession(command: unknown) {
   await loadHistory(id)
 }
 
-async function sendMessage(preset?: string, formResult?: AgentFormResult) {
+async function sendMessage(preset?: string, formResult?: AgentFormResult,
+                          options?: { dedupeProducts?: boolean }) {
   const content = (preset ?? input.value).trim()
   if (!content || streaming.value) return
 
   input.value = ''
+  // 购买意图：本轮回复里不再重复展示已经在会话里出现过的商品卡
+  const existingProductIds = new Set<string>()
+  if (options?.dedupeProducts) {
+    for (const message of messages.value) {
+      for (const product of message.products) existingProductIds.add(product.productId)
+    }
+  }
   const userId = `u-${Date.now()}`
   const assistantId = `a-${++assistantSeq}`
   messages.value.push({
@@ -372,7 +390,8 @@ async function sendMessage(preset?: string, formResult?: AgentFormResult) {
       case 'final':
         assistant.text = event.answer || assistant.text
         assistant.images = event.images || []
-        assistant.products = event.products || []
+        assistant.products = (event.products || []).filter(
+          (product) => !existingProductIds.has(product.productId))
         assistant.forms = event.forms || []
         assistant.webOnly = event.webOnly
         break
@@ -663,6 +682,7 @@ onBeforeUnmount(() => {
                 v-for="product in message.products"
                 :key="product.productId"
                 :product="product"
+                :busy="streaming"
                 @buy="buyProduct"
               />
             </div>

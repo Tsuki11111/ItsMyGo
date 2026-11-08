@@ -120,6 +120,27 @@ class AgentActionControllerTest extends ApiTestBase {
     }
 
     @Test
+    void repeatedIdenticalOrderDraftReturnsSameCard() throws Exception {
+        String username = "ad" + System.nanoTime();
+        String token = customerToken(username);
+        long uid = userId(username);
+        String admin = adminToken("adm" + System.nanoTime());
+        long productId = createProductForTest(admin, "重复草稿商品" + System.nanoTime(), "10.00", 5);
+        long skuId = defaultSkuId(productId);
+        long addressId = createAddress(token);
+
+        // 用户在同一会话里重复点「让买小购下单」：应复用已有待确认草稿，不新增卡片
+        String first = prepareOrder(ticket(uid), addressId, productId, skuId, 1);
+        String second = prepareOrder(ticket(uid), addressId, productId, skuId, 1);
+        assertThat(second).isEqualTo(first);
+        mockMvc.perform(get("/api/agent/actions")
+                        .header("Authorization", bearer(token))
+                        .param("sessionId", "sess-test"))
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.length()").value(1));
+    }
+
+    @Test
     void anotherUserCannotConfirmOrSeeAction() throws Exception {
         String aName = "ab" + System.nanoTime();
         String bName = "ac" + System.nanoTime();

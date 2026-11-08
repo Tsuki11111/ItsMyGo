@@ -230,6 +230,25 @@ public class AgentActionServiceImpl implements AgentActionService {
             return item;
         }).toList());
 
+        // 幂等：同一会话里对同一份订单内容重复点「让买小购下单」时，返回已有草稿卡片，
+        // 不再重复生成（否则用户会看到多张一模一样的「订单待确认」）。
+        String payloadJson = json(payload);
+        List<AgentAction> pendingOrders = actionMapper.selectList(
+                Wrappers.<AgentAction>lambdaQuery()
+                        .eq(AgentAction::getUserId, userId)
+                        .eq(AgentAction::getSessionId, sessionId)
+                        .eq(AgentAction::getType, AgentActionType.CREATE_ORDER.name())
+                        .eq(AgentAction::getStatus, AgentActionStatus.PENDING_CONFIRM.name())
+                        .gt(AgentAction::getExpiresAt, LocalDateTime.now())
+                        .orderByDesc(AgentAction::getId)
+                        .last("LIMIT 5"));
+        for (AgentAction existing : pendingOrders) {
+            if (payloadJson.equals(existing.getPayloadJson())) {
+                log.info("重复的订单草稿，返回已有卡片：{}", existing.getActionNo());
+                return toView(existing);
+            }
+        }
+
         AgentAction action = newAction(userId, sessionId, AgentActionType.CREATE_ORDER,
                 payload, summary, null);
         String token = orderService.issueToken(userId);
