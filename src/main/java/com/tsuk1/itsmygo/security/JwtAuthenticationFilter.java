@@ -1,17 +1,21 @@
 package com.tsuk1.itsmygo.security;
 
 import io.jsonwebtoken.JwtException;
+import com.tsuk1.itsmygo.common.Roles;
+import com.tsuk1.itsmygo.service.RbacService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -26,10 +30,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
     private final AuthIdentityService authIdentityService;
+    private final RbacService rbacService;
 
-    public JwtAuthenticationFilter(JwtService jwtService, AuthIdentityService authIdentityService) {
+    public JwtAuthenticationFilter(JwtService jwtService, AuthIdentityService authIdentityService,
+                                   RbacService rbacService) {
         this.jwtService = jwtService;
         this.authIdentityService = authIdentityService;
+        this.rbacService = rbacService;
     }
 
     @Override
@@ -42,8 +49,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 CurrentUser parsed = jwtService.parse(header.substring(PREFIX.length()));
                 CurrentUser user = authIdentityService.load(parsed.id());
                 if (user != null) {
-                    // Spring Security 的 hasRole("ADMIN") 匹配的是 ROLE_ADMIN 这个 authority
-                    var authorities = List.of(new SimpleGrantedAuthority("ROLE_" + user.role()));
+                    // Spring Security 的 hasRole("ADMIN") 匹配的是 ROLE_ADMIN 这个 authority；
+                    // 管理端再附加权限码（rbac 关闭时 RbacService 返回全部权限码，等价旧行为）
+                    List<GrantedAuthority> authorities = new ArrayList<>();
+                    authorities.add(new SimpleGrantedAuthority("ROLE_" + user.role()));
+                    if (Roles.ADMIN.equals(user.role())) {
+                        rbacService.permissionCodes(user.id())
+                                .forEach(code -> authorities.add(new SimpleGrantedAuthority(code)));
+                    }
                     UsernamePasswordAuthenticationToken authentication =
                             new UsernamePasswordAuthenticationToken(user, null, authorities);
                     SecurityContextHolder.getContext().setAuthentication(authentication);

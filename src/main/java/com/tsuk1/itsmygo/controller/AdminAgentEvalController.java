@@ -1,5 +1,6 @@
 package com.tsuk1.itsmygo.controller;
 
+import org.springframework.security.access.prepost.PreAuthorize;
 import com.tsuk1.itsmygo.common.Result;
 import com.tsuk1.itsmygo.common.agent.AgentEvalClient;
 import com.tsuk1.itsmygo.common.audit.AdminAudit;
@@ -25,6 +26,7 @@ import org.springframework.web.bind.annotation.RestController;
  * 管理端智能体评测：代理 rag_helper 的 8002 评测接口。
  * 浏览器只访问 Java；访问密钥只留在后端配置里。
  */
+@PreAuthorize("hasAuthority('admin:agent-eval:view')")
 @RestController
 @RequestMapping("/api/admin/agent-eval")
 public class AdminAgentEvalController {
@@ -45,6 +47,7 @@ public class AdminAgentEvalController {
 
     /** 新建自建用例：写到 rag_helper 持久化目录，立即出现在用例列表。 */
     @RateLimit(scene = "agent-eval-case", limit = 10, windowSeconds = 60, byUser = true)
+    @PreAuthorize("hasAuthority('admin:agent-eval:run')")
     @PostMapping("/cases")
     @AdminAudit(action = "AGENT_EVAL_CASE_CREATE", label = "新建智能体评测用例",
             targetType = "AGENT_EVAL")
@@ -67,6 +70,7 @@ public class AdminAgentEvalController {
 
     /** 启动后台评测；真正执行在 rag_helper，Java 只负责鉴权和转发。 */
     @RateLimit(scene = "agent-eval-run", limit = 3, windowSeconds = 60, byUser = true)
+    @PreAuthorize("hasAuthority('admin:agent-eval:run')")
     @PostMapping("/runs")
     @AdminAudit(action = "AGENT_EVAL_RUN", label = "启动智能体评测",
             targetType = "AGENT_EVAL")
@@ -112,6 +116,7 @@ public class AdminAgentEvalController {
     }
 
     /** 协作式停止：当前用例跑完后退出，已产出的结果保留。 */
+    @PreAuthorize("hasAuthority('admin:agent-eval:run')")
     @PostMapping("/jobs/{id}/stop")
     @AdminAudit(action = "AGENT_EVAL_STOP", label = "停止智能体评测",
             targetType = "AGENT_EVAL")

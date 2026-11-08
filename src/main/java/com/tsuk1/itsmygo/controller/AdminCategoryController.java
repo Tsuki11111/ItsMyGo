@@ -1,5 +1,6 @@
 package com.tsuk1.itsmygo.controller;
 
+import org.springframework.security.access.prepost.PreAuthorize;
 import com.tsuk1.itsmygo.common.Result;
 import com.tsuk1.itsmygo.common.audit.AdminAudit;
 import com.tsuk1.itsmygo.dto.CategoryNode;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 /** 管理端：含停用分类，需 ADMIN */
+@PreAuthorize("hasAuthority('admin:product:view')")
 @RestController
 @RequestMapping("/api/admin/categories")
 public class AdminCategoryController {
@@ -34,18 +36,21 @@ public class AdminCategoryController {
         return Result.ok(categoryService.tree(false));
     }
 
+    @PreAuthorize("hasAuthority('admin:product:manage')")
     @PostMapping
     @AdminAudit(action = "CATEGORY_CREATE", label = "新增分类", targetType = "CATEGORY")
     public Result<Category> create(@Valid @RequestBody CategoryRequest request) {
         return Result.ok(categoryService.create(request));
     }
 
+    @PreAuthorize("hasAuthority('admin:product:manage')")
     @PutMapping("/{id}")
     @AdminAudit(action = "CATEGORY_UPDATE", label = "修改分类", targetType = "CATEGORY")
     public Result<Category> update(@PathVariable Long id, @Valid @RequestBody CategoryRequest request) {
         return Result.ok(categoryService.update(id, request));
     }
 
+    @PreAuthorize("hasAuthority('admin:product:manage')")
     @DeleteMapping("/{id}")
     @AdminAudit(action = "CATEGORY_DELETE", label = "删除分类", targetType = "CATEGORY")
     public Result<Void> delete(@PathVariable Long id) {

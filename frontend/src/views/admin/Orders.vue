@@ -278,11 +278,11 @@ onMounted(async () => {
         <template #default="{ row }">
           <el-button link type="primary" @click="openDetail(row)">详情</el-button>
           <template v-if="row.status === 'PAID' && row.merchantId === 1">
-            <el-button link type="primary" @click="ship(row)">发货</el-button>
+            <el-button v-permission="'admin:order:ship'" link type="primary" @click="ship(row)">发货</el-button>
           </template>
           <template v-else-if="row.status === 'REFUNDING'">
-            <el-button link type="success" @click="approve(row)">同意退款</el-button>
-            <el-button link type="danger" @click="reject(row)">驳回</el-button>
+            <el-button v-permission="'admin:order:refund'" link type="success" @click="approve(row)">同意退款</el-button>
+            <el-button v-permission="'admin:order:refund'" link type="danger" @click="reject(row)">驳回</el-button>
           </template>
         </template>
       </el-table-column>

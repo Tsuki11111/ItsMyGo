@@ -1,5 +1,6 @@
 package com.tsuk1.itsmygo.controller;
 
+import org.springframework.security.access.prepost.PreAuthorize;
 import com.tsuk1.itsmygo.common.ProductBloomFilter;
 import com.tsuk1.itsmygo.common.Result;
 import com.tsuk1.itsmygo.common.ResultCode;
@@ -27,6 +28,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /** 管理端：含下架商品，需 ADMIN */
+@PreAuthorize("hasAuthority('admin:product:view')")
 @RestController
 @RequestMapping("/api/admin/products")
 public class AdminProductController {
@@ -55,6 +57,7 @@ public class AdminProductController {
                 page, size, categoryId, keyword, merchantId, status, lowStock));
     }
 
+    @PreAuthorize("hasAuthority('admin:product:manage')")
     @PutMapping("/batch-status")
     @AdminAudit(action = "PRODUCT_BATCH_STATUS", label = "批量上下架商品", targetType = "PRODUCT")
     public Result<Integer> batchStatus(@RequestBody(required = false) ProductBatchStatusRequest request) {
@@ -65,12 +68,14 @@ public class AdminProductController {
     }
 
     /** 给存量商品与 SKU 图片补生成缩略图；新上传/修改的图片会自动生成，这个接口用于老数据 */
+    @PreAuthorize("hasAuthority('admin:product:manage')")
     @PostMapping("/backfill-thumbnails")
     @AdminAudit(action = "PRODUCT_THUMB_BACKFILL", label = "回填商品缩略图", targetType = "PRODUCT")
     public Result<Integer> backfillThumbnails() {
         return Result.ok(productService.backfillThumbnails());
     }
 
+    @PreAuthorize("hasAuthority('admin:product:manage')")
     @PostMapping
     @AdminAudit(action = "PRODUCT_CREATE", label = "新增商品", targetType = "PRODUCT")
     public Result<Product> create(@Valid @RequestBody ProductRequest request,
@@ -78,12 +83,14 @@ public class AdminProductController {
         return Result.ok(productService.create(request, merchantId));
     }
 
+    @PreAuthorize("hasAuthority('admin:product:manage')")
     @PutMapping("/{id}")
     @AdminAudit(action = "PRODUCT_UPDATE", label = "修改商品", targetType = "PRODUCT")
     public Result<Product> update(@PathVariable Long id, @Valid @RequestBody ProductRequest request) {
         return Result.ok(productService.update(id, request));
     }
 
+    @PreAuthorize("hasAuthority('admin:product:manage')")
     @DeleteMapping("/{id}")
     @AdminAudit(action = "PRODUCT_DELETE", label = "删除商品", targetType = "PRODUCT")
     public Result<Void> delete(@PathVariable Long id) {
@@ -104,6 +111,7 @@ public class AdminProductController {
      * 新建的 SKU 用请求里带的 stock 作为初始值。
      * 新建的规格值请传负数临时 id，服务端插入后会改写引用 —— 详见 {@link SkuSaveRequest}。
      */
+    @PreAuthorize("hasAuthority('admin:product:manage')")
     @PutMapping("/{id}/skus")
     @AdminAudit(action = "PRODUCT_SKU_SAVE", label = "保存商品规格", targetType = "PRODUCT")
     public Result<ProductSkuView> saveSkus(@PathVariable Long id,
@@ -118,6 +126,7 @@ public class AdminProductController {
      * 所以补货、盘库单独走这个接口。请求带 {@code expectedStock}，
      * 期间被并发改过就拒绝，避免硬覆盖丢更新。
      */
+    @PreAuthorize("hasAuthority('admin:product:manage')")
     @PutMapping("/{productId}/skus/{skuId}/stock")
     @AdminAudit(action = "SKU_STOCK_ADJUST", label = "调整 SKU 库存", targetType = "SKU")
     public Result<ProductSku> adjustStock(@PathVariable Long productId,
@@ -133,6 +142,7 @@ public class AdminProductController {
      * 它们不在过滤器里会被判为「不存在」，调一次这个接口即可修复
      * （应用重启也会自动预热，这里是不重启的补救手段）。
      */
+    @PreAuthorize("hasAuthority('admin:product:manage')")
     @PostMapping("/rebuild-bloom")
     @AdminAudit(action = "PRODUCT_BLOOM_REBUILD", label = "重建商品布隆过滤器", targetType = "PRODUCT")
     public Result<Integer> rebuildBloomFilter() {

@@ -1,5 +1,6 @@
 package com.tsuk1.itsmygo.controller;
 
+import org.springframework.security.access.prepost.PreAuthorize;
 import com.tsuk1.itsmygo.common.Result;
 import com.tsuk1.itsmygo.common.audit.AdminAudit;
 import com.tsuk1.itsmygo.common.ratelimit.RateLimit;
@@ -11,6 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 /** 管理端：上传商品图，需 ADMIN */
+@PreAuthorize("hasAnyAuthority('admin:product:manage', 'admin:knowledge:import')")
 @RestController
 @RequestMapping("/api/admin/files")
 public class AdminFileController {

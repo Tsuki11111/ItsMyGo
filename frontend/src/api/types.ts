@@ -1228,3 +1228,9 @@ export interface NotificationListView {
   items: NotificationView[]
 }
 
+
+export interface PermissionView {
+  roles: string[]
+  permissions: string[]
+}
+

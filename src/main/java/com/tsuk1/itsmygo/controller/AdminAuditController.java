@@ -1,5 +1,6 @@
 package com.tsuk1.itsmygo.controller;
 
+import org.springframework.security.access.prepost.PreAuthorize;
 import com.tsuk1.itsmygo.common.Result;
 import com.tsuk1.itsmygo.dto.AdminAuditView;
 import com.tsuk1.itsmygo.dto.PageResponse;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.LocalDate;
 
 /** 管理端操作审计：只读查询。 */
+@PreAuthorize("hasAuthority('admin:audit:view')")
 @RestController
 @RequestMapping("/api/admin/audit-logs")
 public class AdminAuditController {

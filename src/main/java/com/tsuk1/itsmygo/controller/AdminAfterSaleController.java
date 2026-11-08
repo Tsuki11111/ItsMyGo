@@ -1,5 +1,6 @@
 package com.tsuk1.itsmygo.controller;
 
+import org.springframework.security.access.prepost.PreAuthorize;
 import com.tsuk1.itsmygo.common.Result;
 import com.tsuk1.itsmygo.common.audit.AdminAudit;
 import com.tsuk1.itsmygo.dto.AfterSaleRejectRequest;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /** 管理端售后：全平台查看、平台介入处理（驳回 / 同意 / 确认收货）。 */
+@PreAuthorize("hasAuthority('admin:aftersale:view')")
 @RestController
 @RequestMapping("/api/admin/after-sales")
 public class AdminAfterSaleController {
@@ -45,12 +47,14 @@ public class AdminAfterSaleController {
         return Result.ok(afterSaleService.detailForAdmin(id));
     }
 
+    @PreAuthorize("hasAuthority('admin:aftersale:handle')")
     @PostMapping("/{id}/approve")
     @AdminAudit(action = "AFTER_SALE_APPROVE", label = "平台介入：同意售后", targetType = "AFTER_SALE")
     public Result<AfterSaleView> approve(@PathVariable Long id) {
         return Result.ok(afterSaleService.approveForAdmin(id));
     }
 
+    @PreAuthorize("hasAuthority('admin:aftersale:handle')")
     @PostMapping("/{id}/reject")
     @AdminAudit(action = "AFTER_SALE_REJECT", label = "平台介入：驳回售后", targetType = "AFTER_SALE")
     public Result<AfterSaleView> reject(@PathVariable Long id,
@@ -58,6 +62,7 @@ public class AdminAfterSaleController {
         return Result.ok(afterSaleService.rejectForAdmin(id, request));
     }
 
+    @PreAuthorize("hasAuthority('admin:aftersale:handle')")
     @PostMapping("/{id}/confirm-received")
     @AdminAudit(action = "AFTER_SALE_CONFIRM_RECEIVED", label = "平台介入：确认退货收货",
             targetType = "AFTER_SALE")

@@ -15,6 +15,7 @@ import {
   shipMerchantOrder,
 } from '@/api/merchant'
 import type { OrderView } from '@/api/types'
+import { usePermissionStore } from '@/stores/permission'
 import { orderStatusTag } from '@/utils/orderStatus'
 
 const props = defineProps<{
@@ -32,6 +33,17 @@ const emit = defineEmits<{
 const view = ref<OrderView | null>(null)
 const loading = ref(false)
 const acting = ref(false)
+const permissionStore = usePermissionStore()
+
+/** 商家端按归属；管理端还要求对应权限码 */
+function canShip(): boolean {
+  if (props.merchant) return true
+  return view.value?.order.merchantId === 1 && permissionStore.has('admin:order:ship')
+}
+
+function canRefund(): boolean {
+  return props.merchant || permissionStore.has('admin:order:refund')
+}
 
 async function load() {
   if (props.orderId === null) return
@@ -231,10 +243,10 @@ async function reject() {
         </el-table>
 
         <div v-if="view.order.status === 'PAID' || view.order.status === 'REFUNDING'" class="actions">
-          <template v-if="view.order.status === 'PAID' && (props.merchant || view.order.merchantId === 1)">
+          <template v-if="view.order.status === 'PAID' && canShip()">
             <el-button type="primary" :loading="acting" @click="ship">发货</el-button>
           </template>
-          <template v-else>
+          <template v-else-if="view.order.status === 'REFUNDING' && canRefund()">
             <el-button type="success" :loading="acting" @click="approve">同意退款</el-button>
             <el-button type="danger" plain :loading="acting" @click="reject">驳回退款</el-button>
           </template>

@@ -1,5 +1,6 @@
 package com.tsuk1.itsmygo.controller;
 
+import org.springframework.security.access.prepost.PreAuthorize;
 import com.tsuk1.itsmygo.common.Result;
 import com.tsuk1.itsmygo.common.audit.AdminAudit;
 import com.tsuk1.itsmygo.dto.CouponRequest;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /** 管理端：优惠券模板。不提供删除，停用即可（已领的券照常可用） */
+@PreAuthorize("hasAuthority('admin:coupon:manage')")
 @RestController
 @RequestMapping("/api/admin/coupons")
 public class AdminCouponController {

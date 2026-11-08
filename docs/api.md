@@ -1814,3 +1814,27 @@ specText, unitPrice, quantity, refundAmount, createdAt`
 
 `ORDER_PAID` / `AFTER_SALE_APPLIED` / `AFTER_SALE_RESULT`（商家）；
 `MERCHANT_APPLY` / `AGENT_EVAL_DONE`（管理员）。平台自营店的商家侧通知发给全部管理员。
+
+## 26. 权限（RBAC，2026-11-08）
+
+> 管理端菜单/按钮按权限码显隐，但**后端才是授权边界**；rbac 开关默认关闭。
+
+### 26.1 当前身份权限
+
+`GET /api/auth/permissions`（登录；非管理员返回空列表）
+
+```
+{ "code": 200, "data": {
+  "roles": ["CUSTOMER_SERVICE"],
+  "permissions": ["admin:dashboard:view", "admin:order:view", "admin:aftersale:view", "admin:aftersale:handle", "admin:user:view", "admin:chat:view", "admin:chat:reply", "admin:notification:view"]
+} }
+```
+
+### 26.2 行为约定
+
+- 管理端接口按 `@PreAuthorize(hasAuthority('admin:...'))` 校验；无权限 → HTTP 200 + `code=403`
+  （与业务异常统一走 body.code，前端拦截器按 code 处理）；
+- `itsmygo.rbac.enabled=false`（默认）：管理员拥有全部权限码，行为与旧版一致；
+- 管理员无角色行（历史数据）：按 SUPER_ADMIN 兼容；
+- 商家/顾客不参与该权限码体系，仍用 `hasRole + 归属校验`；
+- 权限变更后权限缓存 60s 内生效（`RbacService.evict` 可立即失效）。

@@ -1,5 +1,6 @@
 package com.tsuk1.itsmygo.controller;
 
+import org.springframework.security.access.prepost.PreAuthorize;
 import com.tsuk1.itsmygo.common.Result;
 import com.tsuk1.itsmygo.common.audit.AdminAudit;
 import com.tsuk1.itsmygo.dto.AdminUserView;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /** 管理端用户管理：列表与禁用 / 启用。 */
+@PreAuthorize("hasAuthority('admin:user:view')")
 @RestController
 @RequestMapping("/api/admin/users")
 public class AdminUserController {
@@ -35,6 +37,7 @@ public class AdminUserController {
         return Result.ok(adminUserService.page(page, size, keyword, role, status));
     }
 
+    @PreAuthorize("hasAuthority('admin:user:manage')")
     @PostMapping("/{id}/disable")
     @AdminAudit(action = "USER_DISABLE", label = "禁用用户", targetType = "USER")
     public Result<Void> disable(@AuthenticationPrincipal CurrentUser user,
@@ -43,6 +46,7 @@ public class AdminUserController {
         return Result.ok(null);
     }
 
+    @PreAuthorize("hasAuthority('admin:user:manage')")
     @PostMapping("/{id}/enable")
     @AdminAudit(action = "USER_ENABLE", label = "启用用户", targetType = "USER")
     public Result<Void> enable(@AuthenticationPrincipal CurrentUser user,

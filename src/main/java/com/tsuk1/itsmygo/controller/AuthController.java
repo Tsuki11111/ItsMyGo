@@ -1,12 +1,15 @@
 package com.tsuk1.itsmygo.controller;
 
 import com.tsuk1.itsmygo.common.Result;
+import com.tsuk1.itsmygo.common.Roles;
 import com.tsuk1.itsmygo.common.ratelimit.RateLimit;
 import com.tsuk1.itsmygo.dto.LoginRequest;
 import com.tsuk1.itsmygo.dto.LoginResponse;
+import com.tsuk1.itsmygo.dto.PermissionView;
 import com.tsuk1.itsmygo.dto.RegisterRequest;
 import com.tsuk1.itsmygo.security.CurrentUser;
 import com.tsuk1.itsmygo.service.AuthService;
+import com.tsuk1.itsmygo.service.RbacService;
 import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -20,9 +23,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final AuthService authService;
+    private final RbacService rbacService;
 
-    public AuthController(AuthService authService) {
+    public AuthController(AuthService authService, RbacService rbacService) {
         this.authService = authService;
+        this.rbacService = rbacService;
     }
 
     /** 按 IP 限流：防批量注册 */
@@ -43,5 +48,16 @@ public class AuthController {
     @GetMapping("/me")
     public Result<CurrentUser> me(@AuthenticationPrincipal CurrentUser currentUser) {
         return Result.ok(currentUser);
+    }
+
+    /** 当前管理员的子角色与权限码；非管理员返回空列表（前端只用于菜单/按钮显隐，后端仍会校验） */
+    @GetMapping("/permissions")
+    public Result<PermissionView> permissions(@AuthenticationPrincipal CurrentUser currentUser) {
+        if (currentUser == null || !Roles.ADMIN.equals(currentUser.role())) {
+            return Result.ok(new PermissionView(java.util.List.of(), java.util.List.of()));
+        }
+        return Result.ok(new PermissionView(
+                rbacService.roleCodes(currentUser.id()),
+                rbacService.permissionCodes(currentUser.id()).stream().sorted().toList()));
     }
 }

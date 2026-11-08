@@ -44,6 +44,9 @@ itsmygo:
   jwt:
     secret: ${JWT_SECRET}
     expire-minutes: 120
+  # 管理端 RBAC（默认关闭 = 管理员拥有全部权限，兼容旧行为；灰度验证后再开）
+  rbac:
+    enabled: ${RBAC_ENABLED:false}
   # 复用本机共用 MinIO 实例，靠 bucket 与 rag_helper 隔离
   minio:
     # 后端连接地址（容器内可用 http://minio:9000）

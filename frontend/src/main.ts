@@ -9,9 +9,11 @@ import './styles/theme.css'
 
 import App from './App.vue'
 import router from './router'
+import { permission } from './directives/permission'
 
 createApp(App)
   .use(createPinia())
   .use(router)
   .use(ElementPlus, { locale: zhCn })
+  .directive('permission', permission)
   .mount('#app')

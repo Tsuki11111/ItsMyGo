@@ -1,5 +1,6 @@
 package com.tsuk1.itsmygo.controller;
 
+import org.springframework.security.access.prepost.PreAuthorize;
 import com.tsuk1.itsmygo.common.Result;
 import com.tsuk1.itsmygo.dto.AdminDashboardView;
 import com.tsuk1.itsmygo.service.AdminDashboardService;
@@ -8,6 +9,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /** 管理后台：数据概览与待办 */
+@PreAuthorize("hasAuthority('admin:dashboard:view')")
 @RestController
 @RequestMapping("/api/admin/dashboard")
 public class AdminDashboardController {

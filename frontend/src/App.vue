@@ -6,6 +6,7 @@ import { ChatDotRound, Location, Lock, Search, Setting, Shop, ShoppingCart, Star
 import ProductImage from '@/components/ProductImage.vue'
 import { useBadgeStore } from '@/stores/badge'
 import { useChatStore } from '@/stores/chat'
+import { usePermissionStore } from '@/stores/permission'
 import { useUserStore } from '@/stores/user'
 
 const route = useRoute()
@@ -13,6 +14,7 @@ const router = useRouter()
 const userStore = useUserStore()
 const chatStore = useChatStore()
 const badgeStore = useBadgeStore()
+const permissionStore = usePermissionStore()
 
 /** 管理端 / 商家端有自己的外壳，不共用顾客顶栏和内容宽度 */
 const isBareRoute = computed(() => {
@@ -56,9 +58,12 @@ watch(
   (loggedIn) => {
     if (loggedIn) {
       void badgeStore.refreshAll()
+      // 管理端权限码（非管理员接口返回空，仅用于菜单/按钮显隐）
+      void permissionStore.load()
     } else {
       chatStore.disconnect()
       badgeStore.resetAuth()
+      permissionStore.reset()
     }
   },
   { immediate: true },

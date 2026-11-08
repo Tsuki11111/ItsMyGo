@@ -1,5 +1,6 @@
 package com.tsuk1.itsmygo.controller;
 
+import org.springframework.security.access.prepost.PreAuthorize;
 import com.tsuk1.itsmygo.common.Result;
 import com.tsuk1.itsmygo.common.audit.AdminAudit;
 import com.tsuk1.itsmygo.common.ratelimit.RateLimit;
@@ -26,6 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
  * 平台自营店的消息后台：管理员代替「平台自营」店铺回复顾客。
  * 只能访问 merchant_id=1 的会话，普通商家的会话一律 404。
  */
+@PreAuthorize("hasAuthority('admin:chat:view')")
 @RestController
 @RequestMapping("/api/admin/chat")
 public class AdminChatController {
@@ -59,6 +61,7 @@ public class AdminChatController {
     }
 
     @RateLimit(scene = "chat-send", limit = 30, windowSeconds = 60, byUser = true)
+    @PreAuthorize("hasAuthority('admin:chat:reply')")
     @PostMapping("/conversations/{id}/messages")
     @AdminAudit(action = "CHAT_REPLY", label = "平台消息回复", targetType = "CONVERSATION")
     public Result<ChatMessageView> send(@AuthenticationPrincipal CurrentUser user,
@@ -67,6 +70,7 @@ public class AdminChatController {
         return Result.ok(chatService.adminSend(user, id, request));
     }
 
+    @PreAuthorize("hasAuthority('admin:chat:reply')")
     @PostMapping("/conversations/{id}/read")
     public Result<Long> read(@AuthenticationPrincipal CurrentUser user,
                              @PathVariable Long id,

@@ -1,5 +1,6 @@
 package com.tsuk1.itsmygo.controller;
 
+import org.springframework.security.access.prepost.PreAuthorize;
 import com.tsuk1.itsmygo.common.Result;
 import com.tsuk1.itsmygo.common.ResultCode;
 import com.tsuk1.itsmygo.common.agent.KnowledgeImportClient;
@@ -25,6 +26,7 @@ import java.util.Locale;
  * 管理端知识库导入：代理 rag_helper 的 8001 导入服务。
  * 浏览器只访问 Java；访问密钥只留在后端配置里。
  */
+@PreAuthorize("hasAuthority('admin:knowledge:import')")
 @RestController
 @RequestMapping("/api/admin/knowledge")
 public class AdminKnowledgeController {

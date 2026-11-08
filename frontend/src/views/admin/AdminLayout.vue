@@ -5,30 +5,37 @@ import { ElMessage } from 'element-plus'
 import { Aim, ChatDotRound, ChatLineRound, Collection, DataAnalysis, DataBoard, Discount, Document, Goods, Key, Menu as MenuIcon, RefreshLeft, Shop, Tickets, User } from '@element-plus/icons-vue'
 import NotificationBell from '@/components/NotificationBell.vue'
 import { useChatStore } from '@/stores/chat'
+import { usePermissionStore } from '@/stores/permission'
 import { useUserStore } from '@/stores/user'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 const chatStore = useChatStore()
+const permissionStore = usePermissionStore()
 
 const MENU = [
-  { path: '/admin/dashboard', label: '数据概览', icon: DataBoard },
-  { path: '/admin/users', label: '用户管理', icon: User },
-  { path: '/admin/messages', label: '平台消息', icon: ChatLineRound },
-  { path: '/admin/categories', label: '分类管理', icon: MenuIcon },
-  { path: '/admin/merchants', label: '商户管理', icon: Shop },
-  { path: '/admin/products', label: '商品管理', icon: Goods },
-  { path: '/admin/orders', label: '订单管理', icon: Tickets },
-  { path: '/admin/after-sales', label: '售后管理', icon: RefreshLeft },
-  { path: '/admin/coupons', label: '优惠券管理', icon: Discount },
-  { path: '/admin/reviews', label: '评价管理', icon: ChatDotRound },
-  { path: '/admin/knowledge', label: '知识库', icon: Collection },
-  { path: '/admin/knowledge-gaps', label: '知识缺口', icon: Aim },
-  { path: '/admin/agent-eval', label: '智能体评测', icon: DataAnalysis },
-  { path: '/admin/invitations', label: '管理员邀请', icon: Key },
-  { path: '/admin/audit-logs', label: '操作审计', icon: Document },
+  { path: '/admin/dashboard', label: '数据概览', icon: DataBoard, perm: 'admin:dashboard:view' },
+  { path: '/admin/users', label: '用户管理', icon: User, perm: 'admin:user:view' },
+  { path: '/admin/messages', label: '平台消息', icon: ChatLineRound, perm: 'admin:chat:view' },
+  { path: '/admin/categories', label: '分类管理', icon: MenuIcon, perm: 'admin:product:view' },
+  { path: '/admin/merchants', label: '商户管理', icon: Shop, perm: 'admin:merchant:view' },
+  { path: '/admin/products', label: '商品管理', icon: Goods, perm: 'admin:product:view' },
+  { path: '/admin/orders', label: '订单管理', icon: Tickets, perm: 'admin:order:view' },
+  { path: '/admin/after-sales', label: '售后管理', icon: RefreshLeft, perm: 'admin:aftersale:view' },
+  { path: '/admin/coupons', label: '优惠券管理', icon: Discount, perm: 'admin:coupon:manage' },
+  { path: '/admin/reviews', label: '评价管理', icon: ChatDotRound, perm: 'admin:review:manage' },
+  { path: '/admin/knowledge', label: '知识库', icon: Collection, perm: 'admin:knowledge:import' },
+  { path: '/admin/knowledge-gaps', label: '知识缺口', icon: Aim, perm: 'admin:knowledge-gap:manage' },
+  { path: '/admin/agent-eval', label: '智能体评测', icon: DataAnalysis, perm: 'admin:agent-eval:view' },
+  { path: '/admin/invitations', label: '管理员邀请', icon: Key, perm: 'admin:admin:view' },
+  { path: '/admin/audit-logs', label: '操作审计', icon: Document, perm: 'admin:audit:view' },
 ]
+
+/** 按权限码过滤菜单；权限码只影响显隐，后端仍会 403 兜底 */
+const visibleMenu = computed(() =>
+  MENU.filter((item) => !item.perm || permissionStore.has(item.perm)),
+)
 
 /** 子路由激活时高亮对应菜单；/admin 本身由路由 redirect 兜住。
  *  取「匹配到的最长前缀」—— /admin/knowledge-gaps 也以 /admin/knowledge 开头，
@@ -51,7 +58,7 @@ function logout() {
     <el-aside width="220px" class="admin-aside">
       <div class="brand">一次买够 · 管理后台</div>
       <el-menu :default-active="activeMenu" router class="admin-menu">
-        <el-menu-item v-for="item in MENU" :key="item.path" :index="item.path">
+        <el-menu-item v-for="item in visibleMenu" :key="item.path" :index="item.path">
           <el-icon><component :is="item.icon" /></el-icon>
           <span>{{ item.label }}</span>
           <span

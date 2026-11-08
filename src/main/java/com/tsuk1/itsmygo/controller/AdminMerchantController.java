@@ -1,5 +1,6 @@
 package com.tsuk1.itsmygo.controller;
 
+import org.springframework.security.access.prepost.PreAuthorize;
 import com.tsuk1.itsmygo.common.Result;
 import com.tsuk1.itsmygo.common.audit.AdminAudit;
 import com.tsuk1.itsmygo.dto.AdminMerchantOperationsView;
@@ -20,6 +21,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /** 平台端：商户审核与启停 */
+@PreAuthorize("hasAuthority('admin:merchant:view')")
 @RestController
 @RequestMapping("/api/admin/merchants")
 public class AdminMerchantController {
@@ -44,6 +46,7 @@ public class AdminMerchantController {
         return Result.ok(merchantService.operationsForAdmin(id));
     }
 
+    @PreAuthorize("hasAuthority('admin:merchant:review')")
     @PostMapping("/{id}/approve")
     @AdminAudit(action = "MERCHANT_APPROVE", label = "商户审核通过", targetType = "MERCHANT")
     public Result<Void> approve(@PathVariable Long id) {
@@ -51,6 +54,7 @@ public class AdminMerchantController {
         return Result.ok();
     }
 
+    @PreAuthorize("hasAuthority('admin:merchant:review')")
     @PostMapping("/{id}/reject")
     @AdminAudit(action = "MERCHANT_REJECT", label = "商户审核拒绝", targetType = "MERCHANT")
     public Result<Void> reject(@PathVariable Long id,
@@ -59,6 +63,7 @@ public class AdminMerchantController {
         return Result.ok();
     }
 
+    @PreAuthorize("hasAuthority('admin:merchant:review')")
     @PostMapping("/{id}/disable")
     @AdminAudit(action = "MERCHANT_DISABLE", label = "禁用商户", targetType = "MERCHANT")
     public Result<Void> disable(@PathVariable Long id) {
@@ -66,6 +71,7 @@ public class AdminMerchantController {
         return Result.ok();
     }
 
+    @PreAuthorize("hasAuthority('admin:merchant:review')")
     @PostMapping("/{id}/enable")
     @AdminAudit(action = "MERCHANT_ENABLE", label = "启用商户", targetType = "MERCHANT")
     public Result<Void> enable(@PathVariable Long id) {
@@ -74,6 +80,7 @@ public class AdminMerchantController {
     }
 
     /** 平台自营（id=1）与普通商户共用；平台后台可代设 */
+    @PreAuthorize("hasAuthority('admin:merchant:ship-address')")
     @PutMapping("/{id}/ship-address")
     @AdminAudit(action = "MERCHANT_SHIP_ADDRESS", label = "修改商户发货地址", targetType = "MERCHANT")
     public Result<MerchantView> updateShipAddress(@PathVariable Long id,

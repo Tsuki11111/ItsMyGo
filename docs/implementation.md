@@ -2913,3 +2913,29 @@ PROMOTION 类型与渲染已移除。
 
 **测试**：`NotificationControllerTest` 3 条（列表/已读/幂等、入驻申请触发管理员通知、
 平台自营店通知落到管理员）；全量测试见 HANDOFF。
+
+### 3.45 权限管理（管理端 RBAC，2026-11-08）
+
+**存储（V36）**：`roles`（4 个内置角色）/ `permissions`（28 个权限码）/ `role_permissions` /
+`admin_user_roles`；现有 `users.role='ADMIN'` 用户初始化进 SUPER_ADMIN。商家/顾客不迁移。
+
+**后端**：
+- `RbacService`：权限码从 DB 读取，Redis 缓存 60s（`its-my-go:rbac:perm:{userId}`、
+  `its-my-go:rbac:roles:{userId}`、全量码 5 分钟）；`itsmygo.rbac.enabled=false` 时管理员返回
+  **全部权限码**（等价旧行为）；已分配但无角色行的历史管理员按 SUPER_ADMIN 兼容。
+- `JwtAuthenticationFilter`：`ROLE_<用户类型>` + 管理端权限码一并放进 authorities；
+  `SecurityConfig` 开 `@EnableMethodSecurity`；17 个管理端 controller 用
+  `@PreAuthorize("hasAuthority('admin:...')")`（类级 view 码 + 写操作 action 码）。
+- `GlobalExceptionHandler` 捕获方法级 `AccessDeniedException` → body.code=403。
+- `GET /api/auth/permissions` 返回当前管理员的 `roles` + `permissions`（非管理员为空）。
+- 开关：`RBAC_ENABLED` / `itsmygo.rbac.enabled`，默认 false；打开后按角色权限码生效。
+
+**前端**：
+- `stores/permission.ts` + `v-permission` 指令；登录后拉权限码；
+- `AdminLayout` 菜单按权限码过滤；管理端订单的「发货/退款」按钮与详情抽屉动作按权限码显隐
+  （商家端仍按 `merchant` 归属，不受影响；后端兜底 403）。
+
+**未完成（P2.1）**：邀请管理员时选择子角色（当前新管理员无角色行 → 按 SUPER_ADMIN 兼容）；
+自定义角色/权限管理 UI 按设计不做。打开 `RBAC_ENABLED=true` 前需补邀请选角色，否则新管理员等同超管。
+
+**测试**：`RbacPermissionTest` 3 条（客服只能看不能发货/退款、财务可退款不能发货、历史管理员回退全权）。

@@ -39,7 +39,7 @@
 ## 1. 当前状态一句话
 
 **交易闭环、多商户、AI 客服、运营后台、平台政策、压测、售后、下单异步补账、后台站内通知、Docker 部署均已完成（2026-11-08）。**
-后端自动化测试 **324 条**（本地；CI 跑 320 条，跳过 4 条依赖 MinIO 的用例）。数据库 schema 到 **v35**。
+后端自动化测试 **327 条**（本地；CI 跑 323 条，跳过 4 条依赖 MinIO 的用例）。数据库 schema 到 **v36**。
 
 **待评审的下一项设计**：权限管理（RBAC）—— 管理端子角色 + 权限码 + 数据范围，
 设计已写入 `requirements §2.9` 与 `architecture §3.7 / D26`，**评审通过后再落 V36 与代码**。
@@ -61,6 +61,10 @@
 - **站内通知（2026-11-08）**：商家端 / 平台管理端顶栏铃铛（未读角标 + 下拉最近 20 条 + 已读）；
   事件：新订单待发货、新售后申请、售后处理结果、商家入驻待审核、智能体评测完成；
   30s 可见轮询，不新增常驻 SSE（D24）。
+- **权限管理（2026-11-08，P1/P2 基础）**：V36 角色/权限/角色权限/管理员角色四表 + 28 个权限码 +
+  4 个管理员子角色；`@EnableMethodSecurity` + 管理端 `@PreAuthorize` + 403；
+  前端权限 store / 菜单过滤 / 订单操作按钮；`itsmygo.rbac.enabled` 默认 **false**（兼容旧行为）；
+  **邀请管理员时选角色（P2.1）待补**，补完再打开开关。
 - **环境分层（2026-11-07 定）**：**开发** = `dev-infra/`（只起中间件）+ 本机应用
   （Vite 5173 / 后端 8080 / rag_helper venv）；**演示** = `./deploy.sh` 本地 Docker 全栈
   （根 `docker-compose.yml`，8088）；**生产** = 内网 VM 离线包（同款根 compose +
@@ -1591,6 +1595,28 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 **不算服务端错误**，不要进 ERROR 日志/告警。
 
 ## 6. 历史记录
+
+### 2026-11-08 · 权限管理 P1/P2 基础（RBAC，V36）
+
+**背景**：平台只有 3 个硬编码角色 + 归属校验，所有 ADMIN 权限一样，无法区分客服/运营/财务/超管。
+
+**实现**：
+- 设计见 requirements §2.9 / architecture §3.7 / D26；
+- V36：`roles` / `permissions`（28 个权限码）/ `role_permissions` / `admin_user_roles`，
+  存量 ADMIN 初始化进 SUPER_ADMIN；
+- `RbacService`（DB + Redis 60s 缓存；`rbac.enabled=false` 时管理员拥有全部权限码；
+  无角色行的历史管理员按 SUPER_ADMIN 兼容）；
+- `JwtAuthenticationFilter` 把权限码写入 authorities；`SecurityConfig` 开 `@EnableMethodSecurity`；
+  17 个管理端 controller 按类级/方法级 `@PreAuthorize` 校验（403 统一走 body.code）；
+- `GET /api/auth/permissions`；前端 `stores/permission.ts` + `v-permission` 指令 +
+  管理端菜单过滤 + 订单发货/退款按钮显隐；
+- `RBAC_ENABLED` 默认 false（灰度开关）。
+
+**未完成**：P2.1 邀请管理员时选择子角色（当前新管理员无角色行 → 等同超管，打开开关前必须补齐）；
+自定义角色/权限管理 UI 按设计不做。
+
+**验证**：新增 `RbacPermissionTest` 3 条（客服可看不可发货/退款、财务可退款不可发货、
+历史管理员回退全权）；全量 **327 条**通过；前端 `type-check` / `build:web` 通过。
 
 ### 2026-11-08 · 管理端发货权限收敛到平台自营店（D25）
 

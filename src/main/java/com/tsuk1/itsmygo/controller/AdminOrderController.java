@@ -1,5 +1,6 @@
 package com.tsuk1.itsmygo.controller;
 
+import org.springframework.security.access.prepost.PreAuthorize;
 import com.tsuk1.itsmygo.common.Result;
 import com.tsuk1.itsmygo.common.audit.AdminAudit;
 import com.tsuk1.itsmygo.dto.OrderView;
@@ -27,6 +28,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 /** 管理端订单：查看全部订单、发货 */
+@PreAuthorize("hasAuthority('admin:order:view')")
 @RestController
 @RequestMapping("/api/admin/orders")
 public class AdminOrderController {
@@ -56,6 +58,7 @@ public class AdminOrderController {
     }
 
     /** 导出当前筛选条件下的订单 CSV（最多 5000 条） */
+    @PreAuthorize("hasAuthority('admin:order:export')")
     @GetMapping("/export")
     public void export(
             @RequestParam(required = false) String status,
@@ -101,6 +104,7 @@ public class AdminOrderController {
         return Result.ok(orderService.detailForAdmin(id));
     }
 
+    @PreAuthorize("hasAuthority('admin:order:ship')")
     @PostMapping("/{id}/ship")
     @AdminAudit(action = "ORDER_SHIP", label = "订单发货", targetType = "ORDER")
     public Result<OrderView> ship(@PathVariable Long id, @Valid @RequestBody ShipRequest request) {
@@ -108,6 +112,7 @@ public class AdminOrderController {
     }
 
     /** 同意退款：状态转已退款、回滚库存、支付流水同步 */
+    @PreAuthorize("hasAuthority('admin:order:refund')")
     @PostMapping("/{id}/refund/approve")
     @AdminAudit(action = "REFUND_APPROVE", label = "同意退款", targetType = "ORDER")
     public Result<OrderView> approveRefund(@PathVariable Long id) {
@@ -115,6 +120,7 @@ public class AdminOrderController {
     }
 
     /** 驳回退款：回到申请前的状态 */
+    @PreAuthorize("hasAuthority('admin:order:refund')")
     @PostMapping("/{id}/refund/reject")
     @AdminAudit(action = "REFUND_REJECT", label = "驳回退款", targetType = "ORDER")
     public Result<OrderView> rejectRefund(@PathVariable Long id) {
@@ -126,6 +132,7 @@ public class AdminOrderController {
      * 现在是手动触发（自己测试、或将来挂定时任务时调它）；
      * 真要自动化就加个 @Scheduled，注意多实例下得配分布式锁。
      */
+    @PreAuthorize("hasAuthority('admin:order:cancel-expired')")
     @PostMapping("/cancel-expired")
     @AdminAudit(action = "ORDER_CANCEL_EXPIRED", label = "取消超时订单", targetType = "ORDER")
     public Result<Integer> cancelExpired(@RequestParam(defaultValue = "30") int minutes) {

@@ -1,5 +1,6 @@
 package com.tsuk1.itsmygo.controller;
 
+import org.springframework.security.access.prepost.PreAuthorize;
 import com.tsuk1.itsmygo.common.Result;
 import com.tsuk1.itsmygo.common.agent.KnowledgeGapClient;
 import com.tsuk1.itsmygo.common.audit.AdminAudit;
@@ -26,6 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
  * 浏览器只访问 Java；访问密钥只留在后端配置里。
  * 流程：列缺口 → 生成 FAQ 草稿（**不自动入库**）→ 人工核实 → 发布（走导入链路）→ 标记 resolved。
  */
+@PreAuthorize("hasAuthority('admin:knowledge-gap:manage')")
 @RestController
 @RequestMapping("/api/admin/knowledge-gaps")
 public class AdminKnowledgeGapController {

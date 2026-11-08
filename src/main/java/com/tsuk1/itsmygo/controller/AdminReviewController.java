@@ -1,5 +1,6 @@
 package com.tsuk1.itsmygo.controller;
 
+import org.springframework.security.access.prepost.PreAuthorize;
 import com.tsuk1.itsmygo.common.Result;
 import com.tsuk1.itsmygo.common.audit.AdminAudit;
 import com.tsuk1.itsmygo.dto.AdminReviewView;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /** 管理端：评价审核（只做显示/隐藏，不删除） */
+@PreAuthorize("hasAuthority('admin:review:manage')")
 @RestController
 @RequestMapping("/api/admin/reviews")
 public class AdminReviewController {

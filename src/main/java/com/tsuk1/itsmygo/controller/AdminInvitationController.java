@@ -1,5 +1,6 @@
 package com.tsuk1.itsmygo.controller;
 
+import org.springframework.security.access.prepost.PreAuthorize;
 import com.tsuk1.itsmygo.common.Result;
 import com.tsuk1.itsmygo.common.audit.AdminAudit;
 import com.tsuk1.itsmygo.dto.AdminInvitationCreateRequest;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 /** 管理端：管理员邀请的发起、批准与撤回。 */
+@PreAuthorize("hasAuthority('admin:admin:view')")
 @RestController
 @RequestMapping("/api/admin/invitations")
 public class AdminInvitationController {
@@ -30,6 +32,7 @@ public class AdminInvitationController {
     }
 
     /** 创建后只在响应里返回一次明文 token，列表接口不会返回 */
+    @PreAuthorize("hasAuthority('admin:admin:manage')")
     @PostMapping
     @AdminAudit(action = "ADMIN_INVITE_CREATE", label = "发起管理员邀请",
             targetType = "ADMIN_INVITATION")
@@ -44,6 +47,7 @@ public class AdminInvitationController {
         return Result.ok(invitationService.list(status));
     }
 
+    @PreAuthorize("hasAuthority('admin:admin:manage')")
     @PostMapping("/{id}/approve")
     @AdminAudit(action = "ADMIN_INVITE_APPROVE", label = "批准管理员邀请",
             targetType = "ADMIN_INVITATION")
@@ -52,6 +56,7 @@ public class AdminInvitationController {
         return Result.ok(invitationService.approve(actor, id));
     }
 
+    @PreAuthorize("hasAuthority('admin:admin:manage')")
     @PostMapping("/{id}/revoke")
     @AdminAudit(action = "ADMIN_INVITE_REVOKE", label = "撤回管理员邀请",
             targetType = "ADMIN_INVITATION")
