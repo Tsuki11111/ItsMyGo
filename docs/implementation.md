@@ -3049,18 +3049,21 @@ PROMOTION 类型与渲染已移除。
 接口 `PUT /products/{id}` + `PUT /products/{id}/skus` 均 200，SKU 表生成；有旧 SKU 删除时
 仍弹确认（避免误删库存/销量）。
 
-### 3.51 商家双身份消息入口（2026-11-08）
+### 3.51 消息工作台隔离（方案①，2026-11-08）
 
 **原因**：`ChatService.unread()` 同时返回 `customerUnread`（买家身份）与 `merchantUnread`
-（商家身份），但顶栏 `App.vue` 的消息角标取 `unreadTotal`（两者相加），链接却固定
-`/user/messages`；商家后台侧栏只显示 `merchantUnread`，于是商家看到“顶栏数字 ≠ 列表”。
+（商家身份），但顶栏 `App.vue` 曾把两者相加作为角标、链接却固定 `/user/messages`。
+按主流 marketplace（Amazon Seller Central / Shopee Seller Chat / 千牛）的做法，改为
+**角色工作台隔离**：
 
-**修复**：
-- `App.vue` 新增 `messagesEntry`：`ADMIN→/admin/messages`（平台未读）、
-  `MERCHANT→/merchant/messages`（商家未读）、其他 `→/user/messages`（买家未读）；
-- 顶栏消息链接与角标统一使用 `messagesEntry`；
-- 商家用户菜单保留「商家消息」，另增「买家消息（N）」入口；
-- 商家后台侧栏角标仍用 `merchantUnread`，与顶栏商家入口一致。
+- `App.vue.messagesEntry`：管理员 `→ /admin/messages`（`merchantUnread`），
+  其他所有用户 `→ /user/messages`（`customerUnread`），商城前台不再出现商家收件箱；
+- 商家消息只在 `/merchant/messages`，由 `MerchantLayout` 侧栏显示 `merchantUnread`；
+- 商城用户菜单保留「商家后台」入口，并在该入口显示商家未读角标；
+- 移除上一版「商家消息 / 买家消息」双入口，避免把两个工作台混在同一个顶栏；
+- 后端两套 API、两套未读字段保持隔离，不改表结构。
 
-**验证**：商家账号实测顶栏 href=`/merchant/messages`、菜单同时有「商家消息/买家消息」；
-接口 `/api/chat/unread-count` 分别返回两箱未读；`type-check` / `build:web` 通过。
+**验证**：用商家账号对店铺发起一条顾客咨询后：`merchantUnread=1`、`customerUnread=0`；
+商城顶栏「我的消息」角标为空、链接 `/user/messages`；用户菜单「商家后台」角标 1；
+进入 `/merchant/messages` 后侧栏消息角标 1，列表为该顾客会话。
+`type-check` / `build:web` 通过。

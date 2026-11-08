@@ -23,18 +23,19 @@ const isBareRoute = computed(() => {
     || path === '/merchant' || path.startsWith('/merchant/')
 })
 
-/** 顶栏「消息」入口按当前身份走对应收件箱：商家消息 / 平台消息 / 买家消息 */
+/**
+ * 角色工作台隔离（方案①）：
+ * - 商城前台只承载“买家消息”，商家在商城也只看买家未读；
+ * - 商家消息只在商家后台 `/merchant/messages`，后台侧栏显示商家未读；
+ * - 管理员消息在管理后台。
+ * 商家未读不混入前台角标，避免“两箱相加但只进一箱”的错位。
+ */
 const messagesEntry = computed(() => {
   if (userStore.isAdmin) {
     return { path: '/admin/messages', label: '平台消息', unread: chatStore.merchantUnread }
   }
-  if (userStore.isMerchant) {
-    return { path: '/merchant/messages', label: '商家消息', unread: chatStore.merchantUnread }
-  }
   return { path: '/user/messages', label: '我的消息', unread: chatStore.customerUnread }
 })
-
-/** 商家仍需要能进买家收件箱；单独放在用户菜单里 */
 const panelOpen = ref(false)
 
 const searchKeyword = ref('')
@@ -118,7 +119,7 @@ onBeforeUnmount(() => badgeStore.stopPolling())
             :max="99"
             :hidden="messagesEntry.unread === 0"
           >
-            <span>消息</span>
+            <span>{{ messagesEntry.label }}</span>
           </el-badge>
         </RouterLink>
         <RouterLink
@@ -185,17 +186,6 @@ onBeforeUnmount(() => badgeStore.stopPolling())
                   {{ messagesEntry.label }}
                 </RouterLink>
                 <RouterLink
-                  v-if="userStore.isMerchant"
-                  to="/user/messages"
-                  class="panel-item"
-                  target="_blank"
-                  rel="noopener"
-                  @click="panelOpen = false"
-                >
-                  <el-icon><ChatDotRound /></el-icon>
-                  买家消息<template v-if="chatStore.customerUnread > 0">（{{ chatStore.customerUnread }}）</template>
-                </RouterLink>
-                <RouterLink
                   to="/user/favorites"
                   class="panel-item"
                   @click="panelOpen = false"
@@ -250,7 +240,14 @@ onBeforeUnmount(() => badgeStore.stopPolling())
                     rel="noopener"
                     @click="panelOpen = false"
                   >
-                    <el-icon><Shop /></el-icon>商家后台
+                    <el-icon><Shop /></el-icon>
+                    <el-badge
+                      :value="chatStore.merchantUnread"
+                      :max="99"
+                      :hidden="chatStore.merchantUnread === 0"
+                    >
+                      商家后台
+                    </el-badge>
                   </RouterLink>
                 </template>
                 <template v-else>
