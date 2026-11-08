@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ShipAddressDialog from '@/components/ShipAddressDialog.vue'
 import MerchantOperationsDrawer from './components/MerchantOperationsDrawer.vue'
@@ -23,6 +24,7 @@ const shipDialogVisible = ref(false)
 const shipTarget = ref<AdminMerchantView | null>(null)
 const operationsVisible = ref(false)
 const operationsMerchantId = ref<number | null>(null)
+const route = useRoute()
 
 const STATUS_OPTIONS = [
   { value: 'PENDING', label: '待审核' },
@@ -160,7 +162,15 @@ function openShipAddress(row: AdminMerchantView) {
   shipDialogVisible.value = true
 }
 
-onMounted(load)
+onMounted(async () => {
+  if (route.query.status) status.value = String(route.query.status)
+  await load()
+  // 数据概览/站内通知直达：带 merchantId 时自动打开经营详情
+  if (route.query.merchantId) {
+    operationsMerchantId.value = Number(route.query.merchantId)
+    operationsVisible.value = true
+  }
+})
 </script>
 
 <template>

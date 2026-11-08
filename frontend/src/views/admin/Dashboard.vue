@@ -51,17 +51,17 @@ onMounted(load)
           <strong class="stat-value">{{ data.todayOrders }}</strong>
           <span class="stat-hint">其中已支付 {{ data.todayPaidOrders }} 单</span>
         </div>
-        <div class="stat-card clickable" @click="go('/admin/orders')">
+        <div class="stat-card clickable" @click="go('/admin/orders?status=PAID')">
           <span class="stat-label">待发货</span>
           <strong class="stat-value">{{ data.pendingShipments }}</strong>
           <span class="stat-hint">去订单管理处理 →</span>
         </div>
-        <div class="stat-card clickable" @click="go('/admin/orders')">
+        <div class="stat-card clickable" @click="go('/admin/orders?status=REFUNDING')">
           <span class="stat-label">待退款</span>
           <strong class="stat-value">{{ data.pendingRefunds }}</strong>
           <span class="stat-hint">去订单管理审核 →</span>
         </div>
-        <div class="stat-card clickable" @click="go('/admin/merchants')">
+        <div class="stat-card clickable" @click="go('/admin/merchants?status=PENDING')">
           <span class="stat-label">待审核商户</span>
           <strong class="stat-value">{{ data.pendingMerchants }}</strong>
           <span class="stat-hint">去商户管理审核 →</span>
@@ -98,7 +98,7 @@ onMounted(load)
               v-for="order in data.pendingShipmentOrders"
               :key="order.id"
               class="todo"
-              @click="go('/admin/orders')"
+              @click="go('/admin/orders?orderId=' + order.id)"
             >
               <div class="todo-line">
                 <span class="mono">{{ order.orderNo }}</span>
@@ -120,7 +120,7 @@ onMounted(load)
               v-for="order in data.pendingRefundOrders"
               :key="order.id"
               class="todo"
-              @click="go('/admin/orders')"
+              @click="go('/admin/orders?orderId=' + order.id)"
             >
               <div class="todo-line">
                 <span class="mono">{{ order.orderNo }}</span>
@@ -142,7 +142,7 @@ onMounted(load)
               v-for="merchant in data.pendingMerchantList"
               :key="merchant.id"
               class="todo"
-              @click="go('/admin/merchants')"
+              @click="go('/admin/merchants?merchantId=' + merchant.id)"
             >
               <div class="todo-line">
                 <span>{{ merchant.name }}</span>
@@ -164,7 +164,7 @@ onMounted(load)
               v-for="sku in data.lowStockList"
               :key="sku.skuId"
               class="low-stock"
-              @click="go('/admin/products?lowStock=1')"
+              @click="go('/admin/products?lowStock=1&productId=' + sku.productId)"
             >
               <div class="thumb">
                 <ProductImage :src="sku.image" :name="sku.productName" :id="sku.productId" />

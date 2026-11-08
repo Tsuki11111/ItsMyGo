@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import OrderDetailDrawer from '@/views/admin/components/OrderDetailDrawer.vue'
 import {
@@ -20,6 +21,7 @@ const loading = ref(false)
 
 const detailVisible = ref(false)
 const detailOrderId = ref<number | null>(null)
+const route = useRoute()
 
 async function load() {
   loading.value = true
@@ -110,7 +112,14 @@ async function reject(row: Order) {
   await load()
 }
 
-onMounted(load)
+onMounted(async () => {
+  await load()
+  // 站内通知直达：带 orderId 时自动打开订单详情
+  if (route.query.orderId) {
+    detailOrderId.value = Number(route.query.orderId)
+    detailVisible.value = true
+  }
+})
 </script>
 
 <template>

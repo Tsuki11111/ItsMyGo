@@ -1805,11 +1805,15 @@ specText, unitPrice, quantity, refundAmount, createdAt`
   "items": [ {
     "id": 12, "type": "ORDER_PAID", "title": "新订单待发货",
     "content": "订单 2026... 已支付，金额 ¥99.00，请及时发货。",
-    "link": "/merchant/orders?keyword=2026...",
+    "link": "/merchant/orders?orderId=123",
     "read": false, "createdAt": "2026-11-08T11:20:00"
   } ]
 } }
 `
+
+- `link` 直接指向业务详情：订单 `?orderId=`、售后 `?afterSaleId=`、商家审核
+  `?merchantId=`、评测任务 `?jobId=`；前端页面读取查询参数后自动打开对应详情抽屉/弹窗。
+  历史数据的旧 `keyword=` 链接仍可打开列表页。
 
 ### 25.2 未读数
 

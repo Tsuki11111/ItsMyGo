@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   approveAdminAfterSale,
@@ -29,6 +30,7 @@ const stats = ref<AfterSaleStatsView | null>(null)
 const drawerVisible = ref(false)
 const detail = ref<AfterSaleView | null>(null)
 const acting = ref(false)
+const route = useRoute()
 
 const STATUS_OPTIONS = [
   { value: '', label: '全部' },
@@ -171,6 +173,15 @@ async function saveReason() {
 onMounted(async () => {
   await load()
   await loadReasons()
+  // 站内通知直达：带 afterSaleId 时自动打开售后详情
+  if (route.query.afterSaleId) {
+    try {
+      detail.value = await fetchAdminAfterSale(Number(route.query.afterSaleId))
+      drawerVisible.value = true
+    } catch {
+      // 详情加载失败时停留在列表，拦截器已提示
+    }
+  }
 })
 </script>
 

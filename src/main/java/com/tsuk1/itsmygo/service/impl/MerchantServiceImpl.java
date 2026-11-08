@@ -133,7 +133,7 @@ public class MerchantServiceImpl implements MerchantService {
         try {
             notificationService.notifyAdmins("MERCHANT_APPLY", "商家入驻待审核",
                     String.format("店铺「%s」提交了入驻申请，请审核。", merchant.getName()),
-                    "/admin/merchants", null);
+                    "/admin/merchants?merchantId=" + merchant.getId(), null);
         } catch (RuntimeException e) {
             log.warn("店铺 {} 入驻申请写通知失败: {}", merchant.getId(), e.getMessage());
         }

@@ -3013,3 +3013,22 @@ PROMOTION 类型与渲染已移除。
 
 **验证**：`type-check` / `build:web` 通过；管理端 `/admin/messages/19` 实测两条 PROMOTION 消息渲染
 为「智能推荐 + 已售 413 件，要不要看看？」；`ChatControllerTest` 13 条通过。
+
+### 3.49 运营直达详情（数据概览 / 站内通知，2026-11-08）
+
+**目标**：运营点数据概览的待办、或点站内通知，直接看到业务详情，不再先落到列表再找。
+
+**实现**：
+- 数据概览 `Dashboard.vue`：待发货/待退款行 → `/admin/orders?orderId=<id>`；待审核商户 →
+  `/admin/merchants?merchantId=<id>`；低库存 → `/admin/products?lowStock=1&productId=<id>`；
+  聚合卡片 → 带 `status` 筛选的列表。
+- 通知 link 由后端直接带主键：订单 `?orderId=`、售后 `?afterSaleId=`、商家 `?merchantId=`、
+  评测 `?jobId=`（`OrderServiceImpl` / `AfterSaleServiceImpl` / `MerchantServiceImpl` /
+  `AdminAgentEvalController`）。
+- 列表页读取 query 后自动打开现有详情：订单抽屉（管理端 + 商家端）、售后抽屉（两端）、
+  商户经营详情、商品编辑弹窗、评测任务视图；历史 `keyword=` 链接不破坏列表页。
+- 不新增独立详情路由，避免复制页面与权限逻辑（D31）。
+
+**验证**：管理员实测数据概览点待办 → 订单抽屉自动打开；通知 link
+`/admin/orders?orderId=829`、`/admin/after-sales?afterSaleId=1` 直达详情；
+低库存 `productId` 打开商品编辑弹窗；`type-check` / `build:web` 通过。

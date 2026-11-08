@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Document, Plus, Refresh, VideoPause, VideoPlay } from '@element-plus/icons-vue'
 import {
@@ -33,6 +34,7 @@ const results = ref<AgentEvalResultFile[]>([])
 const selectedResultName = ref('')
 const result = ref<AgentEvalResult | null>(null)
 const job = ref<AgentEvalJob | null>(null)
+const route = useRoute()
 const detailVisible = ref(false)
 const detailRow = ref<AgentEvalRow | null>(null)
 const reportVisible = ref(false)
@@ -425,6 +427,11 @@ onMounted(async () => {
     if (running) {
       job.value = running
       ensurePolling()
+    }
+    // 站内通知直达：带 jobId 时展示该任务（含进度/结果）
+    if (route.query.jobId) {
+      job.value = await fetchAgentEvalJob(String(route.query.jobId))
+      if (ACTIVE_STATUSES.includes(job.value.status)) ensurePolling()
     }
   } catch {
     // 拦截器已提示具体错误

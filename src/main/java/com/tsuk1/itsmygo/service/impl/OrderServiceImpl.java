@@ -589,8 +589,8 @@ public class OrderServiceImpl implements OrderService {
                 notificationService.notifyMerchant(order.getMerchantId(), "ORDER_PAID", "新订单待发货",
                         String.format("订单 %s 已支付，金额 ¥%s，请及时发货。",
                                 order.getOrderNo(), order.getTotalAmount()),
-                        "/merchant/orders?keyword=" + order.getOrderNo(),
-                        "/admin/orders?keyword=" + order.getOrderNo(),
+                        "/merchant/orders?orderId=" + order.getId(),
+                        "/admin/orders?orderId=" + order.getId(),
                         "order-paid:" + order.getOrderNo());
             } catch (Exception e) {
                 log.warn("订单 {} 支付成功但写通知失败（不影响支付）：{}",

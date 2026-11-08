@@ -1,4 +1,4 @@
-﻿# 需求分析 · 一次买够（ItsMyGo）
+# 需求分析 · 一次买够（ItsMyGo）
 
 > **本文定位**：回答「**要解决什么问题、给谁用、做到什么程度、什么不做、怎么验收**」。
 > 选型与总体架构见 [docs/architecture.md](architecture.md)；
@@ -357,6 +357,21 @@ SKU/价格历史同步删除；有订单/评价/收藏引用的商品只归档�
 
 **验收**：PAID 取消 400 且订单仍 PAID；售后 REFUND_ONLY 链路通过；有引用商品删除 409、
 无引用删除 200 且 SKU 清空；`frontend/dist` 无演示提示；`testuser.role=CUSTOMER`。
+
+### 2.12 运营直达详情（2026-11-08 定）
+
+**数据概览**：
+- 待办行点击直接进入详情：待发货/待退款订单 → `/admin/orders?orderId=`（自动打开订单抽屉）；
+  待审核商户 → `/admin/merchants?merchantId=`（自动打开经营详情）；低库存 SKU →
+  `/admin/products?lowStock=1&productId=`（自动打开商品编辑）；
+- 顶部聚合卡片进入**带筛选的列表**：待发货 `?status=PAID`、待退款 `?status=REFUNDING`、
+  待审核商户 `?status=PENDING`、低库存 `?lowStock=1`。
+
+**站内通知**：通知 `link` 直接带业务主键——
+订单 `?orderId=`、售后 `?afterSaleId=`、商家审核 `?merchantId=`、评测任务 `?jobId=`；
+前端对应页面读取查询参数后自动打开详情抽屉/弹窗，不再只落到列表；旧 `keyword=` 历史链接仍兼容列表页。
+
+**范围外**：不新增 `/admin/orders/:id` 等独立详情路由（复用现有列表页 + 抽屉，减少重复页面）。
 
 ## 3. 非功能需求（NFR）
 

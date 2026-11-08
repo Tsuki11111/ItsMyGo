@@ -16,6 +16,7 @@ import {
   updateProduct,
 } from '@/api/admin'
 import type { AdminMerchantView, CategoryNode, Product, ProductSku } from '@/api/types'
+import { fetchProduct } from '@/api/product'
 
 const route = useRoute()
 const categories = ref<CategoryNode[]>([])
@@ -213,6 +214,19 @@ onMounted(async () => {
   if (route.query.merchantId) merchantId.value = Number(route.query.merchantId)
   await Promise.all([loadCategories(), loadMerchants()])
   await load()
+  // 数据概览低库存直达：带 productId 时自动打开编辑弹窗
+  if (route.query.productId) {
+    const id = Number(route.query.productId)
+    let target = products.value.find((item) => item.id === id)
+    if (!target) {
+      try {
+        target = await fetchProduct(id)
+      } catch {
+        target = undefined
+      }
+    }
+    if (target) openEdit(target)
+  }
 })
 </script>
 

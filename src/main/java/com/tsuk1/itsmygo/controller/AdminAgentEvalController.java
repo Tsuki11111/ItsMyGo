@@ -109,7 +109,7 @@ public class AdminAgentEvalController {
         try {
             notificationService.notifyAdmins("AGENT_EVAL_DONE", "智能体评测" + label,
                     "评测任务 " + job.id() + " " + label + "，可到评测台查看结果。",
-                    "/admin/agent-eval", "agent-eval-done:" + job.id() + ":" + status);
+                    "/admin/agent-eval?jobId=" + job.id(), "agent-eval-done:" + job.id() + ":" + status);
         } catch (RuntimeException ignored) {
             // 通知失败不影响评测状态查询
         }

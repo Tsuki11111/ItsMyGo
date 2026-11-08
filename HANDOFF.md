@@ -1,4 +1,4 @@
-# HANDOFF · 一次买够（ItsMyGo）
+﻿# HANDOFF · 一次买够（ItsMyGo）
 
 > **读者**：下一个接手本项目的 Claude 会话
 > **性质**：本项目**状态层的权威源** —— 做到哪、下一步做什么、踩过哪些坑。
@@ -1599,6 +1599,22 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 **不算服务端错误**，不要进 ERROR 日志/告警。
 
 ## 6. 历史记录
+
+### 2026-11-08 · 数据概览 / 站内通知直达详情
+
+**需求**：点数据概览的待办、或点站内通知后，直接进入对应详情，不再只到列表页。
+
+**实现**：
+- 数据概览待办行：订单 `?orderId=`、商户 `?merchantId=`、低库存 `?lowStock=1&productId=`；
+  聚合卡片改为带 `status` 筛选的列表；
+- 通知 link 直接带主键：订单 `?orderId=`、售后 `?afterSaleId=`、商家 `?merchantId=`、
+  评测 `?jobId=`；管理端/商家端列表页读取 query 后自动打开详情抽屉/弹窗；
+- 不新增独立详情路由，复用现有抽屉（D31）。
+
+**验证**：管理员实测 `/admin/orders?orderId=829` 打开订单抽屉、`/admin/after-sales?afterSaleId=1`
+打开售后抽屉、低库存 `productId` 打开商品编辑；数据概览点第一条待办跳转并自动开抽屉；
+`type-check` / `build:web` 通过。
+
 
 ### 2026-11-08 · 下单确认后补「待支付」入口
 
@@ -3699,8 +3715,3 @@ JwtAuthenticationFilter）、`service/AuthService`、`service/AddressService`、
 - 需求分析 + 技术选型定稿 → `docs/decisions-ecommerce.md`
 - 启动共用 `mysql` 容器，建 `its_mygo` 库并授权 `tsuk1` 账号
 - 确认复用共用中间件的方案与命名约定（§4.3、§4.4）
-
-
-
-
-

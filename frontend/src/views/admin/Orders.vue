@@ -175,9 +175,15 @@ async function cancelExpired() {
 }
 
 onMounted(async () => {
+  if (route.query.status) status.value = String(route.query.status)
   if (route.query.merchantId) merchantId.value = Number(route.query.merchantId)
   await loadMerchants()
   await load()
+  // 数据概览/站内通知直达：带 orderId 时自动打开详情抽屉
+  if (route.query.orderId) {
+    detailOrderId.value = Number(route.query.orderId)
+    detailVisible.value = true
+  }
 })
 </script>
 
