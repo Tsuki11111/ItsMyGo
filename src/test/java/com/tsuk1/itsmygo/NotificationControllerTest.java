@@ -74,9 +74,11 @@ class NotificationControllerTest extends ApiTestBase {
     @Test
     void platformStoreMerchantNotificationGoesToAdmins() throws Exception {
         String admin = adminToken("adm" + System.nanoTime());
-        notificationService.notifyMerchant(1L, "TEST_PLATFORM", "平台店通知", "平台自营店事件", "/x",
-                "test-platform-" + System.nanoTime());
+        notificationService.notifyMerchant(1L, "TEST_PLATFORM", "平台店通知", "平台自营店事件",
+                "/merchant/orders", "/admin/orders", "test-platform-" + System.nanoTime());
         mockMvc.perform(get("/api/notifications").header("Authorization", bearer(admin)))
-                .andExpect(jsonPath("$.data.items[*].type", hasItem("TEST_PLATFORM")));
+                .andExpect(jsonPath("$.data.items[*].type", hasItem("TEST_PLATFORM")))
+                // 平台店事件给管理员时必须用 /admin 链接，否则点击会被商家路由守卫拦
+                .andExpect(jsonPath("$.data.items[0].link").value("/admin/orders"));
     }
 }

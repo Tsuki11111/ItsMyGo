@@ -8,8 +8,9 @@ public interface NotificationService {
     /** 单人通知；bizKey 非空时同一接收人同键只插一次（幂等） */
     void notifyUser(Long userId, String type, String title, String content, String link, String bizKey);
 
-    /** 通知店铺负责人；平台自营店通知全部管理员 */
-    void notifyMerchant(Long merchantId, String type, String title, String content, String link, String bizKey);
+    /** 通知店铺负责人；平台自营店通知全部管理员（两者用各自的跳转链接） */
+    void notifyMerchant(Long merchantId, String type, String title, String content,
+                        String merchantLink, String adminLink, String bizKey);
 
     /** 通知全部管理员（平台后台铃铛） */
     void notifyAdmins(String type, String title, String content, String link, String bizKey);

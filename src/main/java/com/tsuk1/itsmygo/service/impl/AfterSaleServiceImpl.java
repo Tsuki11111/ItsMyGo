@@ -211,7 +211,8 @@ public class AfterSaleServiceImpl implements AfterSaleService {
         notificationService.notifyMerchant(afterSale.getMerchantId(), "AFTER_SALE_APPLIED", "新售后申请",
                 String.format("售后单 %s（订单 %s）待处理，申请金额 ¥%s。",
                         afterSale.getAfterSaleNo(), afterSale.getOrderNo(), afterSale.getApplyAmount()),
-                "/merchant/after-sales", "after-sale-applied:" + afterSale.getAfterSaleNo());
+                "/merchant/after-sales", "/admin/after-sales",
+                "after-sale-applied:" + afterSale.getAfterSaleNo());
         return view(afterSale, plan.items(), null);
     }
 
@@ -456,7 +457,8 @@ public class AfterSaleServiceImpl implements AfterSaleService {
         try {
             notificationService.notifyMerchant(afterSale.getMerchantId(), "AFTER_SALE_RESULT", "售后处理结果",
                     String.format("售后单 %s：%s。", afterSale.getAfterSaleNo(), note),
-                    "/merchant/after-sales", "after-sale-result:" + afterSale.getAfterSaleNo());
+                    "/merchant/after-sales", "/admin/after-sales",
+                    "after-sale-result:" + afterSale.getAfterSaleNo());
         } catch (RuntimeException e) {
             log.warn("售后 {} 写通知失败: {}", afterSale.getAfterSaleNo(), e.getMessage());
         }

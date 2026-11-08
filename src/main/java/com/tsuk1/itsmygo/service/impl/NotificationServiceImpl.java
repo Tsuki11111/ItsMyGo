@@ -60,7 +60,8 @@ public class NotificationServiceImpl implements NotificationService {
 
     @Override
     @Transactional
-    public void notifyMerchant(Long merchantId, String type, String title, String content, String link, String bizKey) {
+    public void notifyMerchant(Long merchantId, String type, String title, String content,
+                               String merchantLink, String adminLink, String bizKey) {
         if (merchantId == null) {
             return;
         }
@@ -69,12 +70,13 @@ public class NotificationServiceImpl implements NotificationService {
             return;
         }
         if (merchant.getOwnerUserId() != null) {
-            notifyUser(merchant.getOwnerUserId(), type, title, content, link, bizKey);
+            notifyUser(merchant.getOwnerUserId(), type, title, content, merchantLink, bizKey);
             return;
         }
-        // 平台自营店：商家侧消息由全部管理员接收（与聊天未读同口径）
+        // 平台自营店：商家侧消息由全部管理员接收（与聊天未读同口径）；
+        // 管理员没有商家权限，跳转必须用 /admin/** 链接，否则会被路由守卫拦。
         if (Objects.equals(merchant.getId(), Merchant.PLATFORM_MERCHANT_ID)) {
-            notifyAdmins(type, title, content, link, bizKey);
+            notifyAdmins(type, title, content, adminLink, bizKey);
         }
     }
 

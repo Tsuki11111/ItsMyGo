@@ -2892,8 +2892,9 @@ PROMOTION 类型与渲染已移除。
 
 **后端**：
 - `NotificationService`：`notifyUser`（单人）、`notifyMerchant`（店铺负责人；平台自营店
-  → 全部管理员，与聊天未读同口径）、`notifyAdmins`；`bizKey` 重复插入捕获
-  `DuplicateKeyException` 忽略；`list / unreadCount / markRead / markAllRead`。
+  → 全部管理员，与聊天未读同口径；**两者用各自的跳转链接**：商家 `/merchant/**`、
+  管理员 `/admin/**`，否则管理员点商家链接会被路由守卫拦「需要商家权限」）、`notifyAdmins`；
+  `bizKey` 重复插入捕获 `DuplicateKeyException` 忽略；`list / unreadCount / markRead / markAllRead`。
 - `NotificationController`：`GET /api/notifications?limit=20`、`GET /api/notifications/unread-count`、
   `POST /api/notifications/{id}/read`、`POST /api/notifications/read-all`；登录用户只能读写自己的通知。
 - 事件挂钩（通知失败只记日志，不影响主流程）：

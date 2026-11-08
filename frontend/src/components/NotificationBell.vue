@@ -10,9 +10,11 @@ import {
   markNotificationRead,
 } from '@/api/notifications'
 import type { NotificationView } from '@/api/types'
+import { useUserStore } from '@/stores/user'
 
 /** 商家端 / 管理端顶栏通知铃铛：30s 可见轮询未读数，展开时拉最近 20 条。 */
 const router = useRouter()
+const userStore = useUserStore()
 const unread = ref(0)
 const items = ref<NotificationView[]>([])
 const open = ref(false)
@@ -44,6 +46,14 @@ function onShow() {
   void loadList()
 }
 
+function resolveLink(link: string): string {
+  // 兼容历史数据：平台自营店的商家侧通知曾存成 /merchant/**，管理员点进去会被守卫拦截
+  if (userStore.isAdmin && link.startsWith('/merchant')) {
+    return '/admin' + link.slice('/merchant'.length)
+  }
+  return link
+}
+
 async function onClick(item: NotificationView) {
   if (!item.read) {
     try {
@@ -55,7 +65,8 @@ async function onClick(item: NotificationView) {
     }
   }
   open.value = false
-  if (item.link) router.push(item.link)
+  const link = resolveLink(item.link)
+  if (link) router.push(link)
 }
 
 async function readAll() {
