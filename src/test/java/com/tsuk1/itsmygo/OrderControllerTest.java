@@ -970,4 +970,29 @@ class OrderControllerTest extends ApiTestBase {
                         .content(objectMapper.writeValueAsString(new ShipRequest("SF1"))))
                 .andExpect(status().isForbidden());
     }
+
+    /** 管理端只能代发平台自营店订单；第三方店铺订单必须由商家自己发。 */
+    @Test
+    void adminCannotShipThirdPartyMerchantOrder() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        String token = customerToken("c" + System.nanoTime());
+        long productId = createProduct(admin, "ShipGuard", "10.00", 10);
+        long addressId = createAddress(token);
+        addToCart(token, productId, 1);
+        long orderId = placeOrder(token, addressId);
+        mockMvc.perform(post("/api/orders/" + orderId + "/pay").header("Authorization", bearer(token)));
+
+        // 把订单改成第三方店铺（merchant_id=2），模拟其他商家的待发货订单
+        orderMapper.update(null, Wrappers.<Order>lambdaUpdate()
+                .eq(Order::getId, orderId)
+                .set(Order::getMerchantId, 2L));
+
+        mockMvc.perform(post("/api/admin/orders/" + orderId + "/ship")
+                        .header("Authorization", bearer(admin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new ShipRequest("SF2"))))
+                .andExpect(jsonPath("$.code").value(403))
+                .andExpect(jsonPath("$.message").value(
+                        org.hamcrest.Matchers.containsString("商家自行发货")));
+    }
 }

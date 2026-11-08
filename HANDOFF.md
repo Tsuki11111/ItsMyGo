@@ -39,7 +39,7 @@
 ## 1. 当前状态一句话
 
 **交易闭环、多商户、AI 客服、运营后台、平台政策、压测、售后、下单异步补账、后台站内通知、Docker 部署均已完成（2026-11-08）。**
-后端自动化测试 **322 条**（本地；CI 跑 318 条，跳过 4 条依赖 MinIO 的用例）。数据库 schema 到 **v35**。
+后端自动化测试 **324 条**（本地；CI 跑 320 条，跳过 4 条依赖 MinIO 的用例）。数据库 schema 到 **v35**。
 
 - **交易**：商品 / SKU、购物车、按店拆单、支付、发货、收货、取消、超时关单、退款；
   库存与优惠券回滚。
@@ -823,7 +823,7 @@ git ls-files -s mvnw        # 应该显示 100755
 
 **当前的应对**：`StorageServiceTest` 用 `@DisabledIfEnvironmentVariable(SKIP_MINIO_TESTS)`
 跳过（该类共 4 条用例），CI 里设 `SKIP_MINIO_TESTS=true` ——
-**CI 跑 318 条，本地跑全部 322 条**。
+**CI 跑 320 条，本地跑全部 324 条**。
 这是**已知并记录的缺口，不是遗漏**。
 
 **将来要补的话**，可选方向：找 MinIO 的历史镜像 tag、换成别的 S3 兼容实现
@@ -1588,6 +1588,22 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 **不算服务端错误**，不要进 ERROR 日志/告警。
 
 ## 6. 历史记录
+
+### 2026-11-08 · 管理端发货权限收敛到平台自营店（D25）
+
+**问题**：平台管理员能在管理端替**任意商家**发货——`AdminOrderController.ship` 直接
+`orderService.ship(id)`，没有店铺归属校验；管理端订单列表/详情对全部 PAID 订单显示「发货」。
+角色权限本身没串（商家端 404、管理端 ADMIN 正常），是**业务职责越权**。
+
+**修复**：
+- `OrderServiceImpl.ship`（管理端）：非 `merchant_id=1`（平台自营店）订单直接
+  `403 第三方店铺订单由商家自行发货`；
+- 前端 `admin/Orders.vue` 与 `OrderDetailDrawer.vue`：只有平台自营店订单显示「发货」；
+- 商家端 `shipForMerchant` 的归属校验保持不变；退款/售后仍保留平台介入。
+
+**测试**：新增 `adminCannotShipThirdPartyMerchantOrder`（管理端发第三方店铺订单 → 403）；
+`MerchantReviewTest` 改为由商家自己发货（符合新职责）；全量 **324 条**全绿；
+`type-check` / `build:web` 通过。
 
 ### 2026-11-08 · 商家端 / 管理端站内通知栏（V35）
 

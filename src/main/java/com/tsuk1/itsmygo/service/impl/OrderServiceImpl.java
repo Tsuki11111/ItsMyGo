@@ -60,6 +60,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
@@ -891,7 +892,12 @@ public class OrderServiceImpl implements OrderService {
     @Override
     @Transactional
     public OrderView ship(Long orderId, ShipRequest request) {
-        return doShip(requireExists(orderId), request);
+        Order order = requireExists(orderId);
+        // 发货权归店铺：管理端只代发平台自营店订单，第三方店铺必须由商家自己发
+        if (!Objects.equals(order.getMerchantId(), Merchant.PLATFORM_MERCHANT_ID)) {
+            throw new BizException(ResultCode.FORBIDDEN, "第三方店铺订单由商家自行发货");
+        }
+        return doShip(order, request);
     }
 
     // ── 商家端：所有查询与操作都先校验订单归属 ──

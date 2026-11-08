@@ -1074,6 +1074,9 @@ WHERE used_order_id = ? AND status = 'USED'
 
 **商家订单**：`/api/merchant/orders/**` 的列表/详情/发货/退款审核全部按 token merchantId 过滤，
 别家订单一律 404。平台 `/api/admin/orders` 保留全平台监管，并支持按商户筛选。
+**发货权限（D25）**：管理端只为**平台自营店（merchant_id=1）**代发货；第三方店铺订单在
+`AdminOrderController.ship` 处直接 403「第三方店铺订单由商家自行发货」，前端管理端订单页/
+详情抽屉也只对自营店订单显示「发货」按钮。平台对第三方的退款/售后介入仍保留。
 订单响应里的 `merchantName` 是批量查店铺名回填的，列表不会 N+1。
 
 **优惠券归属**：`coupons.merchant_id` 为 NULL 是平台券，非空是店铺券；

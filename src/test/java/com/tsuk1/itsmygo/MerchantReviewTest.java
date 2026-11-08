@@ -48,8 +48,8 @@ class MerchantReviewTest extends ApiTestBase {
         return objectMapper.readTree(body).path("data").path("id").asLong();
     }
 
-    /** 买一件、支付、管理端发货、顾客确认收货，返回 orderItemId */
-    private long completedOrderItem(String customer, String admin, long productId) throws Exception {
+    /** 买一件、支付、**商家自己发货**（管理端只能代发平台自营店订单）、顾客确认收货，返回 orderItemId */
+    private long completedOrderItem(String customer, String merchantToken, long productId) throws Exception {
         long skuId = defaultSkuId(productId);
         long addressId = createAddress(customer);
         String token = objectMapper.readTree(mockMvc.perform(get("/api/orders/token")
@@ -70,8 +70,8 @@ class MerchantReviewTest extends ApiTestBase {
         mockMvc.perform(post("/api/orders/" + orderId + "/pay")
                         .header("Authorization", bearer(customer)))
                 .andExpect(status().isOk());
-        mockMvc.perform(post("/api/admin/orders/" + orderId + "/ship")
-                        .header("Authorization", bearer(admin))
+        mockMvc.perform(post("/api/merchant/orders/" + orderId + "/ship")
+                        .header("Authorization", bearer(merchantToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"trackingNo": "SFMR001"}
@@ -108,8 +108,8 @@ class MerchantReviewTest extends ApiTestBase {
         long productA = createProduct(a.token(), categoryId, "评价A品" + System.nanoTime());
         long productB = createProduct(b.token(), categoryId, "评价B品" + System.nanoTime());
 
-        review(customer, completedOrderItem(customer, admin, productA));
-        review(customer, completedOrderItem(customer, admin, productB));
+        review(customer, completedOrderItem(customer, a.token(), productA));
+        review(customer, completedOrderItem(customer, b.token(), productB));
 
         String listA = mockMvc.perform(get("/api/merchant/reviews")
                         .header("Authorization", bearer(a.token())))

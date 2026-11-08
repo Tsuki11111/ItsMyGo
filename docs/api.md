@@ -907,7 +907,7 @@ Authorization: Bearer <token>
 | GET | `/api/admin/orders` | `page=1, size=10, status?, merchantId?, keyword?, dateFrom?, dateTo?` | `PageResponse<Order>` |
 | GET | `/api/admin/orders/export` | 同上（不分页，最多 5000 条） | CSV 文件 |
 | GET | `/api/admin/orders/{id}` | — | `OrderView` |
-| POST | `/api/admin/orders/{id}/ship` | `{trackingNo}` | `OrderView` |
+| POST | `/api/admin/orders/{id}/ship` | `{trackingNo}` | `OrderView`（**仅平台自营店订单**；第三方店铺订单返回 403，由商家自行发货） |
 | POST | `/api/admin/orders/{id}/refund/approve` | — | `OrderView` |
 | POST | `/api/admin/orders/{id}/refund/reject` | — | `OrderView` |
 | POST | `/api/admin/orders/cancel-expired` | `minutes=30` | `number`（取消数量） |

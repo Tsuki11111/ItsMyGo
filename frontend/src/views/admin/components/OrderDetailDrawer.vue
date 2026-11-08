@@ -231,7 +231,7 @@ async function reject() {
         </el-table>
 
         <div v-if="view.order.status === 'PAID' || view.order.status === 'REFUNDING'" class="actions">
-          <template v-if="view.order.status === 'PAID'">
+          <template v-if="view.order.status === 'PAID' && (props.merchant || view.order.merchantId === 1)">
             <el-button type="primary" :loading="acting" @click="ship">发货</el-button>
           </template>
           <template v-else>

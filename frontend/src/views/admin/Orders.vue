@@ -277,7 +277,7 @@ onMounted(async () => {
       <el-table-column label="操作" width="200" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="openDetail(row)">详情</el-button>
-          <template v-if="row.status === 'PAID'">
+          <template v-if="row.status === 'PAID' && row.merchantId === 1">
             <el-button link type="primary" @click="ship(row)">发货</el-button>
           </template>
           <template v-else-if="row.status === 'REFUNDING'">
