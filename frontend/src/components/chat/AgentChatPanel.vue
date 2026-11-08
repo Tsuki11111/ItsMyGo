@@ -194,6 +194,11 @@ const visibleActions = computed(() =>
       const result = action.result as AgentOrderResult | null
       return !!result?.orders.some((order) => order.status === 'PENDING_PAYMENT')
     }
+    // 已取消/已过期的卡片保留 30 分钟，用户能看到「已取消」而不是卡片直接消失
+    if (action.status === 'CANCELLED' || action.status === 'EXPIRED') {
+      const created = new Date(action.createdAt).getTime()
+      return !Number.isNaN(created) && Date.now() - created < 30 * 60 * 1000
+    }
     return false
   }),
 )

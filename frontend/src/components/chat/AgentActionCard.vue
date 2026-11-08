@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { RefreshLeft, Bell, ShoppingCart } from '@element-plus/icons-vue'
 import { fetchAddresses } from '@/api/address'
 import {
@@ -178,11 +178,25 @@ async function confirm() {
 
 async function cancel() {
   if (!canAct.value) return
+  {
+    // 取消是不可逆的作废操作，先让用户二次确认
+    try {
+      await ElMessageBox.confirm(
+        isOrder.value
+          ? '取消后这张下单草稿会作废，需要重新让买小购准备才能下单。确定取消吗？'
+          : '取消后这张待确认卡片会作废，确定取消吗？',
+        isOrder.value ? '取消下单草稿' : '取消待确认操作',
+        { type: 'warning', confirmButtonText: '确定取消', cancelButtonText: '再想想' },
+      )
+    } catch {
+      return
+    }
+  }
   busy.value = true
   try {
     const updated = await cancelAgentAction(props.action.actionNo)
     emit('updated', updated)
-    ElMessage.info('已取消')
+    ElMessage.info(isOrder.value ? '已取消，这张下单草稿已作废' : '已取消')
   } catch {
     // 同上
   } finally {
@@ -418,6 +432,12 @@ async function saveEdit() {
       </template>
     </div>
 
+    <p v-if="action.status === 'CANCELLED'" class="cancelled-tip">
+      已取消：这张{{ isOrder ? '下单草稿' : '待确认操作' }}已作废，不会执行；需要的话请重新告诉买小购。
+    </p>
+    <p v-else-if="action.status === 'EXPIRED'" class="cancelled-tip">
+      已过期：需要的话请重新告诉买小购准备。
+    </p>
     <p v-if="action.status === 'FAILED' && action.errorMessage" class="error">
       {{ action.errorMessage }}
     </p>
@@ -625,6 +645,16 @@ async function saveEdit() {
   color: var(--c-pink);
   font-weight: 600;
   text-decoration: none;
+}
+
+.cancelled-tip {
+  margin: 8px 0 0;
+  padding: 6px 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #8a6d3b;
+  background: #fdf7e3;
+  border-radius: 6px;
 }
 
 .error {
