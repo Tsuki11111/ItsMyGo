@@ -352,6 +352,42 @@ class AgentControllerTest extends ApiTestBase {
     }
 
     @Test
+    void historyFillsRefundReasonOptions() throws Exception {
+        when(agentGateway.configured()).thenReturn(true);
+        String username = "af" + System.nanoTime();
+        String token = customerToken(username);
+        long uid = userId(username);
+        String sessionId = "fill-" + System.nanoTime();
+        agentSessionMapper.insertSession(uid, sessionId);
+        when(agentGateway.history(eq(uid), eq(sessionId), anyInt()))
+                .thenReturn(List.of(HistoryMessage.newBuilder()
+                        .setRole("assistant").setText("请选择退款原因")
+                        .addForms(FormRequest.newBuilder()
+                                .setFormId("hf2")
+                                .setFormType("refund_reason")
+                                .setTitle("选择退款原因")
+                                .addFields(FormField.newBuilder()
+                                        .setName("reason")
+                                        .setLabel("退款原因")
+                                        .setType("select")
+                                        .setRequired(true))
+                                .setSubmitLabel("提交"))
+                        .build()));
+
+        mockMvc.perform(get("/api/agent/history")
+                        .header("Authorization", bearer(token))
+                        .param("sessionId", sessionId))
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.messages[0].forms[0].formType")
+                        .value("refund_reason"))
+                // 历史回放里的选项也要由 Java 字典补全，不能是空数组
+                .andExpect(jsonPath("$.data.messages[0].forms[0].fields[0].options.length()")
+                        .value(org.hamcrest.Matchers.greaterThan(0)))
+                .andExpect(jsonPath("$.data.messages[0].forms[0].fields[0].options[0].value")
+                        .isNotEmpty());
+    }
+
+    @Test
     void sessionsOnlyReturnOwnedOnes() throws Exception {
         when(agentGateway.configured()).thenReturn(true);
         String aName = "asa" + System.nanoTime();

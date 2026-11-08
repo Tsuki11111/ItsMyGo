@@ -389,6 +389,9 @@ public class AgentChatServiceImpl implements AgentChatService {
                                             product.getSpecText(), product.getCategoryName()))
                                     .toList(),
                             item.getFormsList().stream()
+                                    // 与实时流一致：rag_helper 存的 options 是空的，
+                                    // 退款原因字典由 Java 补全，历史回放同样要补
+                                    .map(this::fillRefundReasonOptions)
                                     .map(form -> new AgentHistoryMessage.AgentFormRequest(
                                             form.getFormId(), form.getFormType(), form.getTitle(),
                                             form.getDescription(),
