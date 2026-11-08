@@ -1,6 +1,6 @@
 # 一次买够 · 后端 API 接口文档
 
-> 适用版本：schema v30（2026-11-05，含 V30「问大家」与 M26 智能体评测）
+> 适用版本：schema v35（2026-11-08，含 V35「站内通知」与 V34 价格历史等）
 > 服务地址：`http://localhost:8080`（开发环境，前端经 Vite 代理 `/api` 访问）
 > 本文覆盖 `src/main/java/com/tsuk1/itsmygo/controller/` 下全部接口。
 
@@ -1777,3 +1777,40 @@ specText, unitPrice, quantity, refundAmount, createdAt`
 | `monthly` | 按月消费；仅 `period=year` 有值 |
 
 空数据返回 `orderCount=0`、金额 `"0.00"`、排行与 `monthly` 空数组。
+
+## 25. 站内通知（商家端 / 管理端，2026-11-08）
+
+> 登录即可访问；只能读写自己的通知。未读数由前端 30s 可见轮询，不建常驻 SSE。
+
+### 25.1 通知列表
+
+`GET /api/notifications?limit=20`（`limit` 1–50，默认 20）
+
+`
+{ "code": 200, "data": {
+  "unreadCount": 2,
+  "items": [ {
+    "id": 12, "type": "ORDER_PAID", "title": "新订单待发货",
+    "content": "订单 2026... 已支付，金额 ¥99.00，请及时发货。",
+    "link": "/merchant/orders?keyword=2026...",
+    "read": false, "createdAt": "2026-11-08T11:20:00"
+  } ]
+} }
+`
+
+### 25.2 未读数
+
+`GET /api/notifications/unread-count` → `data: 2`
+
+### 25.3 标记单条已读
+
+`POST /api/notifications/{id}/read` → `data: 1`（已是已读/不存在返回 0，幂等）
+
+### 25.4 全部已读
+
+`POST /api/notifications/read-all` → `data: 3`（本次置为已读的条数）
+
+### 25.5 通知类型
+
+`ORDER_PAID` / `AFTER_SALE_APPLIED` / `AFTER_SALE_RESULT`（商家）；
+`MERCHANT_APPLY` / `AGENT_EVAL_DONE`（管理员）。平台自营店的商家侧通知发给全部管理员。

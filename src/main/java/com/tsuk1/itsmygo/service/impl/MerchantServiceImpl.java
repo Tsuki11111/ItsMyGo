@@ -26,6 +26,8 @@ import com.tsuk1.itsmygo.mapper.OrderMapper;
 import com.tsuk1.itsmygo.mapper.UserMapper;
 import com.tsuk1.itsmygo.security.AuthIdentityService;
 import com.tsuk1.itsmygo.service.MerchantService;
+import com.tsuk1.itsmygo.service.NotificationService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,6 +44,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+@Slf4j
 @Service
 public class MerchantServiceImpl implements MerchantService {
 
@@ -56,15 +59,18 @@ public class MerchantServiceImpl implements MerchantService {
     private final OrderMapper orderMapper;
     private final AdminOperationsMapper operationsMapper;
     private final AuthIdentityService authIdentityService;
+    private final NotificationService notificationService;
 
     public MerchantServiceImpl(MerchantMapper merchantMapper, UserMapper userMapper,
                                OrderMapper orderMapper, AdminOperationsMapper operationsMapper,
-                               AuthIdentityService authIdentityService) {
+                               AuthIdentityService authIdentityService,
+                               NotificationService notificationService) {
         this.merchantMapper = merchantMapper;
         this.userMapper = userMapper;
         this.orderMapper = orderMapper;
         this.operationsMapper = operationsMapper;
         this.authIdentityService = authIdentityService;
+        this.notificationService = notificationService;
     }
 
     @Override
@@ -99,6 +105,7 @@ public class MerchantServiceImpl implements MerchantService {
         } catch (DuplicateKeyException e) {
             throw new BizException(ResultCode.BAD_REQUEST, "店铺名已被占用");
         }
+        notifyAdminsMerchantApply(merchant);
         return toView(merchant);
     }
 
@@ -113,7 +120,23 @@ public class MerchantServiceImpl implements MerchantService {
         if (rows == 0) {
             throw new BizException(ResultCode.BAD_REQUEST, "申请状态已变化，请刷新后重试");
         }
-        return toView(merchantMapper.selectById(merchantId));
+        Merchant updated = merchantMapper.selectById(merchantId);
+        notifyAdminsMerchantApply(updated);
+        return toView(updated);
+    }
+
+    /** 入驻申请/重新提交 → 通知全部管理员 */
+    private void notifyAdminsMerchantApply(Merchant merchant) {
+        if (merchant == null) {
+            return;
+        }
+        try {
+            notificationService.notifyAdmins("MERCHANT_APPLY", "商家入驻待审核",
+                    String.format("店铺「%s」提交了入驻申请，请审核。", merchant.getName()),
+                    "/admin/merchants", null);
+        } catch (RuntimeException e) {
+            log.warn("店铺 {} 入驻申请写通知失败: {}", merchant.getId(), e.getMessage());
+        }
     }
 
     @Override

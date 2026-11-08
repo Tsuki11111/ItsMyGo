@@ -189,7 +189,7 @@ agent 通过 `its-my-go-backend:8080` 回调 Java。
 - 联合部署的 agent 地址用 `RAG_*` 前缀变量（`RAG_AGENT_GRPC_TARGET=rag-agent:8003`、
   `RAG_AGENT_IMPORT_URL=http://rag-import:8001`、`RAG_AGENT_EVAL_URL=http://rag-chat:8002`），
   本地调试用的 `AGENT_GRPC_TARGET=127.0.0.1:8003` 不会进容器。
-- 数据库 schema 由 Flyway 在启动时迁到最新（当前 v32）；数据在命名卷
+- 数据库 schema 由 Flyway 在启动时迁到最新（当前 v35）；数据在命名卷
   `its-my-go-mysql-data` 里，**`./deploy.sh reset` 会删卷**，在 VM 上别随手跑。
 - **一键启停 / 状态**（VM 的 `~/itsmygo-offline/` 下，都是离线包自带脚本）：
 

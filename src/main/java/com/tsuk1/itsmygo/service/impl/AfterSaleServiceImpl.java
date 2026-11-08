@@ -32,6 +32,7 @@ import com.tsuk1.itsmygo.mapper.ProductMapper;
 import com.tsuk1.itsmygo.mapper.ProductSkuMapper;
 import com.tsuk1.itsmygo.mapper.UserCouponMapper;
 import com.tsuk1.itsmygo.service.AfterSaleService;
+import com.tsuk1.itsmygo.service.NotificationService;
 import com.tsuk1.itsmygo.service.StockService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -103,6 +104,7 @@ public class AfterSaleServiceImpl implements AfterSaleService {
     private final PaymentMapper paymentMapper;
     private final UserCouponMapper userCouponMapper;
     private final MerchantMapper merchantMapper;
+    private final NotificationService notificationService;
     private final StockService stockService;
     private final AfterSaleProperties properties;
     private final ObjectMapper objectMapper;
@@ -121,7 +123,8 @@ public class AfterSaleServiceImpl implements AfterSaleService {
                                 StockService stockService,
                                 AfterSaleProperties properties,
                                 ObjectMapper objectMapper,
-                                PlatformTransactionManager transactionManager) {
+                                PlatformTransactionManager transactionManager,
+                                NotificationService notificationService) {
         this.afterSaleMapper = afterSaleMapper;
         this.afterSaleItemMapper = afterSaleItemMapper;
         this.reasonMapper = reasonMapper;
@@ -136,6 +139,7 @@ public class AfterSaleServiceImpl implements AfterSaleService {
         this.properties = properties;
         this.objectMapper = objectMapper;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
+        this.notificationService = notificationService;
     }
 
     /* ==================== 顾客 ==================== */
@@ -204,6 +208,10 @@ public class AfterSaleServiceImpl implements AfterSaleService {
             item.setAfterSaleId(afterSale.getId());
             afterSaleItemMapper.insert(item);
         }
+        notificationService.notifyMerchant(afterSale.getMerchantId(), "AFTER_SALE_APPLIED", "新售后申请",
+                String.format("售后单 %s（订单 %s）待处理，申请金额 ¥%s。",
+                        afterSale.getAfterSaleNo(), afterSale.getOrderNo(), afterSale.getApplyAmount()),
+                "/merchant/after-sales", "after-sale-applied:" + afterSale.getAfterSaleNo());
         return view(afterSale, plan.items(), null);
     }
 
@@ -320,7 +328,10 @@ public class AfterSaleServiceImpl implements AfterSaleService {
     @Override
     @Transactional
     public AfterSaleView approveForAdmin(Long id) {
-        return approve(requireExists(id), null);
+        AfterSale afterSale = requireExists(id);
+        AfterSaleView result = approve(afterSale, null);
+        notifyAfterSaleResult(afterSale, "平台已同意售后");
+        return result;
     }
 
     @Override
@@ -332,7 +343,10 @@ public class AfterSaleServiceImpl implements AfterSaleService {
     @Override
     @Transactional
     public AfterSaleView confirmReceivedForAdmin(Long id) {
-        return confirmReceived(requireExists(id));
+        AfterSale afterSale = requireExists(id);
+        AfterSaleView result = confirmReceived(afterSale);
+        notifyAfterSaleResult(afterSale, "平台已确认收到退货，退款完成");
+        return result;
     }
 
     @Override
@@ -399,6 +413,7 @@ public class AfterSaleServiceImpl implements AfterSaleService {
                 if (Boolean.TRUE.equals(ok)) {
                     done++;
                     log.info("售后超时自动同意: afterSaleNo={}", afterSale.getAfterSaleNo());
+                    notifyAfterSaleResult(afterSale, "商家超时未处理，系统自动同意");
                 }
             } catch (RuntimeException e) {
                 log.warn("售后超时自动同意失败: afterSaleNo={} err={}",
@@ -421,6 +436,7 @@ public class AfterSaleServiceImpl implements AfterSaleService {
                 if (Boolean.TRUE.equals(ok)) {
                     done++;
                     log.info("退货超时自动确认收货: afterSaleNo={}", afterSale.getAfterSaleNo());
+                    notifyAfterSaleResult(afterSale, "退货超时未确认，系统自动确认收货并退款");
                 }
             } catch (RuntimeException e) {
                 log.warn("退货超时自动确认失败: afterSaleNo={} err={}",
@@ -431,6 +447,20 @@ public class AfterSaleServiceImpl implements AfterSaleService {
     }
 
     /* ==================== 内部：审核与执行 ==================== */
+
+    /** 售后处理结果通知商家（平台处理 / 自动超时处理时调用）；失败不影响主流程 */
+    private void notifyAfterSaleResult(AfterSale afterSale, String note) {
+        if (afterSale == null || afterSale.getMerchantId() == null) {
+            return;
+        }
+        try {
+            notificationService.notifyMerchant(afterSale.getMerchantId(), "AFTER_SALE_RESULT", "售后处理结果",
+                    String.format("售后单 %s：%s。", afterSale.getAfterSaleNo(), note),
+                    "/merchant/after-sales", "after-sale-result:" + afterSale.getAfterSaleNo());
+        } catch (RuntimeException e) {
+            log.warn("售后 {} 写通知失败: {}", afterSale.getAfterSaleNo(), e.getMessage());
+        }
+    }
 
     /** 同意：仅退款直接执行退款；退货退款进入「待买家退货」。autoNote 用于系统自动处理的说明。 */
     private AfterSaleView approve(AfterSale afterSale, String autoNote) {

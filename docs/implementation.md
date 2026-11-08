@@ -2878,3 +2878,29 @@ orderId）、顾客未读 +1；发货前改地址成功且商家收到 SYSTEM �
 内部接口无票据 401、A/B 票据各自只返回本人数据。全量 `./mvnw.cmd test` **313 条全绿**
 （基线 308 + 5）；`cd frontend && npm run build` EXITCODE=0。
 
+
+### 3.44 站内通知（商家端 / 管理端铃铛，2026-11-08）
+
+**存储（V35）**：表 `notifications`（`user_id` / `type` / `title` / `content` / `link` /
+`biz_key` / `read_at` / `created_at`），唯一键 `(user_id, biz_key)` 做事件幂等，
+索引 `(user_id, read_at, created_at)` 支撑未读与最近列表。
+
+**后端**：
+- `NotificationService`：`notifyUser`（单人）、`notifyMerchant`（店铺负责人；平台自营店
+  → 全部管理员，与聊天未读同口径）、`notifyAdmins`；`bizKey` 重复插入捕获
+  `DuplicateKeyException` 忽略；`list / unreadCount / markRead / markAllRead`。
+- `NotificationController`：`GET /api/notifications?limit=20`、`GET /api/notifications/unread-count`、
+  `POST /api/notifications/{id}/read`、`POST /api/notifications/read-all`；登录用户只能读写自己的通知。
+- 事件挂钩（通知失败只记日志，不影响主流程）：
+  - `OrderServiceImpl.notifyMerchantAfterPaid`（支付 afterCommit）→ `ORDER_PAID`；
+  - `AfterSaleServiceImpl`：`apply` → `AFTER_SALE_APPLIED`；平台 `approveForAdmin` /
+    `confirmReceivedForAdmin` 与超时自动处理 → `AFTER_SALE_RESULT`；
+  - `MerchantServiceImpl` 入驻申请/重新提交 → `MERCHANT_APPLY`（通知全部管理员）；
+  - `AdminAgentEvalController.job` 观察到终态 → `AGENT_EVAL_DONE`（按 job+状态幂等）。
+
+**前端**：`components/NotificationBell.vue` 放进商家端/管理端 header：未读数 30s 可见轮询
+（打开下拉时立即拉最近 20 条）；点击条目 → 标记已读 + 跳转 `link`；「全部已读」；
+不建常驻 SSE（与 2026-11-07 的连接池治理一致，见 D24）。
+
+**测试**：`NotificationControllerTest` 3 条（列表/已读/幂等、入驻申请触发管理员通知、
+平台自营店通知落到管理员）；全量测试见 HANDOFF。

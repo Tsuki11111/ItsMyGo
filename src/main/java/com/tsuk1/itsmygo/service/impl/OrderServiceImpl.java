@@ -35,6 +35,7 @@ import com.tsuk1.itsmygo.mapper.ProductSkuMapper;
 import com.tsuk1.itsmygo.mapper.ReviewMapper;
 import com.tsuk1.itsmygo.mapper.UserCouponMapper;
 import com.tsuk1.itsmygo.service.ChatService;
+import com.tsuk1.itsmygo.service.NotificationService;
 import com.tsuk1.itsmygo.service.OrderService;
 import com.tsuk1.itsmygo.service.OrderSettlementService;
 import com.tsuk1.itsmygo.service.ShipmentService;
@@ -97,6 +98,7 @@ public class OrderServiceImpl implements OrderService {
     private final OrderCreatedMqPublisher orderCreatedMqPublisher;
     private final OrderSettlementService orderSettlementService;
     private final ChatService chatService;
+    private final NotificationService notificationService;
 
     public OrderServiceImpl(OrderMapper orderMapper, OrderItemMapper orderItemMapper,
                             CartItemMapper cartItemMapper, ProductMapper productMapper,
@@ -109,7 +111,8 @@ public class OrderServiceImpl implements OrderService {
                             OrderCreateProperties orderCreateProperties,
                             OrderCreatedMqPublisher orderCreatedMqPublisher,
                             OrderSettlementService orderSettlementService,
-                            ChatService chatService) {
+                            ChatService chatService,
+                            NotificationService notificationService) {
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
         this.cartItemMapper = cartItemMapper;
@@ -128,6 +131,7 @@ public class OrderServiceImpl implements OrderService {
         this.orderCreatedMqPublisher = orderCreatedMqPublisher;
         this.orderSettlementService = orderSettlementService;
         this.chatService = chatService;
+        this.notificationService = notificationService;
     }
 
     /**
@@ -578,6 +582,16 @@ public class OrderServiceImpl implements OrderService {
                 chatService.sendOrderConfirmRequest(order);
             } catch (Exception e) {
                 log.warn("订单 {} 支付成功但发送订单确认卡失败（不影响支付）：{}",
+                        order.getOrderNo(), e.getMessage(), e);
+            }
+            try {
+                notificationService.notifyMerchant(order.getMerchantId(), "ORDER_PAID", "新订单待发货",
+                        String.format("订单 %s 已支付，金额 ¥%s，请及时发货。",
+                                order.getOrderNo(), order.getTotalAmount()),
+                        "/merchant/orders?keyword=" + order.getOrderNo(),
+                        "order-paid:" + order.getOrderNo());
+            } catch (Exception e) {
+                log.warn("订单 {} 支付成功但写通知失败（不影响支付）：{}",
                         order.getOrderNo(), e.getMessage(), e);
             }
         };

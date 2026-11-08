@@ -11,6 +11,7 @@ import com.tsuk1.itsmygo.dto.eval.AgentEvalJobView;
 import com.tsuk1.itsmygo.dto.eval.AgentEvalResultListView;
 import com.tsuk1.itsmygo.dto.eval.AgentEvalResultView;
 import com.tsuk1.itsmygo.dto.eval.AgentEvalRunRequest;
+import com.tsuk1.itsmygo.service.NotificationService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -29,9 +30,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminAgentEvalController {
 
     private final AgentEvalClient evalClient;
+    private final NotificationService notificationService;
 
-    public AdminAgentEvalController(AgentEvalClient evalClient) {
+    public AdminAgentEvalController(AgentEvalClient evalClient,
+                                    NotificationService notificationService) {
         this.evalClient = evalClient;
+        this.notificationService = notificationService;
     }
 
     @GetMapping("/cases")
@@ -79,7 +83,32 @@ public class AdminAgentEvalController {
 
     @GetMapping("/jobs/{id}")
     public Result<AgentEvalJobView> job(@PathVariable String id) {
-        return Result.ok(evalClient.job(id));
+        AgentEvalJobView job = evalClient.job(id);
+        notifyEvalDone(job);
+        return Result.ok(job);
+    }
+
+    /** 评测跑到终态时给管理员发一条站内通知（幂等：同一 job + 状态只发一次）。 */
+    private void notifyEvalDone(AgentEvalJobView job) {
+        if (job == null) {
+            return;
+        }
+        String status = job.status();
+        if (!"completed".equals(status) && !"failed".equals(status) && !"stopped".equals(status)) {
+            return;
+        }
+        String label = switch (status) {
+            case "completed" -> "已完成";
+            case "failed" -> "失败";
+            default -> "已停止";
+        };
+        try {
+            notificationService.notifyAdmins("AGENT_EVAL_DONE", "智能体评测" + label,
+                    "评测任务 " + job.id() + " " + label + "，可到评测台查看结果。",
+                    "/admin/agent-eval", "agent-eval-done:" + job.id() + ":" + status);
+        } catch (RuntimeException ignored) {
+            // 通知失败不影响评测状态查询
+        }
     }
 
     /** 协作式停止：当前用例跑完后退出，已产出的结果保留。 */

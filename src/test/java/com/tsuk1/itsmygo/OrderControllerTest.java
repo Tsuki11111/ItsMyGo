@@ -620,7 +620,8 @@ class OrderControllerTest extends ApiTestBase {
                 new OrderCreateProperties(false, false, 120, 60_000L, 240, 3),
                 Mockito.mock(OrderCreatedMqPublisher.class),
                 Mockito.mock(OrderSettlementService.class),
-                Mockito.mock(ChatService.class));
+                Mockito.mock(ChatService.class),
+                Mockito.mock(com.tsuk1.itsmygo.service.NotificationService.class));
 
         PageResponse<OrderView> result = service.pageForCustomer(
                 currentUserId(token), 1, 10, 3);

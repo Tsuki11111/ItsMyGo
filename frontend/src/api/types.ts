@@ -1212,3 +1212,19 @@ export interface AfterSaleStatsView {
   counts: Record<string, number>
   total: number
 }
+
+export interface NotificationView {
+  id: number
+  type: string
+  title: string
+  content: string
+  link: string
+  read: boolean
+  createdAt: string
+}
+
+export interface NotificationListView {
+  unreadCount: number
+  items: NotificationView[]
+}
+

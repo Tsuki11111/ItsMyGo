@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Aim, ChatDotRound, ChatLineRound, Collection, DataAnalysis, DataBoard, Discount, Document, Goods, Key, Menu as MenuIcon, RefreshLeft, Shop, Tickets, User } from '@element-plus/icons-vue'
+import NotificationBell from '@/components/NotificationBell.vue'
 import { useChatStore } from '@/stores/chat'
 import { useUserStore } from '@/stores/user'
 
@@ -67,6 +68,7 @@ function logout() {
       <el-header class="admin-header">
         <span class="title">管理后台</span>
         <div class="right">
+          <NotificationBell />
           <RouterLink to="/" class="store-link">返回商城</RouterLink>
           <span class="who">{{ userStore.displayName }}</span>
           <el-button link type="primary" @click="logout">退出登录</el-button>
