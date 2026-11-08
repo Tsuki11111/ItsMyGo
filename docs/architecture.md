@@ -86,6 +86,7 @@
 | 前端 | **Vue 3 + Vite + TypeScript + Element Plus + Pinia** | 前后端分离、组件生态成熟 | 无前端自动化测试，手工走查 + build |
 | 流式 | **SSE（`SseEmitter`）** | 浏览器侧只需单向推送；gRPC 事件流 → SSE | SSE 带不了 Authorization：聊天用一次性票据换 SSE（见 D12） |
 | 部署 | **Docker Compose + 离线镜像包** | 一键起全栈；内网 VM 不能拉 Docker Hub | 生产是演示环境，见 deployment.md 的缺口表 |
+| 日志 | **SLF4J + Logback**（Boot 默认；prod 用 logstash JSON encoder，dev 控制台 UTF-8） | 单模块不引入额外日志框架；JSON 便于将来接采集；traceId 由 MDC 统一注入 | 不引入 ELK / Loki / Prometheus（演示环境无集中平台）；详见 §3.8 与 implementation §3.28 |
 
 **Boot 4 的四个结构化差异**（动手前必读）：自动配置拆成独立模块、Jackson 3 包名 `tools.jackson`、
 MyBatis-Plus 分页插件拆包、`spring-boot-starter-aspectj` 改名。详见 HANDOFF §5.1–§5.4、§5.9。
@@ -314,6 +315,37 @@ CREATE TABLE admin_user_roles (
 
 ---
 
+### 3.8 日志与可观测性
+
+> 实现细节见 implementation §3.28；这里只讲**选型与边界**。
+
+**选型**：SLF4J + Logback（Spring Boot 默认，不换 log4j2），不引入 ELK / Loki / Prometheus / OTel。
+理由：单体 + 演示环境，没有集中日志平台与运维团队；Logback 足够覆盖“排障 + 审计”两个诉求，
+JSON encoder（`net.logstash.logback`）让以后接采集系统不用改业务代码。
+
+**两种输出**：
+
+| 环境 | 输出 | 说明 |
+|---|---|---|
+| dev / test | 控制台（UTF-8，`logback-spring.xml` CONSOLE） | 格式 `时间 level [thread] [traceId] [userId] logger - msg`；Windows 终端代码页问题见 HANDOFF §5.40 |
+| prod | 控制台 + **JSON 文件** `logs/its-my-go.log` | 按天 + 100MB 滚动，保留 14 天 / 总上限 2GB；stdout 留给容器采集 |
+
+**traceId 贯穿**：`common/logging/RequestIdFilter` 从 `X-Request-Id` 或生成 ID 写入 MDC，
+响应头回传；RabbitMQ 消息头携带 traceId；扫描任务用 `scan-*` 前缀；日志 pattern 统一带
+`traceId` 和 `userId`（未登录为空）。
+
+**应用日志 ≠ 审计**：操作审计走 `@AdminAudit` → `admin_audit_logs` 表（可查询、可追责），
+应用日志只用于排障；两者字段与保留策略不同，不能互相替代。
+
+**敏感信息边界**：密码 / token / 表单值不落明文日志；异常栈里可能出现 SQL 参数，
+因此 **prod 关闭 SQL 明细**（`application-prod.yml`）；日志只记 id / 字段名。
+
+**当前缺口（明确不做/以后补）**：无集中日志、无 metrics、无链路追踪；dev 看 `.dev-logs/` 或终端，
+prod 只有 VM 上的 JSON 文件（未接采集）。要做时方向：Loki + Promtail / ELK 采 JSON 文件，
+Micrometer + Prometheus 暴露指标，OTel 接 trace。
+
+---
+
 ## 4. 接口与契约概览
 
 ### 4.1 对外 REST
@@ -496,6 +528,7 @@ agent 工具 prepare（只生成草稿）→ Java 落 agent_actions（PENDING_CO
 | CI 无 MinIO | 4 条依赖 MinIO 的用例被跳过 | 已知缺口，非遗漏（`SKIP_MINIO_TESTS`） |
 | 前端无自动化测试 | 回归依赖手工走查 | 每次发版前 `npm run build` + 浏览器过一遍 |
 | 生产（演示）无 HTTPS / 备份 / 监控 | 内网演示可接受，不可当真实运营环境 | 缺口表见 deployment.md |
+| 无集中日志 / 指标 / 链路追踪 | dev 看控制台或 `.dev-logs/`；prod 仅 `logs/its-my-go.log` JSON 文件（未采集），无 metrics / tracing | 演示可接受；接入方向见 §3.8 |
 | 售后与旧整单退款并存 | 两套入口、两套状态语义（`REFUNDING` vs 售后单） | 旧接口仅兼容历史；新入口统一走售后单，后续下线（D20） |
 | 售后退款无真实资金流水表 | 部分退款只累计 `orders.refunded_amount` + 售后单记录 | 演示环境可接受；接真实支付时需补退款流水表 |
 | 售后无站内通知 | 用户只能看页面状态 | 列在 P3 / requirements §6 按需区 |
