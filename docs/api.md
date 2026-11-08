@@ -1381,7 +1381,8 @@ agent 服务在对话过程中需要实时数据时，会反向回调 Java 的�
 - 确认必须走 §19.4 的浏览器接口，agent 不能确认。
 - 催发货确认后，Java 用内部事件触发 agent；agent 用本轮票据回调
   `/actions/urge-shipment/send`，Java 校验动作归属 / `EXECUTING` 状态 / 订单后，
-  才以 `senderType=AGENT` 落库。该接口只给 agent 用，浏览器不能直接调用。
+  给商家写一条 `URGE_SHIPMENT` 站内通知（顾客端不可见），不写入顾客—商家会话。
+  该接口只给 agent 用，浏览器不能直接调用。
 - 催退款只允许 `REFUNDING` 订单；确认后内部事件为 `urge-refund-confirmed`，
   agent 回调 `/actions/urge-refund/send`。Java 会重新校验订单仍为退款中，
   已退款 / 已驳回返回 400，不写商家消息。
@@ -1516,11 +1517,11 @@ agent 服务在对话过程中需要实时数据时，会反向回调 Java 的�
 催发货动作（`type=URGE_SHIPMENT`）的 `summary` 是
 `{orderNo, merchantName, status, statusLabel, totalAmount, itemCount, items, note}`；
 成功后的 `result` 是
-`{orderId, orderNo, merchantName, status, statusLabel, messageId, note}`。
+`{orderId, orderNo, merchantName, status, statusLabel, note}`。
 只有待发货（`PAID`）且未发货的订单能催；成功发送后 10 分钟内不能重复催同一单；
-确认时会重新校验状态，商家已发货（待收货）则动作失败且不发送消息。
-商家会话收到的是 `senderType=AGENT` 的文本消息；同时 agent 会话会写入一条
-assistant 完成回复（「催发货已完成 + 代商家致歉」）。
+确认时会重新校验状态，商家已发货（待收货）则动作失败且不发送通知。
+商家端铃铛收到 `type=URGE_SHIPMENT`、标题「买家催发货」的站内通知，点击直达订单；
+同时 agent 会话会写入一条 assistant 完成回复（「催发货已完成 + 代商家致歉」）。
 
 催退款动作（`type=URGE_REFUND`）的 `summary` 是
 `{orderNo, merchantName, status, statusLabel, totalAmount, refundReason,
@@ -1829,7 +1830,7 @@ specText, unitPrice, quantity, refundAmount, createdAt`
 
 ### 25.5 通知类型
 
-`ORDER_PAID` / `AFTER_SALE_APPLIED` / `AFTER_SALE_RESULT`（商家）；
+`ORDER_PAID` / `URGE_SHIPMENT` / `AFTER_SALE_APPLIED` / `AFTER_SALE_RESULT`（商家）；
 `MERCHANT_APPLY` / `AGENT_EVAL_DONE`（管理员）。平台自营店的商家侧通知发给全部管理员。
 
 ## 26. 权限（RBAC，2026-11-08）

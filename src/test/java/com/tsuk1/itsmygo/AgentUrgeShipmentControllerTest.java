@@ -6,10 +6,12 @@ import com.tsuk1.itsmygo.common.agent.AgentGateway;
 import com.tsuk1.itsmygo.common.agent.AgentToolTicketService;
 import com.tsuk1.itsmygo.entity.ChatMessage;
 import com.tsuk1.itsmygo.entity.Conversation;
+import com.tsuk1.itsmygo.entity.Notification;
 import com.tsuk1.itsmygo.entity.Order;
 import com.tsuk1.itsmygo.entity.User;
 import com.tsuk1.itsmygo.mapper.ChatMessageMapper;
 import com.tsuk1.itsmygo.mapper.ConversationMapper;
+import com.tsuk1.itsmygo.mapper.NotificationMapper;
 import com.tsuk1.itsmygo.mapper.OrderMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,7 +35,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 
-/** 催发货：prepare 只落草稿，确认后以买小购（AGENT）身份给商家发一条站内消息。 */
+/** 催发货：prepare 只落草稿，确认后给商家写站内通知，不写入顾客—商家会话。 */
 class AgentUrgeShipmentControllerTest extends ApiTestBase {
 
     @Autowired
@@ -47,6 +49,9 @@ class AgentUrgeShipmentControllerTest extends ApiTestBase {
 
     @Autowired
     private ChatMessageMapper chatMessageMapper;
+
+    @Autowired
+    private NotificationMapper notificationMapper;
 
     @MockitoBean
     private AgentGateway agentGateway;
@@ -131,12 +136,14 @@ class AgentUrgeShipmentControllerTest extends ApiTestBase {
     }
 
     @Test
-    void prepareAndConfirmUrgeSendsOneMessage() throws Exception {
+    void prepareAndConfirmUrgeSendsMerchantNotification() throws Exception {
         String username = "ug" + System.nanoTime();
         String token = customerToken(username);
         long uid = userId(username);
         String orderNo = "UG" + System.nanoTime();
         insertOrder(uid, orderNo, "PAID");
+        // 平台自营店的催发货通知由管理员接收，先保证有一个可接收的管理员
+        adminToken("ua" + System.nanoTime());
 
         String actionNo = prepare(uid, orderNo);
         // 同一订单还有未过期草稿时，重复 prepare 返回同一张卡
@@ -154,35 +161,43 @@ class AgentUrgeShipmentControllerTest extends ApiTestBase {
                 .andExpect(jsonPath("$.data[0].status").value("PENDING_CONFIRM"))
                 .andExpect(jsonPath("$.data[0].summary.orderNo").value(orderNo))
                 .andExpect(jsonPath("$.data[0].summary.merchantName").value("平台自营"))
-                .andExpect(jsonPath("$.data[0].summary.statusLabel").value("待发货"));
+                .andExpect(jsonPath("$.data[0].summary.statusLabel").value("待发货"))
+                .andExpect(jsonPath("$.data[0].summary.note")
+                        .value(containsString("站内通知")));
 
         String confirmed = confirm(token, actionNo);
         assertThat(objectMapper.readTree(confirmed).path("data").path("status").asText())
                 .isEqualTo("SUCCEEDED");
         assertThat(objectMapper.readTree(confirmed).path("data").path("result")
-                .path("messageId").asLong()).isPositive();
+                .path("note").asText()).contains("站内通知");
 
         // 动作成功后 Java 触发 agent 内部事件，agent 再回调发送工具
         verify(agentGateway).internalEvent(eq(uid), eq("sess-urge"),
                 eq("urge-shipment-confirmed"), contains(actionNo), anyString(), any());
 
-        // 双击确认幂等：不会重复发消息
-        confirm(token, actionNo);
-        List<ChatMessage> messages = chatMessageMapper.selectList(
-                Wrappers.<ChatMessage>lambdaQuery()
-                        .eq(ChatMessage::getSenderUserId, uid)
-                        .like(ChatMessage::getContent, orderNo));
-        assertThat(messages).hasSize(1);
-        assertThat(messages.get(0).getSenderType()).isEqualTo(ChatMessage.SENDER_AGENT);
-        assertThat(messages.get(0).getContentType()).isEqualTo(ChatMessage.TYPE_TEXT);
-        assertThat(messages.get(0).getContent()).contains("催发货");
+        // 催发货只写商家站内通知，不再写入顾客—商家会话
+        List<Notification> notifications = notificationMapper.selectList(
+                Wrappers.<Notification>lambdaQuery()
+                        .eq(Notification::getType, "URGE_SHIPMENT")
+                        .like(Notification::getContent, orderNo));
+        assertThat(notifications).isNotEmpty();
+        assertThat(notifications.get(0).getTitle()).isEqualTo("买家催发货");
+        assertThat(notifications.get(0).getContent()).contains("催发货");
+        assertThat(notifications.get(0).getLink()).contains("/admin/orders?orderId=");
+        int notificationCount = notifications.size();
 
-        Conversation conversation = conversationMapper.selectOne(
-                Wrappers.<Conversation>lambdaQuery()
-                        .eq(Conversation::getCustomerUserId, uid)
-                        .eq(Conversation::getMerchantId, 1L));
-        assertThat(conversation).isNotNull();
-        assertThat(conversation.getMerchantUnread()).isEqualTo(1);
+        assertThat(chatMessageMapper.selectList(Wrappers.<ChatMessage>lambdaQuery()
+                .eq(ChatMessage::getSenderUserId, uid)
+                .like(ChatMessage::getContent, orderNo))).isEmpty();
+        assertThat(conversationMapper.selectOne(Wrappers.<Conversation>lambdaQuery()
+                .eq(Conversation::getCustomerUserId, uid)
+                .eq(Conversation::getMerchantId, 1L))).isNull();
+
+        // 双击确认幂等：不会重复发通知
+        confirm(token, actionNo);
+        assertThat(notificationMapper.selectList(Wrappers.<Notification>lambdaQuery()
+                .eq(Notification::getType, "URGE_SHIPMENT")
+                .like(Notification::getContent, orderNo))).hasSize(notificationCount);
 
         // 10 分钟内不允许再次催同一单
         expectPrepareCode(uid, orderNo, 400);
@@ -241,6 +256,9 @@ class AgentUrgeShipmentControllerTest extends ApiTestBase {
         assertThat(chatMessageMapper.selectList(Wrappers.<ChatMessage>lambdaQuery()
                 .eq(ChatMessage::getSenderUserId, uid)
                 .like(ChatMessage::getContent, orderNo))).isEmpty();
+        assertThat(notificationMapper.selectList(Wrappers.<Notification>lambdaQuery()
+                .eq(Notification::getType, "URGE_SHIPMENT")
+                .like(Notification::getContent, orderNo))).isEmpty();
 
         mockMvc.perform(get("/api/agent/actions")
                         .header("Authorization", bearer(token))

@@ -1096,7 +1096,7 @@ V23 给 `merchants` 加发货地址字段（详见 §3.22）。
 
 **会话模型**：一店 × 一客只有一条会话（`conversations.uk_customer_merchant`）。
 `last_message_id IS NULL` 的空会话不进列表。消息只追加，`messages.sender_type`
-为 `CUSTOMER` / `MERCHANT`；`AGENT` 用于买小购代发的平台客服消息（M8 催发货）。
+为 `CUSTOMER` / `MERCHANT`；`AGENT` 用于买小购代发的平台客服消息（如催退款）。
 
 **权限**：顾客侧任意已登录非 ADMIN（商家账号也可作为顾客联系别家店）；
 商家侧 `/api/merchant/chat/**` 必须有 MERCHANT 角色。会话参与者按
@@ -1440,7 +1440,7 @@ courierName / progress），Python order-service 工具在订单文本里输出
 
 **目标**：用户在聊天里说「帮我催一下发货」，order-service 先校验订单处于待发货
 （`PAID`，已支付未发货），生成 `URGE_SHIPMENT` 待确认草稿；用户确认后 Java 触发
-agent 执行图，**由 agent 调 Java 发送工具**，Java 校验并落库为 AGENT 消息；
+agent 执行图，**由 agent 调 Java 发送工具**，Java 校验后给商家写站内通知；
 agent 再回复用户「已完成 + 代商家致歉」。
 
 - `AgentActionType.URGE_SHIPMENT`；`prepareUrgeShipment` 只落 `PENDING_CONFIRM`，
@@ -1455,7 +1455,8 @@ agent 再回复用户「已完成 + 代商家致歉」。
 - **agent 执行图** `shipment_graph.py`（LangGraph，`nodes/` + `state.py` + `tools/`）：
   1. `send_merchant_message` 调 `POST /internal/agent/actions/urge-shipment/send`；
   2. Java 用 ticket 解析 userId/session，校验动作归属、`EXECUTING` 状态、订单仍是待发货；
-  3. `ChatService.sendAgentText` 写 `AGENT / TEXT` 消息（商家未读 +1、顾客不加未读）并推 SSE；
+  3. `NotificationService.notifyMerchant` 写 `URGE_SHIPMENT` 站内通知（商家铃铛；
+     平台自营店通知管理员），**不再写顾客—商家会话**；
   4. Redis `its-my-go:agent:urge-send:{actionNo}`（30 秒 TTL）防并发，
      `finishExecution` CAS 保证只成功一次；
   5. 图再 `compose_reply → save_reply`，把完成 / 失败 + 代商家致歉写为 assistant 历史。
@@ -1467,11 +1468,11 @@ agent 再回复用户「已完成 + 代商家致歉」。
 - rag_helper：`order-service` 的 `prepare_urge_shipment` 工具；提示词要求先
   `query_orders` 确认状态，草稿不等于已发送。确认后的发送由 agent 图执行，不由主模型自由发挥。
 
-**验证**：Java 210 条全绿（`AgentUrgeShipmentControllerTest` 3 条：agent 回调发送工具、
+**验证**：Java 全量全绿（`AgentUrgeShipmentControllerTest` 3 条：agent 回调发送工具、
 冷却 / 幂等、状态与越权）；rag_helper `_check_urge_shipment_graph` PASS；
-前端 `npm run build` 通过。浏览器实测订单 770：确认后 agent 收到内部事件并调用发送工具，
-商家会话消息 `sender_type=AGENT`，agent 聊天随即出现「催发货已完成 + 代商家致歉」，
-动作 `SUCCEEDED`，卡片按预期隐藏。
+前端 `npm run build` 通过。浏览器实测：确认后 agent 收到内部事件并调用发送工具，
+商家铃铛收到 `URGE_SHIPMENT` 通知，agent 聊天随即出现「催发货已完成 + 代商家致歉」，
+动作 `SUCCEEDED`，卡片按预期隐藏；顾客—商家会话无新增消息。
 
 ### 3.24 管理后台数据概览（M15，2026-10-22）
 

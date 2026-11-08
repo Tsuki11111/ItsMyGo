@@ -1094,7 +1094,6 @@ export interface AgentUrgeShipmentResult {
   merchantName: string
   status: string
   statusLabel: string
-  messageId: number
   note: string
 }
 

@@ -34,6 +34,7 @@ import com.tsuk1.itsmygo.mapper.ProductMapper;
 import com.tsuk1.itsmygo.mapper.ProductSkuMapper;
 import com.tsuk1.itsmygo.service.AgentActionService;
 import com.tsuk1.itsmygo.service.ChatService;
+import com.tsuk1.itsmygo.service.NotificationService;
 import com.tsuk1.itsmygo.service.OrderService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -86,6 +87,7 @@ public class AgentActionServiceImpl implements AgentActionService {
     private final OrderMapper orderMapper;
     private final OrderService orderService;
     private final ChatService chatService;
+    private final NotificationService notificationService;
     private final AgentGateway agentGateway;
     private final AgentToolTicketService ticketService;
     private final StringRedisTemplate redis;
@@ -100,6 +102,7 @@ public class AgentActionServiceImpl implements AgentActionService {
                                   OrderMapper orderMapper,
                                   OrderService orderService,
                                   ChatService chatService,
+                                  NotificationService notificationService,
                                   AgentGateway agentGateway,
                                   AgentToolTicketService ticketService,
                                   StringRedisTemplate redis,
@@ -113,6 +116,7 @@ public class AgentActionServiceImpl implements AgentActionService {
         this.orderMapper = orderMapper;
         this.orderService = orderService;
         this.chatService = chatService;
+        this.notificationService = notificationService;
         this.agentGateway = agentGateway;
         this.ticketService = ticketService;
         this.redis = redis;
@@ -441,8 +445,8 @@ public class AgentActionServiceImpl implements AgentActionService {
         summary.put("itemCount", items.stream()
                 .mapToInt(item -> item.getQuantity() == null ? 0 : item.getQuantity()).sum());
         summary.put("items", items.stream().map(this::itemView).toList());
-        summary.put("note", "确认后买小购会以平台客服身份给商家发送一条催发货消息；"
-                + "平台自营店由平台客服接收。");
+        summary.put("note", "确认后买小购会通过商家站内通知提醒尽快发货；"
+                + "平台自营店通知平台管理员。");
 
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("orderId", order.getId());
@@ -771,7 +775,13 @@ public class AgentActionServiceImpl implements AgentActionService {
             content = "【催发货】订单 " + orderNo
                     + " 已支付，当前待发货。买家希望尽快发货，麻烦您尽快安排；"
                     + "给您带来不便，敬请谅解。—— 买小购";
-            result.put("note", "催发货消息已发送给商家，请留意商家回复。");
+            // 催发货只发商家站内通知，不再写入顾客—商家会话，避免买家看到内部催办
+            notificationService.notifyMerchant(order.getMerchantId(), "URGE_SHIPMENT",
+                    "买家催发货", content,
+                    "/merchant/orders?orderId=" + order.getId(),
+                    "/admin/orders?orderId=" + order.getId(),
+                    "urge-shipment:" + action.getActionNo());
+            result.put("note", "已通过站内通知提醒商家尽快发货，请留意商家处理进度。");
         } else {
             if (status == OrderStatus.REFUNDED) {
                 throw new BizException(ResultCode.BAD_REQUEST, "商家已处理退款，无需再催");
@@ -793,14 +803,17 @@ public class AgentActionServiceImpl implements AgentActionService {
             result.put("note", "催退款消息已发送给商家，请留意商家处理进度。");
         }
 
-        ChatMessageView message = chatService.sendAgentText(
-                userId, order.getMerchantId(), content);
+        // 催退款维持原通道：以平台客服身份发到顾客—商家会话，方便商家在消息中心处理
+        if (kind != UrgeKind.SHIPMENT) {
+            ChatMessageView message = chatService.sendAgentText(
+                    userId, order.getMerchantId(), content);
+            result.put("messageId", message.id());
+        }
         result.put("orderId", order.getId());
         result.put("orderNo", orderNo);
         result.put("merchantName", merchant == null ? "" : nullToEmpty(merchant.getName()));
         result.put("status", order.getStatus());
         result.put("statusLabel", status.label());
-        result.put("messageId", message.id());
         return result;
     }
 

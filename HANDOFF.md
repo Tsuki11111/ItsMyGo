@@ -1354,15 +1354,16 @@ reject 的是普通对象 `{status:121, message:"此key每日调用量已达到�
 反复生成多张卡；成功发送后 10 分钟内拒绝再次催同一单，避免刷商家消息。双击确认由
 `startExecution` CAS 兜底，测试断言只产生一条 messages 记录。
 
-**③ 站内消息复用聊天链路，不要另起通知表。** agent 图通过
-`POST /internal/agent/actions/urge-shipment/send` 回调 Java；Java 的 `sendUrgeMessage`
-调 `ChatService.sendAgentText` 找/建会话、写 `messages`（senderType=AGENT）、
-加 `merchant_unread` 并推 SSE；平台自营店（merchantId=1）的未读由管理员在
-`/admin/messages` 消费。直接在 action 里插 messages 会漏掉未读和 SSE 推送。
+**③ 催发货走商家站内通知，不要复用顾客—商家聊天链路（2026-11-08 修正）。**
+旧实现调 `ChatService.sendAgentText` 写 `messages(senderType=AGENT)`，买家能在顾客—商家
+会话里看到内部催办；现在改为 `NotificationService.notifyMerchant(type=URGE_SHIPMENT,
+title=买家催发货, link=/merchant/orders?orderId=...)`，商家端铃铛接收、点击直达订单；
+平台自营店（merchantId=1）通知全部管理员。催退款仍走聊天链路，不要一起改。
 
-**④ AGENT 消息的未读方向不能按「CUSTOMER / 其他」分。** AGENT 是买小购替顾客发给商家的
-通知，应该加 `merchant_unread`、不加 `customer_unread`；`ChatWindow.mine` 也要排除 AGENT，
-否则顾客侧会把客服通知显示成「我发的」。测试断言 `merchant_unread = 1`。
+**④ AGENT 消息的未读方向不能按「CUSTOMER / 其他」分。**（催退款仍适用）
+AGENT 是买小购替顾客发给商家的通知，应该加 `merchant_unread`、不加 `customer_unread`；
+`ChatWindow.mine` 也要排除 AGENT，否则顾客侧会把客服通知显示成「我发的」。
+测试断言 `merchant_unread = 1`。
 
 **⑤ 完成回复不要伪装成用户消息。** Java 用 gRPC metadata
 `x-agent-internal-event: urge-shipment-confirmed` 触发 agent；agent 不存用户消息、不跑主模型，
@@ -1609,6 +1610,25 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 **不算服务端错误**，不要进 ERROR 日志/告警。
 
 ## 6. 历史记录
+
+### 2026-11-08 · 催发货改投商家站内通知
+
+**需求（用户）**：催发货应该是智能体主动向商家发消息，而不是出现在商家与买家的对话里。
+
+**实现**：
+- `AgentActionServiceImpl.sendUrgeMessage` 的 SHIPMENT 分支不再调
+  `ChatService.sendAgentText`，改为 `NotificationService.notifyMerchant`：
+  `type=URGE_SHIPMENT`、标题「买家催发货」、content 含订单号与催办话术、
+  link 为 `/merchant/orders?orderId=` / `/admin/orders?orderId=`、
+  bizKey 为 `urge-shipment:{actionNo}`；平台自营店通知全部管理员。
+- 结果 `result` 去掉 `messageId`，`note` 改为「已通过站内通知提醒商家尽快发货」；
+  prepare 草稿 `summary.note` 同步改为站内通知口径。催退款分支保持不变。
+- 前端 `AgentUrgeShipmentResult` 去掉 `messageId`；卡片文案不变（「已通知商家发货」）。
+- `AgentUrgeShipmentControllerTest` 改为断言 `notifications` 有 `URGE_SHIPMENT`
+  且 content 含订单号、无 `messages`、无商家会话未读；双击确认通知数不增加。
+
+**验证**：`AgentUrgeShipmentControllerTest` 3/3 通过；Java 全量 337 条通过（0 失败）；
+前端 `npm run build`（含 `vue-tsc --noEmit`）通过。
 
 ### 2026-11-08 · 消息中心加载骨架与淡入过渡
 
@@ -2815,13 +2835,15 @@ Java 全量 **212 条全绿**；接口实测筛选 / 导出正常；浏览器实
 ### 2026-10-22 · M8 催发货
 
 **范围**：order-service 新增 `prepare_urge_shipment`；仅 `PAID` 未发货可催；
-用户确认后 Java 触发 agent 执行图，agent 调 Java 发送工具，Java 校验并落库为 AGENT 消息；
+用户确认后 Java 触发 agent 执行图，agent 调 Java 发送工具，Java 校验后落库（原始实现为
+AGENT 聊天消息，2026-11-08 改为商家站内通知，见 §6 最新记录）；
 agent 再回复用户「已完成 + 代商家致歉」；10 分钟冷却；确认时重新校验状态。
 
 **后端**：`AgentActionType.URGE_SHIPMENT`；prepare 只落 `PENDING_CONFIRM`，
 confirm 用 CAS 防双击，只触发 agent、不直接发消息；发送工具
 `POST /internal/agent/actions/urge-shipment/send` 用 tool ticket 鉴权，
-`sendUrgeMessage` 调 `ChatService.sendAgentText` 写 AGENT 消息，
+`sendUrgeMessage` 原始实现调 `ChatService.sendAgentText` 写 AGENT 消息（2026-11-08 已改为
+`NotificationService.notifyMerchant` 写 `URGE_SHIPMENT` 站内通知），
 Redis 锁 + `finishExecution` CAS 防重复；`AgentGateway.internalEvent` 通过 gRPC metadata
 触发 agent；平台自营店由管理员接收。无数据库迁移。
 
@@ -2835,8 +2857,8 @@ Redis 锁 + `finishExecution` CAS 防重复；`AgentGateway.internalEvent` 通�
 
 **验证**：Java 210 条全绿（新增 `AgentUrgeShipmentControllerTest` 3 条，含 agent 回调发送工具）；
 前端 `npm run build` 通过。浏览器实测订单 770：agent 收到内部事件并调用发送工具，
-商家会话消息 `sender_type=AGENT`，agent 聊天出现「催发货已完成 + 代商家致歉」，
-动作 SUCCEEDED，卡片隐藏。
+商家会话消息 `sender_type=AGENT`（2026-11-08 已改为商家站内通知，顾客—商家会话不再新增消息），
+agent 聊天出现「催发货已完成 + 代商家致歉」，动作 SUCCEEDED，卡片隐藏。
 
 ### 2026-10-22 · 子智能体改名 order-query → order-service
 
