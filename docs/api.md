@@ -1368,6 +1368,8 @@ agent 服务在对话过程中需要实时数据时，会反向回调 Java 的�
 
 - 商品搜索返回商品与 SKU（skuId / specText / price / stock），供 agent 落到具体规格。
 - 地址只返回当前票据用户自己的；动作准备接口只落 `PENDING_CONFIRM` 草稿，**不执行**。
+- 同用户 + 同 session 准备新下单草稿时，会先把仍 `PENDING_CONFIRM` 的旧 `CREATE_ORDER`
+  草稿置 `CANCELLED`（payload 完全相同则直接复用旧卡，幂等），保证聊天区只保留最新一张。
 - **address_edit**：`/actions/address` 复用 `PUT /api/addresses/{id}` 的更新逻辑，
   只改票据用户自己的地址（越权按「不存在」返回 404）。返回 `AgentActionView`，
   `data.summary.address = {id, receiver, address}`（`address` = 省 + 市 + 区 + 详细地址），
@@ -1461,7 +1463,8 @@ agent 服务在对话过程中需要实时数据时，会反向回调 Java 的�
 - **待确认的下单草稿可以修改**：`PUT /order-draft` 只接受 `PENDING_CONFIRM` 的
   `CREATE_ORDER` 动作，复用 prepare 的库存/上下架/地址校验并**重新计价**；
   改完仍是同一张草稿（actionNo 不变），确认时按最新快照执行。已确认/已取消/已过期不能改；
-  商品与规格变更需要取消后重新发起（不支持在卡片上换商品）。
+  `items[].skuId` 可换成同商品的其他在售 SKU（卡片会拉商品 SKU 展示下拉），换商品本身
+  仍需取消后重新发起。agent 重新 prepare 同会话新草稿时，旧待确认草稿会自动取消。
 - 只有动作所属用户能确认 / 取消；别人的动作一律 404。
 - 状态：`PENDING_CONFIRM / EXECUTING / SUCCEEDED / FAILED / CANCELLED / EXPIRED`。
 - 列表接口返回前会按订单当前状态覆盖 `result` 里的 `status / statusLabel`；

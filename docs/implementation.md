@@ -1280,7 +1280,7 @@ SUCCEEDED / FAILED`，另有 `CANCELLED` / `EXPIRED`。
 **确认（浏览器调）**：
 - `POST /api/agent/actions/{actionNo}/reprepare`：已取消/已过期的下单草稿复用原 snapshot
   重新 prepare 出新的待确认草稿；
-- `PUT /api/agent/actions/{actionNo}/order-draft`：待确认下单草稿可改地址/数量，
+- `PUT /api/agent/actions/{actionNo}/order-draft`：待确认下单草稿可改地址/规格/数量，
   复用 `buildOrderDraft` 重新校验与计价，只更新 payload/summary，actionNo 不变；
 - `POST /api/agent/actions/{actionNo}/confirm`，只收 actionNo，**不收业务参数**。
 - `startExecution` 用条件更新把 `PENDING_CONFIRM → EXECUTING`，双击只有一个成功。
@@ -1300,6 +1300,9 @@ SUCCEEDED / FAILED`，另有 `CANCELLED` / `EXPIRED`。
 **前端**：`AgentActionCard.vue` 渲染订单 / 退款两类卡片；`AgentChatPanel.vue`
 在 `done` 和加载历史时拉取动作列表，确认 / 取消后就地更新；`visibilitychange`
 时也会重新拉一次。卡片由 Java 数据驱动，不依赖模型在回复里写什么。
+订单卡「修改」会并行拉取草稿内商品的详情（`fetchProduct`），多 SKU 商品在商品名下方
+渲染规格下拉（文案 + 价格 + 库存，缺货禁选）；保存时 `items[].skuId` 使用当前选中值，
+服务端重新计价后卡片展示新规格与总价。
 `CREATE_ORDER` 确认成功、以及催办成功 / 失败后会重新拉一次历史，
 把 agent 写入的确认回复显示出来。
 
@@ -1322,6 +1325,34 @@ SUCCEEDED / FAILED`，另有 `CANCELLED` / `EXPIRED`。
 **测试**：`AgentActionControllerTest` 6 条（下单一次、越权、他人地址、过期、
 退款、无票据），全量 200 条；rag_helper 回归 52/52；浏览器实测三张卡片渲染、
 确认下单后生成新订单并出现「去支付」。
+
+### 3.20.1 下单草稿改规格与旧草稿替换（2026-11-09）
+
+**问题**：多规格商品首次 prepare 的卡片只显示地址与数量编辑，用户想换规格只能让 agent
+重新 prepare；agent 确实会生成新草稿，但旧草稿仍是 `PENDING_CONFIRM`，聊天区按 FIFO
+只显示最早一张，用户看到的是旧规格。
+
+**前端（改规格）**：
+- `AgentActionCard.startEdit()` 并行 `fetchAddresses()` 与草稿内各 `productId` 的
+  `fetchProduct(id)`，结果缓存到 `productCache`；
+- 商品名下方按 `sku.status === 1` 渲染 `el-select`，选项文案为
+  `规格文案 · ¥价格`，`stock < 1` 禁选；只有 1 个 SKU 不渲染下拉；
+- `editSkuIds` 以原 `productId-skuId` 为 key，`saveEdit()` 用选中的 skuId 重建
+  `items`，仍走 `PUT /order-draft`；服务端 `buildOrderDraft` 重新校验库存/上下架并重算
+  单价、小计、总价，actionNo 不变。
+
+**后端（自动替换）**：
+- `AgentActionServiceImpl.prepareOrder` 先按同用户 + 同 session 查询全部未过期
+  `PENDING_CONFIRM / CREATE_ORDER` 草稿；
+- 若 payload 完全一致，仍直接返回已有卡片（幂等）；
+- 否则先 `casStatus(..., PENDING_CONFIRM, CANCELLED)` 作废这些旧草稿，再插入新草稿；
+  方法加 `@Transactional`，`reprepareOrder` 同样加事务，避免“旧卡已取消、新卡没落库”；
+- 前端 `AgentChatPanel.visibleActions` 本来就会过滤掉 `CANCELLED`，因此聊天区只剩新卡。
+
+**测试**：`AgentActionControllerTest#canChangeDraftSkuBeforeConfirm` 验证 PUT 换 SKU
+后 summary 的 skuId/规格/总价变化，确认下单按新 SKU 扣库存；
+`#newOrderDraftCancelsPreviousPendingDraft` 验证新 prepare 后旧动作 DB 状态为
+`CANCELLED`、列表只多出新卡（API 仍返回历史已取消动作，供卡片历史展示）。
 
 ### 3.21 AI 导购、商品搜索与商品卡（M11–M13，2026-10-21）
 

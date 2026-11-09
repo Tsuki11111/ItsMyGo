@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { RefreshLeft, Bell, ShoppingCart } from '@element-plus/icons-vue'
 import { fetchAddresses } from '@/api/address'
+import { fetchProduct } from '@/api/product'
 import {
   cancelAgentAction,
   confirmAgentAction,
@@ -20,6 +21,7 @@ import type {
   AgentUrgeRefundSummary,
   AgentUrgeShipmentResult,
   AgentUrgeShipmentSummary,
+  Product,
 } from '@/api/types'
 
 type TagType = 'success' | 'info' | 'warning' | 'danger'
@@ -34,6 +36,10 @@ const addresses = ref<Address[]>([])
 const editAddressId = ref<number | null>(null)
 /** 数量按商品+规格为 key，避免跨分组索引错位 */
 const editQuantities = ref<Record<string, number>>({})
+/** 编辑中选中的 SKU，key 与数量一致，保存时替换原 skuId */
+const editSkuIds = ref<Record<string, number>>({})
+const productCache = ref<Record<number, Product>>({})
+const loadingProducts = ref(false)
 const isOrder = computed(() => props.action.type === 'CREATE_ORDER')
 const isUrge = computed(() => props.action.type === 'URGE_SHIPMENT')
 const isUrgeRefund = computed(() => props.action.type === 'URGE_REFUND')
@@ -216,10 +222,14 @@ async function startEdit() {
   editing.value = true
   editAddressId.value = orderSummary.value.address?.id ?? null
   editQuantities.value = {}
+  editSkuIds.value = {}
+  const productIds = new Set<number>()
   for (const group of orderSummary.value.groups) {
     for (const item of group.items) {
       if (item.productId && item.skuId) {
         editQuantities.value[qtyKey(item)] = item.quantity
+        editSkuIds.value[qtyKey(item)] = item.skuId
+        productIds.add(item.productId)
       }
     }
   }
@@ -228,6 +238,26 @@ async function startEdit() {
   } catch {
     addresses.value = []
   }
+  loadingProducts.value = true
+  try {
+    const loaded = await Promise.all([...productIds].map(async (id) => {
+      try {
+        return [id, await fetchProduct(id)] as const
+      } catch {
+        return null
+      }
+    }))
+    productCache.value = Object.fromEntries(
+      loaded.filter((entry): entry is readonly [number, Product] => entry !== null),
+    )
+  } finally {
+    loadingProducts.value = false
+  }
+}
+
+function skuOptions(item: { productId?: number }) {
+  const product = item.productId ? productCache.value[item.productId] : undefined
+  return (product?.skus ?? []).filter((sku) => sku.status === 1)
 }
 
 function cancelEdit() {
@@ -256,7 +286,7 @@ async function saveEdit() {
   }
   const items = Object.entries(editQuantities.value).map(([key, quantity]) => {
     const [productId, skuId] = key.split('-').map(Number)
-    return { productId, skuId, quantity }
+    return { productId, skuId: editSkuIds.value[key] ?? skuId, quantity }
   })
   if (!items.length || items.some((item) => !item.productId || !item.skuId)) {
     ElMessage.warning('这张草稿缺少商品/规格信息，请取消后让买小购重新准备')
@@ -333,6 +363,22 @@ async function saveEdit() {
             <span class="line-name">
               {{ item.productName }}
               <small v-if="item.specText">（{{ item.specText }}）</small>
+              <el-select
+                v-if="editing && skuOptions(item).length > 1"
+                v-model="editSkuIds[qtyKey(item)]"
+                size="small"
+                class="sku-select"
+                :loading="loadingProducts"
+                placeholder="选择规格"
+              >
+                <el-option
+                  v-for="sku in skuOptions(item)"
+                  :key="sku.id"
+                  :value="sku.id"
+                  :label="`${sku.specText || '默认规格'} · ¥${sku.price}${sku.stock < 1 ? ' · 缺货' : ''}`"
+                  :disabled="sku.stock < 1"
+                />
+              </el-select>
             </span>
             <span v-if="editing" class="line-qty">
               <el-input-number
@@ -486,7 +532,7 @@ async function saveEdit() {
       </template>
     </div>
     <p v-if="pending && isOrder" class="note edit-tip">
-      可改收货地址和数量；商品/规格如需变更，请取消本卡后让买小购重新准备。
+      可改收货地址、规格和数量；保存后按新规格重新计价。
     </p>
   </section>
 </template>
@@ -599,6 +645,12 @@ async function saveEdit() {
 
 .line-name small {
   color: var(--c-text-3);
+}
+
+.sku-select {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
 }
 
 .line-qty,

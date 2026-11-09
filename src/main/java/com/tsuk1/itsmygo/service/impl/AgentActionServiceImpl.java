@@ -39,6 +39,7 @@ import com.tsuk1.itsmygo.service.OrderService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -127,6 +128,7 @@ public class AgentActionServiceImpl implements AgentActionService {
     // ── 准备 ──
 
     @Override
+    @Transactional
     public AgentActionView prepareOrder(long userId, String sessionId,
                                         AgentOrderDraftRequest request) {
         requireEnabled();
@@ -141,12 +143,20 @@ public class AgentActionServiceImpl implements AgentActionService {
                         .eq(AgentAction::getType, AgentActionType.CREATE_ORDER.name())
                         .eq(AgentAction::getStatus, AgentActionStatus.PENDING_CONFIRM.name())
                         .gt(AgentAction::getExpiresAt, LocalDateTime.now())
-                        .orderByDesc(AgentAction::getId)
-                        .last("LIMIT 5"));
+                        .orderByDesc(AgentAction::getId));
         for (AgentAction existing : pendingOrders) {
             if (payloadJson.equals(existing.getPayloadJson())) {
                 log.info("重复的订单草稿，返回已有卡片：{}", existing.getActionNo());
                 return toView(existing);
+            }
+        }
+        // 同一会话只保留最新一张待确认下单卡：agent 换规格/换商品重新 prepare 时，
+        // 旧卡若继续 PENDING，前端按 FIFO 会先展示旧卡，用户可能确认错误规格。
+        for (AgentAction existing : pendingOrders) {
+            int cancelled = actionMapper.casStatus(existing.getActionNo(), userId,
+                    AgentActionStatus.PENDING_CONFIRM.name(), AgentActionStatus.CANCELLED.name());
+            if (cancelled > 0) {
+                log.info("新下单草稿替换旧草稿：{}", existing.getActionNo());
             }
         }
 
@@ -183,6 +193,7 @@ public class AgentActionServiceImpl implements AgentActionService {
     }
 
     @Override
+    @Transactional
     public AgentActionView reprepareOrder(long userId, String actionNo) {
         requireEnabled();
         AgentAction action = requireOwned(userId, actionNo);

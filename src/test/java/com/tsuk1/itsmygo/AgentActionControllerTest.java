@@ -4,12 +4,14 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.tsuk1.itsmygo.common.agent.AgentToolTicketService;
 import com.tsuk1.itsmygo.dto.AddressRequest;
 import com.tsuk1.itsmygo.entity.AgentAction;
+import com.tsuk1.itsmygo.entity.ProductSku;
 import com.tsuk1.itsmygo.entity.User;
 import com.tsuk1.itsmygo.mapper.AgentActionMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -61,6 +63,24 @@ class AgentActionControllerTest extends ApiTestBase {
                 .andExpect(jsonPath("$.data.status").value("PENDING_CONFIRM"))
                 .andReturn().getResponse().getContentAsString();
         return objectMapper.readTree(body).path("data").path("actionNo").asText();
+    }
+
+    /** 给测试商品加第二个 SKU；卡片只按 SKU 计价，不依赖规格定义。 */
+    private long addSku(long productId, String specText, String price, int stock) {
+        ProductSku sku = new ProductSku();
+        sku.setProductId(productId);
+        sku.setSpecValueIds("999");
+        sku.setSpecText(specText);
+        sku.setPrice(new BigDecimal(price));
+        sku.setStock(stock);
+        sku.setSales(0);
+        sku.setImage("");
+        sku.setThumbImage("");
+        sku.setStatus(1);
+        sku.setCreatedAt(LocalDateTime.now());
+        sku.setUpdatedAt(LocalDateTime.now());
+        productSkuMapper.insert(sku);
+        return sku.getId();
     }
 
     private String confirm(String token, String actionNo) throws Exception {
@@ -181,6 +201,66 @@ class AgentActionControllerTest extends ApiTestBase {
         assertThat(objectMapper.readTree(confirmed).path("data").path("result")
                 .path("orders").get(0).path("totalAmount").asText()).isEqualTo("30.00");
         assertThat(productSkuMapper.selectById(skuId).getStock()).isEqualTo(7);
+    }
+
+    @Test
+    void canChangeDraftSkuBeforeConfirm() throws Exception {
+        String username = "asku" + System.nanoTime();
+        String token = customerToken(username);
+        long uid = userId(username);
+        String admin = adminToken("adm" + System.nanoTime());
+        long productId = createProductForTest(admin, "换规格草稿商品" + System.nanoTime(), "10.00", 10);
+        long skuA = defaultSkuId(productId);
+        long skuB = addSku(productId, "第二规格", "20.00", 5);
+        long addressId = createAddress(token);
+
+        String actionNo = prepareOrder(ticket(uid), addressId, productId, skuA, 1);
+        mockMvc.perform(put("/api/agent/actions/" + actionNo + "/order-draft")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"addressId":%d,"items":[{"productId":%d,"skuId":%d,"quantity":2}]}
+                                """.formatted(addressId, productId, skuB)))
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.actionNo").value(actionNo))
+                .andExpect(jsonPath("$.data.summary.totalAmount").value("40.00"))
+                .andExpect(jsonPath("$.data.summary.groups[0].items[0].skuId").value(skuB))
+                .andExpect(jsonPath("$.data.summary.groups[0].items[0].specText").value("第二规格"));
+
+        String confirmed = confirm(token, actionNo);
+        assertThat(objectMapper.readTree(confirmed).path("data").path("result")
+                .path("orders").get(0).path("totalAmount").asText()).isEqualTo("40.00");
+        assertThat(productSkuMapper.selectById(skuB).getStock()).isEqualTo(3);
+    }
+
+    @Test
+    void newOrderDraftCancelsPreviousPendingDraft() throws Exception {
+        String username = "anew" + System.nanoTime();
+        String token = customerToken(username);
+        long uid = userId(username);
+        String admin = adminToken("adm" + System.nanoTime());
+        long productId = createProductForTest(admin, "替换草稿商品" + System.nanoTime(), "10.00", 10);
+        long skuA = defaultSkuId(productId);
+        long skuB = addSku(productId, "第二规格", "20.00", 5);
+        long addressId = createAddress(token);
+
+        String first = prepareOrder(ticket(uid), addressId, productId, skuA, 1);
+        String second = prepareOrder(ticket(uid), addressId, productId, skuB, 2);
+        assertThat(second).isNotEqualTo(first);
+
+        AgentAction old = actionMapper.selectOne(Wrappers.<AgentAction>lambdaQuery()
+                .eq(AgentAction::getActionNo, first));
+        assertThat(old.getStatus()).isEqualTo("CANCELLED");
+        mockMvc.perform(get("/api/agent/actions")
+                        .header("Authorization", bearer(token))
+                        .param("sessionId", "sess-test"))
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.length()").value(2))
+                .andExpect(jsonPath("$.data[0].actionNo").value(first))
+                .andExpect(jsonPath("$.data[0].status").value("CANCELLED"))
+                .andExpect(jsonPath("$.data[1].actionNo").value(second))
+                .andExpect(jsonPath("$.data[1].status").value("PENDING_CONFIRM"))
+                .andExpect(jsonPath("$.data[1].summary.groups[0].items[0].skuId").value(skuB));
     }
 
     @Test
