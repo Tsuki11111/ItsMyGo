@@ -131,6 +131,32 @@ class AfterSaleControllerTest extends ApiTestBase {
     }
 
     @Test
+    void afterSaleResultNotifiesBuyer() throws Exception {
+        String admin = adminToken("as_notify_admin" + System.nanoTime());
+        String token = customerToken("as_notify" + System.nanoTime());
+        long product = createProductForTest(admin, "AS-N" + System.nanoTime(), "80.00", 5);
+        addToCart(token, product, 1);
+        long address = addressId(token);
+        long orderId = placeCartOrder(token, address);
+        pay(token, orderId);
+        String body = mockMvc.perform(get("/api/orders/" + orderId).header("Authorization", bearer(token)))
+                .andReturn().getResponse().getContentAsString();
+        long targetItem = objectMapper.readTree(body).path("data").path("items").get(0).path("id").asLong();
+
+        long afterSaleId = apply(token, orderId, "REFUND_ONLY", targetItem, 1);
+        mockMvc.perform(post("/api/admin/after-sales/" + afterSaleId + "/approve")
+                        .header("Authorization", bearer(admin)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/notifications").header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.unreadCount").value(1))
+                .andExpect(jsonPath("$.data.items[0].type").value("AFTER_SALE_RESULT"))
+                .andExpect(jsonPath("$.data.items[0].title").value("售后处理结果"))
+                .andExpect(jsonPath("$.data.items[0].link").value("/after-sale/" + afterSaleId));
+    }
+
+    @Test
     void partialRefundKeepsOrderAliveAndRestoresStock() throws Exception {
         String admin = adminToken("as_admin" + System.nanoTime());
         String token = customerToken("as_partial" + System.nanoTime());

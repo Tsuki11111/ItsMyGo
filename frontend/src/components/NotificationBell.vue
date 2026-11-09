@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Bell } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
@@ -12,14 +12,20 @@ import {
 import type { NotificationView } from '@/api/types'
 import { useUserStore } from '@/stores/user'
 
-/** 商家端 / 管理端顶栏通知铃铛：30s 可见轮询未读数，展开时拉最近 20 条。 */
+/** 商家端 / 管理端 / 顾客端顶栏通知铃铛：30s 可见轮询未读数，展开时拉最近 20 条。 */
 const router = useRouter()
 const userStore = useUserStore()
 const unread = ref(0)
 const items = ref<NotificationView[]>([])
 const open = ref(false)
 const loading = ref(false)
+const viewportWidth = ref(typeof window === 'undefined' ? 360 : window.innerWidth)
+const popoverWidth = computed(() => Math.max(260, Math.min(360, viewportWidth.value - 24)))
 let timer: number | undefined
+
+function onResize() {
+  viewportWidth.value = window.innerWidth
+}
 
 async function refreshUnread() {
   try {
@@ -90,6 +96,7 @@ onMounted(() => {
     if (document.visibilityState === 'visible') void refreshUnread()
   }, 30_000)
   document.addEventListener('visibilitychange', onVisibilityChange)
+  window.addEventListener('resize', onResize)
 })
 
 onBeforeUnmount(() => {
@@ -98,6 +105,7 @@ onBeforeUnmount(() => {
     timer = undefined
   }
   document.removeEventListener('visibilitychange', onVisibilityChange)
+  window.removeEventListener('resize', onResize)
 })
 
 function timeText(ts: string) {
@@ -109,7 +117,7 @@ function timeText(ts: string) {
   <el-popover
     v-model:visible="open"
     placement="bottom-end"
-    :width="360"
+    :width="popoverWidth"
     trigger="click"
     @show="onShow"
   >

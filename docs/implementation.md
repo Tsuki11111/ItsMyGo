@@ -2906,7 +2906,7 @@ PROMOTION 类型与渲染已移除。
 （基线 308 + 5）；`cd frontend && npm run build` EXITCODE=0。
 
 
-### 3.44 站内通知（商家端 / 管理端铃铛，2026-11-08）
+### 3.44 站内通知（商家端 / 管理端 / 顾客端铃铛，2026-11-08，2026-11-09 扩展）
 
 **存储（V35）**：表 `notifications`（`user_id` / `type` / `title` / `content` / `link` /
 `biz_key` / `read_at` / `created_at`），唯一键 `(user_id, biz_key)` 做事件幂等，
@@ -2921,17 +2921,26 @@ PROMOTION 类型与渲染已移除。
   `POST /api/notifications/{id}/read`、`POST /api/notifications/read-all`；登录用户只能读写自己的通知。
 - 事件挂钩（通知失败只记日志，不影响主流程）：
   - `OrderServiceImpl.notifyMerchantAfterPaid`（支付 afterCommit）→ `ORDER_PAID`；
-  - `AfterSaleServiceImpl`：`apply` → `AFTER_SALE_APPLIED`；平台 `approveForAdmin` /
-    `confirmReceivedForAdmin` 与超时自动处理 → `AFTER_SALE_RESULT`；
+  - `OrderServiceImpl.notifyBuyerAfterShipped`（发货 afterCommit）→ `ORDER_SHIPPED`，
+    接收人 `order.userId`，link `/order/{id}`，bizKey `order-shipped:{orderNo}`；
+  - `AfterSaleServiceImpl`：`apply` → `AFTER_SALE_APPLIED`；商家同意/驳回/确认收货、
+    平台 `approveForAdmin` / `rejectForAdmin` / `confirmReceivedForAdmin` 与超时自动处理
+    → `AFTER_SALE_RESULT` 同时通知店铺负责人与**售后申请顾客**；买家 link
+    `/after-sale/{id}`，bizKey 带状态与 `:buyer`，避免同一售后多次处理被幂等吞掉；
   - `MerchantServiceImpl` 入驻申请/重新提交 → `MERCHANT_APPLY`（通知全部管理员）；
   - `AdminAgentEvalController.job` 观察到终态 → `AGENT_EVAL_DONE`（按 job+状态幂等）。
 
-**前端**：`components/NotificationBell.vue` 放进商家端/管理端 header：未读数 30s 可见轮询
-（打开下拉时立即拉最近 20 条）；点击条目 → 标记已读 + 跳转 `link`；「全部已读」；
-不建常驻 SSE（与 2026-11-07 的连接池治理一致，见 D24）。
+**前端**：`components/NotificationBell.vue` 放进商家端/管理端/顾客端商城 header（顾客端仅登录
+显示，位于购物车之后）：未读数 30s 可见轮询（打开下拉时立即拉最近 20 条）；点击条目 →
+标记已读 + 跳转 `link`；「全部已读」；不建常驻 SSE（与 2026-11-07 的连接池治理一致，见 D24）。
+窄屏（≤720px）消息/领券/购物车文字标签隐藏、只留图标，给铃铛留位置；下拉宽度按
+`min(360, innerWidth - 24)` 自适应，避免 320px 屏溢出。
 
 **测试**：`NotificationControllerTest` 3 条（列表/已读/幂等、入驻申请触发管理员通知、
-平台自营店通知落到管理员）；全量测试见 HANDOFF。
+平台自营店通知落到管理员）；`OrderPaidNotificationTest#shipNotifiesBuyerWithOrderLink`
+（发货后买家收到 `ORDER_SHIPPED`、订单号/物流号、`/order/{id}`）、
+`AfterSaleControllerTest#afterSaleResultNotifiesBuyer`（管理员同意售后后买家收到
+`AFTER_SALE_RESULT`、`/after-sale/{id}`）；全量测试见 HANDOFF。
 
 ### 3.45 权限管理（管理端 RBAC，2026-11-08）
 

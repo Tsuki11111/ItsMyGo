@@ -945,7 +945,34 @@ public class OrderServiceImpl implements OrderService {
         order.setTrackingNo(request.trackingNo());
         orderMapper.updateById(order);
         shipmentService.createForOrder(order);
+        notifyBuyerAfterShipped(order);
         return view(order);
+    }
+
+    /** 发货成功后通知下单顾客；事务提交后再发，失败只记日志、不影响发货 */
+    private void notifyBuyerAfterShipped(Order order) {
+        Runnable action = () -> {
+            try {
+                notificationService.notifyUser(order.getUserId(), "ORDER_SHIPPED", "订单已发货",
+                        String.format("订单 %s 已发货，物流单号 %s。",
+                                order.getOrderNo(), order.getTrackingNo()),
+                        "/order/" + order.getId(),
+                        "order-shipped:" + order.getOrderNo());
+            } catch (Exception e) {
+                log.warn("订单 {} 发货成功但通知买家失败（不影响发货）：{}",
+                        order.getOrderNo(), e.getMessage(), e);
+            }
+        };
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    action.run();
+                }
+            });
+        } else {
+            action.run();
+        }
     }
 
     /** 取消时把库存和销量都退回去 —— SKU 行、Redis 计数器、商品汇总三处都要动 */

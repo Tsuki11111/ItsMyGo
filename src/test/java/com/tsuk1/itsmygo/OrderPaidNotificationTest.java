@@ -4,12 +4,14 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.tsuk1.itsmygo.common.Roles;
 import com.tsuk1.itsmygo.common.exception.BizException;
 import com.tsuk1.itsmygo.dto.CreateOrderRequest;
+import com.tsuk1.itsmygo.dto.ShipRequest;
 import com.tsuk1.itsmygo.entity.Address;
 import com.tsuk1.itsmygo.entity.CartItem;
 import com.tsuk1.itsmygo.entity.Category;
 import com.tsuk1.itsmygo.entity.ChatMessage;
 import com.tsuk1.itsmygo.entity.Conversation;
 import com.tsuk1.itsmygo.entity.Merchant;
+import com.tsuk1.itsmygo.entity.Notification;
 import com.tsuk1.itsmygo.entity.Order;
 import com.tsuk1.itsmygo.entity.OrderItem;
 import com.tsuk1.itsmygo.entity.Payment;
@@ -21,6 +23,7 @@ import com.tsuk1.itsmygo.mapper.CartItemMapper;
 import com.tsuk1.itsmygo.mapper.CategoryMapper;
 import com.tsuk1.itsmygo.mapper.ChatMessageMapper;
 import com.tsuk1.itsmygo.mapper.ConversationMapper;
+import com.tsuk1.itsmygo.mapper.NotificationMapper;
 import com.tsuk1.itsmygo.mapper.OrderItemMapper;
 import com.tsuk1.itsmygo.mapper.OrderMapper;
 import com.tsuk1.itsmygo.mapper.PaymentMapper;
@@ -73,6 +76,8 @@ class OrderPaidNotificationTest {
     private ConversationMapper conversationMapper;
     @Autowired
     private ChatMessageMapper chatMessageMapper;
+    @Autowired
+    private NotificationMapper notificationMapper;
     @Autowired
     private PasswordEncoder passwordEncoder;
 
@@ -196,6 +201,26 @@ class OrderPaidNotificationTest {
     }
 
     @Test
+    void shipNotifiesBuyerWithOrderLink() {
+        preparePendingOrder();
+        orderService.pay(buyerId, orderId);
+        String orderNo = orderMapper.selectById(orderId).getOrderNo();
+
+        orderService.ship(orderId, new ShipRequest("SF" + orderId));
+
+        List<Notification> notifications = notificationMapper.selectList(
+                Wrappers.<Notification>lambdaQuery()
+                        .eq(Notification::getUserId, buyerId)
+                        .eq(Notification::getType, "ORDER_SHIPPED"));
+        assertThat(notifications).hasSize(1);
+        Notification notification = notifications.get(0);
+        assertThat(notification.getTitle()).isEqualTo("订单已发货");
+        assertThat(notification.getContent()).contains(orderNo).contains("SF" + orderId);
+        assertThat(notification.getLink()).isEqualTo("/order/" + orderId);
+        assertThat(notification.getReadAt()).isNull();
+    }
+
+    @Test
     void repeatedPayDoesNotNotifyTwice() {
         preparePendingOrder();
 
@@ -306,6 +331,8 @@ class OrderPaidNotificationTest {
     @AfterEach
     void cleanup() {
         if (!createdUserIds.isEmpty()) {
+            notificationMapper.delete(Wrappers.<Notification>lambdaQuery()
+                    .in(Notification::getUserId, createdUserIds));
             List<Long> orderIds = orderMapper.selectList(Wrappers.<Order>lambdaQuery()
                             .in(Order::getUserId, createdUserIds))
                     .stream().map(Order::getId).toList();

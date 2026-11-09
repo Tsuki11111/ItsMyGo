@@ -4,6 +4,7 @@ import { RouterView, useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ChatDotRound, Location, Lock, Search, Setting, Shop, ShoppingCart, Star, SwitchButton, Ticket, Tickets, User } from '@element-plus/icons-vue'
 import ProductImage from '@/components/ProductImage.vue'
+import NotificationBell from '@/components/NotificationBell.vue'
 import { useBadgeStore } from '@/stores/badge'
 import { useChatStore } from '@/stores/chat'
 import { usePermissionStore } from '@/stores/permission'
@@ -119,7 +120,7 @@ onBeforeUnmount(() => badgeStore.stopPolling())
             :max="99"
             :hidden="messagesEntry.unread === 0"
           >
-            <span>{{ messagesEntry.label }}</span>
+            <span class="link-label">{{ messagesEntry.label }}</span>
           </el-badge>
         </RouterLink>
         <RouterLink
@@ -132,7 +133,7 @@ onBeforeUnmount(() => badgeStore.stopPolling())
             :max="99"
             :hidden="badgeStore.claimableCoupons === 0"
           >
-            <span>领券中心</span>
+            <span class="link-label">领券中心</span>
           </el-badge>
         </RouterLink>
         <RouterLink
@@ -145,9 +146,10 @@ onBeforeUnmount(() => badgeStore.stopPolling())
             :max="99"
             :hidden="badgeStore.cartCount === 0"
           >
-            <span>购物车</span>
+            <span class="link-label">购物车</span>
           </el-badge>
         </RouterLink>
+        <NotificationBell v-if="userStore.isLoggedIn" />
 
         <template v-if="userStore.isLoggedIn">
           <!-- 用户区：鼠标移上去向下滑出功能面板 -->
@@ -530,6 +532,18 @@ onBeforeUnmount(() => badgeStore.stopPolling())
 
 @media (max-width: 720px) {
   .who {
+    display: none;
+  }
+
+  .actions {
+    gap: 8px;
+  }
+
+  .badge-link {
+    gap: 0;
+  }
+
+  .link-label {
     display: none;
   }
 

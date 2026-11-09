@@ -1792,7 +1792,7 @@ specText, unitPrice, quantity, refundAmount, createdAt`
 
 空数据返回 `orderCount=0`、金额 `"0.00"`、排行与 `monthly` 空数组。
 
-## 25. 站内通知（商家端 / 管理端，2026-11-08）
+## 25. 站内通知（商家端 / 管理端 / 顾客端，2026-11-08，2026-11-09 扩展）
 
 > 登录即可访问；只能读写自己的通知。未读数由前端 30s 可见轮询，不建常驻 SSE。
 
@@ -1831,6 +1831,8 @@ specText, unitPrice, quantity, refundAmount, createdAt`
 ### 25.5 通知类型
 
 `ORDER_PAID` / `URGE_SHIPMENT` / `AFTER_SALE_APPLIED` / `AFTER_SALE_RESULT`（商家）；
+`ORDER_SHIPPED`（下单顾客，link `/order/{id}`）；
+`AFTER_SALE_RESULT`（售后申请顾客，link `/after-sale/{id}`，与商家侧同类型、不同接收人）；
 `MERCHANT_APPLY` / `AGENT_EVAL_DONE`（管理员）。平台自营店的商家侧通知发给全部管理员。
 
 ## 26. 权限（RBAC，2026-11-08）

@@ -18,7 +18,7 @@ public class Notification {
     /** 接收人 users.id */
     private Long userId;
 
-    /** ORDER_PAID / URGE_SHIPMENT / AFTER_SALE_APPLIED / AFTER_SALE_RESULT / MERCHANT_APPLY / AGENT_EVAL_DONE */
+    /** ORDER_PAID / ORDER_SHIPPED / URGE_SHIPMENT / AFTER_SALE_APPLIED / AFTER_SALE_RESULT / MERCHANT_APPLY / AGENT_EVAL_DONE */
     private String type;
 
     private String title;

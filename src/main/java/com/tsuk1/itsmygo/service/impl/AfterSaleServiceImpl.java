@@ -289,19 +289,31 @@ public class AfterSaleServiceImpl implements AfterSaleService {
     @Override
     @Transactional
     public AfterSaleView approveForMerchant(Long merchantId, Long id) {
-        return approve(requireOwnedByMerchant(merchantId, id), null);
+        AfterSale afterSale = requireOwnedByMerchant(merchantId, id);
+        AfterSaleView result = approve(afterSale, null);
+        notifyBuyerAfterSaleResult(afterSale,
+                ST_WAITING_RETURN.equals(afterSale.getStatus())
+                        ? "商家已同意售后，请按页面提示寄回商品"
+                        : "商家已同意售后，退款完成");
+        return result;
     }
 
     @Override
     @Transactional
     public AfterSaleView rejectForMerchant(Long merchantId, Long id, AfterSaleRejectRequest request) {
-        return reject(requireOwnedByMerchant(merchantId, id), request.reason());
+        AfterSale afterSale = requireOwnedByMerchant(merchantId, id);
+        AfterSaleView result = reject(afterSale, request.reason());
+        notifyBuyerAfterSaleResult(afterSale, "商家已驳回售后");
+        return result;
     }
 
     @Override
     @Transactional
     public AfterSaleView confirmReceivedForMerchant(Long merchantId, Long id) {
-        return confirmReceived(requireOwnedByMerchant(merchantId, id));
+        AfterSale afterSale = requireOwnedByMerchant(merchantId, id);
+        AfterSaleView result = confirmReceived(afterSale);
+        notifyBuyerAfterSaleResult(afterSale, "商家已确认收货，退款完成");
+        return result;
     }
 
     @Override
@@ -339,7 +351,10 @@ public class AfterSaleServiceImpl implements AfterSaleService {
     @Override
     @Transactional
     public AfterSaleView rejectForAdmin(Long id, AfterSaleRejectRequest request) {
-        return reject(requireExists(id), request.reason());
+        AfterSale afterSale = requireExists(id);
+        AfterSaleView result = reject(afterSale, request.reason());
+        notifyAfterSaleResult(afterSale, "平台已驳回售后");
+        return result;
     }
 
     @Override
@@ -438,7 +453,10 @@ public class AfterSaleServiceImpl implements AfterSaleService {
                 if (Boolean.TRUE.equals(ok)) {
                     done++;
                     log.info("退货超时自动确认收货: afterSaleNo={}", afterSale.getAfterSaleNo());
-                    notifyAfterSaleResult(afterSale, "退货超时未确认，系统自动确认收货并退款");
+                    // 事务里确认的是重新查出来的对象，外面这份还是 RETURN_SHIPPED；重查后通知才带对状态
+                    AfterSale updated = afterSaleMapper.selectById(afterSale.getId());
+                    notifyAfterSaleResult(updated != null ? updated : afterSale,
+                            "退货超时未确认，系统自动确认收货并退款");
                 }
             } catch (RuntimeException e) {
                 log.warn("退货超时自动确认失败: afterSaleNo={} err={}",
@@ -450,9 +468,13 @@ public class AfterSaleServiceImpl implements AfterSaleService {
 
     /* ==================== 内部：审核与执行 ==================== */
 
-    /** 售后处理结果通知商家（平台处理 / 自动超时处理时调用）；失败不影响主流程 */
+    /** 售后处理结果通知商家 + 申请顾客（平台处理 / 自动超时处理时调用）；失败不影响主流程 */
     private void notifyAfterSaleResult(AfterSale afterSale, String note) {
-        if (afterSale == null || afterSale.getMerchantId() == null) {
+        if (afterSale == null) {
+            return;
+        }
+        notifyBuyerAfterSaleResult(afterSale, note);
+        if (afterSale.getMerchantId() == null) {
             return;
         }
         try {
@@ -463,6 +485,22 @@ public class AfterSaleServiceImpl implements AfterSaleService {
                     "after-sale-result:" + afterSale.getAfterSaleNo());
         } catch (RuntimeException e) {
             log.warn("售后 {} 写通知失败: {}", afterSale.getAfterSaleNo(), e.getMessage());
+        }
+    }
+
+    /** 给售后申请顾客发结果通知；同一售后单不同状态各一条，幂等键带状态 */
+    private void notifyBuyerAfterSaleResult(AfterSale afterSale, String note) {
+        if (afterSale == null || afterSale.getUserId() == null) {
+            return;
+        }
+        try {
+            notificationService.notifyUser(afterSale.getUserId(), "AFTER_SALE_RESULT", "售后处理结果",
+                    String.format("售后单 %s：%s。", afterSale.getAfterSaleNo(), note),
+                    "/after-sale/" + afterSale.getId(),
+                    "after-sale-result:" + afterSale.getAfterSaleNo() + ":"
+                            + afterSale.getStatus() + ":buyer");
+        } catch (RuntimeException e) {
+            log.warn("售后 {} 通知买家失败: {}", afterSale.getAfterSaleNo(), e.getMessage());
         }
     }
 
