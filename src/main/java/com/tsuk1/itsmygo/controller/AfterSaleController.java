@@ -7,7 +7,7 @@ import com.tsuk1.itsmygo.dto.AfterSaleReasonView;
 import com.tsuk1.itsmygo.dto.AfterSaleShipRequest;
 import com.tsuk1.itsmygo.dto.AfterSaleView;
 import com.tsuk1.itsmygo.dto.PageResponse;
-import com.tsuk1.itsmygo.security.CurrentUser;
+import com.tsuk1.itsmygo.common.identity.CurrentUser;
 import com.tsuk1.itsmygo.service.AfterSaleService;
 import com.tsuk1.itsmygo.service.StorageService;
 import jakarta.validation.Valid;

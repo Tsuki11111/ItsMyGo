@@ -2,7 +2,7 @@ package com.tsuk1.itsmygo.common.ratelimit;
 
 import com.tsuk1.itsmygo.common.ResultCode;
 import com.tsuk1.itsmygo.common.exception.BizException;
-import com.tsuk1.itsmygo.security.CurrentUser;
+import com.tsuk1.itsmygo.common.identity.CurrentUser;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.ProceedingJoinPoint;

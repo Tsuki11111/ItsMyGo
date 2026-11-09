@@ -1,30 +1,26 @@
 /**
- * 订单状态的中文名与标签颜色。
+ * 订单状态的标签颜色。
  *
- * 管理端订单列表返回的是原始 `Order`（没有 `statusLabel`），所以前端要自己映射。
- * 顾客端列表走的是 `OrderView`，后端已经给了中文名，不需要用这里。
+ * 状态中文名由后端 `Order.statusLabel` 统一提供，前端不再维护第二份文案。
+ * 这里只保留 tag 颜色这种纯 UI 映射。
  */
 
 export type OrderStatusTag = 'primary' | 'success' | 'warning' | 'info' | 'danger'
 
-const STATUS_MAP: Record<string, { label: string; tag: OrderStatusTag }> = {
-  CREATING: { label: '创建中', tag: 'info' },
-  CREATE_FAILED: { label: '创建失败', tag: 'danger' },
-  PENDING_PAYMENT: { label: '待支付', tag: 'warning' },
-  PAID: { label: '待发货', tag: 'primary' },
-  SHIPPED: { label: '待收货', tag: 'primary' },
-  COMPLETED: { label: '已完成', tag: 'success' },
-  CANCELLED: { label: '已取消', tag: 'info' },
-  REFUNDING: { label: '退款中', tag: 'warning' },
-  REFUNDED: { label: '已退款', tag: 'danger' },
-}
-
-export function orderStatusLabel(status: string): string {
-  return STATUS_MAP[status]?.label ?? status
+const STATUS_TAGS: Record<string, OrderStatusTag> = {
+  CREATING: 'info',
+  CREATE_FAILED: 'danger',
+  PENDING_PAYMENT: 'warning',
+  PAID: 'primary',
+  SHIPPED: 'primary',
+  COMPLETED: 'success',
+  CANCELLED: 'info',
+  REFUNDING: 'warning',
+  REFUNDED: 'danger',
 }
 
 export function orderStatusTag(status: string): OrderStatusTag {
-  return STATUS_MAP[status]?.tag ?? 'info'
+  return STATUS_TAGS[status] ?? 'info'
 }
 
 /** 管理端筛选下拉用；管理端接口只接受单个状态名 */

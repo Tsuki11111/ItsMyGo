@@ -1,6 +1,6 @@
 package com.tsuk1.itsmygo.common.logging;
 
-import com.tsuk1.itsmygo.security.CurrentUser;
+import com.tsuk1.itsmygo.common.identity.CurrentUser;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;

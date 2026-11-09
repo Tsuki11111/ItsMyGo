@@ -1,6 +1,6 @@
 package com.tsuk1.itsmygo.config;
 
-import com.tsuk1.itsmygo.common.order.OrderCreatedConsumer;
+import com.tsuk1.itsmygo.task.order.OrderCreatedConsumer;
 import com.tsuk1.itsmygo.common.order.OrderCreatedRabbitTopology;
 import com.tsuk1.itsmygo.service.OrderSettlementService;
 import org.springframework.amqp.core.BindingBuilder;

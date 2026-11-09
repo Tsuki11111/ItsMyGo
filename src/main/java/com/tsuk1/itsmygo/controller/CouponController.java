@@ -5,7 +5,7 @@ import com.tsuk1.itsmygo.common.ratelimit.RateLimit;
 import com.tsuk1.itsmygo.dto.CouponView;
 import com.tsuk1.itsmygo.dto.PageResponse;
 import com.tsuk1.itsmygo.dto.UserCouponView;
-import com.tsuk1.itsmygo.security.CurrentUser;
+import com.tsuk1.itsmygo.common.identity.CurrentUser;
 import com.tsuk1.itsmygo.service.CouponService;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;

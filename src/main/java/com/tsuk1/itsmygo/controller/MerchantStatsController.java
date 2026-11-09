@@ -4,7 +4,7 @@ import com.tsuk1.itsmygo.common.Result;
 import com.tsuk1.itsmygo.common.ResultCode;
 import com.tsuk1.itsmygo.common.exception.BizException;
 import com.tsuk1.itsmygo.dto.MerchantDashboardView;
-import com.tsuk1.itsmygo.security.CurrentUser;
+import com.tsuk1.itsmygo.common.identity.CurrentUser;
 import com.tsuk1.itsmygo.service.MerchantStatsService;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;

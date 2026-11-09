@@ -1,4 +1,4 @@
-package com.tsuk1.itsmygo.common.promotion;
+package com.tsuk1.itsmygo.service.promotion;
 
 import com.tsuk1.itsmygo.entity.AgentPreference;
 import com.tsuk1.itsmygo.mapper.AgentPreferenceMapper;

@@ -21,32 +21,32 @@ export interface StoredUser {
 }
 
 export function getToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY)
+  return window.localStorage.getItem(TOKEN_KEY)
 }
 
 export function setToken(token: string): void {
-  localStorage.setItem(TOKEN_KEY, token)
+  window.localStorage.setItem(TOKEN_KEY, token)
 }
 
 export function getStoredUser(): StoredUser | null {
-  const raw = localStorage.getItem(USER_KEY)
+  const raw = window.localStorage.getItem(USER_KEY)
   if (!raw) return null
   try {
     return JSON.parse(raw) as StoredUser
   } catch {
     // 存坏了就当没登录，别让整个应用起不来
-    localStorage.removeItem(USER_KEY)
+    window.localStorage.removeItem(USER_KEY)
     return null
   }
 }
 
 export function setStoredUser(user: StoredUser): void {
-  localStorage.setItem(USER_KEY, JSON.stringify(user))
+  window.localStorage.setItem(USER_KEY, JSON.stringify(user))
 }
 
 export function clearAuth(): void {
-  localStorage.removeItem(TOKEN_KEY)
-  localStorage.removeItem(USER_KEY)
+  window.localStorage.removeItem(TOKEN_KEY)
+  window.localStorage.removeItem(USER_KEY)
 }
 
 const instance = axios.create({

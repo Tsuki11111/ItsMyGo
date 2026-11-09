@@ -18,6 +18,7 @@
     "type-check": "npm --prefix frontend run type-check",
     "preview": "npm --prefix frontend run preview",
     "test": "node scripts/mvn.mjs test",
+    "test:web": "npm --prefix frontend run test:run",
     "deploy": "node scripts/npm-deploy.mjs",
     "deploy:up": "node scripts/npm-deploy.mjs up",
     "deploy:down": "node scripts/npm-deploy.mjs down",

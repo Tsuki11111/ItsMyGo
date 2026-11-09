@@ -1,4 +1,4 @@
-package com.tsuk1.itsmygo.security;
+package com.tsuk1.itsmygo.common.identity;
 
 import com.tsuk1.itsmygo.common.RedisCacheHelper;
 import com.tsuk1.itsmygo.common.Roles;

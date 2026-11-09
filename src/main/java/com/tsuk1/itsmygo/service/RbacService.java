@@ -1,10 +1,12 @@
 package com.tsuk1.itsmygo.service;
 
+import com.tsuk1.itsmygo.common.rbac.PermissionReader;
+
 import java.util.List;
 import java.util.Set;
 
 /** 管理端 RBAC：角色/权限码加载与缓存。 */
-public interface RbacService {
+public interface RbacService extends PermissionReader {
 
     boolean enabled();
 

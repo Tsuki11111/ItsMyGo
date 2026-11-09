@@ -1,6 +1,8 @@
-package com.tsuk1.itsmygo.common.order;
+package com.tsuk1.itsmygo.task.order;
 
+import com.tsuk1.itsmygo.common.order.OrderTimeoutProperties;
 import com.tsuk1.itsmygo.service.OrderService;
+import com.tsuk1.itsmygo.task.order.OrderTimeoutConsumer;
 import org.junit.jupiter.api.Test;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 

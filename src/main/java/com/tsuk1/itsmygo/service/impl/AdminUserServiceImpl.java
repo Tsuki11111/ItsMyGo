@@ -10,7 +10,7 @@ import com.tsuk1.itsmygo.dto.PageResponse;
 import com.tsuk1.itsmygo.entity.User;
 import com.tsuk1.itsmygo.entity.UserStatus;
 import com.tsuk1.itsmygo.mapper.UserMapper;
-import com.tsuk1.itsmygo.security.AuthIdentityService;
+import com.tsuk1.itsmygo.common.identity.AuthIdentityService;
 import com.tsuk1.itsmygo.service.AdminUserService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

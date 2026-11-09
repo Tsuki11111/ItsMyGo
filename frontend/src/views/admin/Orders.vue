@@ -13,7 +13,7 @@ import {
   shipOrder,
 } from '@/api/admin'
 import type { AdminMerchantView, Order } from '@/api/types'
-import { ORDER_STATUS_OPTIONS, orderStatusLabel, orderStatusTag } from '@/utils/orderStatus'
+import { ORDER_STATUS_OPTIONS, orderStatusTag } from '@/utils/orderStatus'
 
 const orders = ref<Order[]>([])
 const merchants = ref<AdminMerchantView[]>([])
@@ -287,7 +287,7 @@ onMounted(async () => {
       <el-table-column label="状态" width="100" align="center">
         <template #default="{ row }">
           <el-tag :type="orderStatusTag(row.status)" size="small">
-            {{ orderStatusLabel(row.status) }}
+            {{ row.statusLabel || row.status }}
           </el-tag>
         </template>
       </el-table-column>

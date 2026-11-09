@@ -1,8 +1,9 @@
-package com.tsuk1.itsmygo.common.promotion;
+package com.tsuk1.itsmygo.service.promotion;
 
 import com.tsuk1.itsmygo.entity.AgentPreference;
 import com.tsuk1.itsmygo.mapper.AgentPreferenceMapper;
 import com.tsuk1.itsmygo.service.PromotionService;
+import com.tsuk1.itsmygo.service.promotion.PromotionLoginTrigger;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;

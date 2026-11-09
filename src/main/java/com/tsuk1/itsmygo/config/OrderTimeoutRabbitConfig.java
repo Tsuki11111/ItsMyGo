@@ -1,6 +1,6 @@
 package com.tsuk1.itsmygo.config;
 
-import com.tsuk1.itsmygo.common.order.OrderTimeoutConsumer;
+import com.tsuk1.itsmygo.task.order.OrderTimeoutConsumer;
 import com.tsuk1.itsmygo.common.order.OrderTimeoutProperties;
 import com.tsuk1.itsmygo.common.order.OrderTimeoutRabbitTopology;
 import com.tsuk1.itsmygo.common.order.OrderTimeoutSender;

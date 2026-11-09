@@ -4,7 +4,7 @@ import com.tsuk1.itsmygo.common.Result;
 import com.tsuk1.itsmygo.common.ratelimit.RateLimit;
 import com.tsuk1.itsmygo.dto.MerchantRequest;
 import com.tsuk1.itsmygo.dto.MerchantView;
-import com.tsuk1.itsmygo.security.CurrentUser;
+import com.tsuk1.itsmygo.common.identity.CurrentUser;
 import com.tsuk1.itsmygo.service.MerchantService;
 import com.tsuk1.itsmygo.service.StorageService;
 import jakarta.validation.Valid;

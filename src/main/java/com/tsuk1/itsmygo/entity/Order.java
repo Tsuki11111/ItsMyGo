@@ -29,6 +29,11 @@ public class Order {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private String merchantName;
 
+    /** 状态中文名，管理端/商家端列表由后端填充；不是数据库列 */
+    @TableField(exist = false)
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String statusLabel;
+
     private BigDecimal totalAmount;
 
     /** 优惠前的商品总额；存量订单等于 totalAmount */

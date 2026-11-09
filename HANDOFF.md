@@ -39,7 +39,7 @@
 ## 1. 当前状态一句话
 
 **交易闭环、多商户、AI 客服、运营后台、平台政策、压测、售后、下单异步补账、三端站内通知、Docker 部署均已完成（2026-11-09）。**
-后端自动化测试 **341 条**（本地；CI 跑 337 条，跳过 4 条依赖 MinIO 的用例）。数据库 schema 到 **v38**。
+后端自动化测试 **357 条**（本地；CI 跑 353 条，跳过 4 条依赖 MinIO 的用例），前端 Vitest **11 条**。数据库 schema 到 **v38**。
 
 **待办/注意**：RBAC P2.1（邀请管理员选子角色）与商户与商品运营二期已确认**不做**；
 因此 `RBAC_ENABLED` 保持默认 **false**（开启后新管理员无角色行会等同超管）。
@@ -63,6 +63,10 @@
 - **站内通知（2026-11-08，2026-11-09 扩顾客端）**：商家端 / 平台管理端 / 顾客端顶栏铃铛
   （未读角标 + 下拉最近 20 条 + 已读）；事件：新订单待发货、订单已发货（顾客）、新售后申请、
   售后处理结果（商家 + 顾客）、商家入驻待审核、智能体评测完成；30s 可见轮询，不新增常驻 SSE（D24）。
+- **代码质量整改（2026-11-09）**：R5 破 `security ↔ service` / `common ↔ service` 包循环；
+  R1 拆 `OrderServiceImpl.doCreate`；R2 拆 `AgentActionServiceImpl` 为 Support / 下单草稿 /
+  退款 / 催办四个协作者；R3 订单状态中文名统一由后端 `statusLabel` 提供；T5 接入 Vitest，
+  首批 11 条前端测试。行为不变，后端 357 条 / 前端 11 条全绿。
 - **权限管理（2026-11-08，P1/P2 基础）**：V36 角色/权限/角色权限/管理员角色四表 + 28 个权限码 +
   4 个管理员子角色；`@EnableMethodSecurity` + 管理端 `@PreAuthorize` + 403；
   前端权限 store / 菜单过滤 / 订单操作按钮；`itsmygo.rbac.enabled` 默认 **false**（兼容旧行为）；
@@ -1612,6 +1616,28 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 
 ## 6. 历史记录
 
+### 2026-11-09 · 代码质量整改 R5/R1/R2/T5/R3
+
+**背景**：全项目质量审查（brooks-health balanced）得分 88/100，Architecture 85 的 Critical
+是 `security ↔ service`、`common ↔ service` 包循环；Debt 三条 Warning 是大类拆分、前端零测试、
+订单状态标签双份；按 R5 → R1/R2 → T5 → R3 顺序整改。
+
+**实现**：
+- R5：`CurrentUser` / `AuthIdentityService` → `common.identity`；新增
+  `common.rbac.PermissionReader`、`common.security.TokenIssuer` 切断反向依赖；`common` 的任务 /
+  MQ 消费者 → `task.*`，审计切面 → `audit`，促销触发器 → `service.promotion`。
+- R1：`OrderServiceImpl.doCreate` 保留编排，拆 `requireAddress` / `buildCheckoutPlan` /
+  `reserveStock` / `selectedCartItemIds` / `persistOrders` / `finishCheckout`，行为与文案不变。
+- R2：`AgentActionServiceImpl` 1,208 → 约 376 行，抽出 `AgentActionSupport`、
+  `AgentOrderDraftBuilder`、`AgentRefundActionService`、`AgentUrgeActionService`。
+- R3：`Order.statusLabel` 非数据库列，管理端 / 商家端分页由后端填充；前端删除重复中文 label。
+- T5：Vitest + jsdom + `@vue/test-utils`；`frontend/vitest.config.ts`，3 个 spec / 11 条；
+  根 `npm run test:web`。`frontend/src/api/http.ts` 改用 `window.localStorage` 便于 jsdom。
+
+**验证**：`.\mvnw.cmd test` → **357 tests, 0 failures, 0 errors, 0 skipped**；
+`npm run test:run` → 3 files / 11 tests；`type-check` / `build` 通过。文档 D36、implementation
+§3.52、README / requirements 计数已同步。
+
 ### 2026-11-09 · 智能下单草稿改规格与旧卡自动替换
 
 **反馈（用户）**：测试多规格商品客服下单，发现智能体首次选规格正确，但确认卡只能改
@@ -2395,7 +2421,7 @@ HTTPS / 备份 / 监控仍缺（见 deployment.md 缺口表）。
 | 层次 | 文件 | 回答什么问题 |
 |---|---|---|
 | 需求 | **[docs/requirements.md](docs/requirements.md)**（新） | 要做什么、给谁、做到什么程度、什么不做、怎么验收；含**平台对接前提**（对齐 rag_helper requirements §4） |
-| 架构选型 | **[docs/architecture.md](docs/architecture.md)**（新） | 选了什么技术、为什么、总体架构、**接口契约概览**、关键取舍、决策记录 D1–D15、跨仓库协作 |
+| 架构选型 | **[docs/architecture.md](docs/architecture.md)**（新） | 选了什么技术、为什么、总体架构、**接口契约概览**、关键取舍、决策记录 D1–D36、跨仓库协作 |
 | 实现 | [docs/implementation.md](docs/implementation.md)（保留） | 每个机制的落地方式、坑与取舍 |
 | 状态 / 坑 / 操作 | 本文件（保留） | 做到哪、下一步、踩过的坑、环境与命令 |
 

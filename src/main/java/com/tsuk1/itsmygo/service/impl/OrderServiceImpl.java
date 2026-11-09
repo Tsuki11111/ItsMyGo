@@ -198,10 +198,7 @@ public class OrderServiceImpl implements OrderService {
     }
 
     private CheckoutView doCreate(Long userId, CreateOrderRequest request) {
-        Address address = addressMapper.selectById(request.addressId());
-        if (address == null || !userId.equals(address.getUserId())) {
-            throw new BizException(ResultCode.NOT_FOUND, "收货地址不存在");
-        }
+        Address address = requireAddress(userId, request.addressId());
 
         // 商品有两种来源，之后一视同仁：立即购买（直接给定）or 购物车勾选项
         boolean fromCart = request.items() == null || request.items().isEmpty();
@@ -210,6 +207,53 @@ public class OrderServiceImpl implements OrderService {
             throw new BizException(ResultCode.BAD_REQUEST, "没有可结算的商品");
         }
 
+        CheckoutPlan plan = buildCheckoutPlan(userId, lines, fromCart, request.coupons());
+
+        // 已成功扣减的 **SKU** → 数量；出错或事务回滚时按它回补 Redis
+        Map<Long, Integer> reserved = new LinkedHashMap<>();
+        AtomicBoolean released = new AtomicBoolean(false);
+        Runnable releaseReserved = () -> {
+            if (released.compareAndSet(false, true)) {
+                reserved.forEach(stockService::release);
+            }
+        };
+        // 业务 catch 只能覆盖方法内抛出的异常；提交阶段失败要靠事务回调
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCompletion(int status) {
+                    if (status != TransactionSynchronization.STATUS_COMMITTED) {
+                        releaseReserved.run();
+                    }
+                }
+            });
+        }
+
+        try {
+            reserveStock(plan, reserved);
+
+            // 购物车结算的待清行先快照：异步补账时按 ID 删除，避免误删补账期间新加入的商品
+            List<Long> cartItemIds = fromCart ? selectedCartItemIds(userId) : List.of();
+            List<CreatedOrder> created = persistOrders(userId, address, plan);
+            return finishCheckout(created, cartItemIds);
+        } catch (RuntimeException e) {
+            releaseReserved.run();
+            throw e;
+        }
+    }
+
+    private Address requireAddress(Long userId, Long addressId) {
+        Address address = addressMapper.selectById(addressId);
+        if (address == null || !userId.equals(address.getUserId())) {
+            throw new BizException(ResultCode.NOT_FOUND, "收货地址不存在");
+        }
+        return address;
+    }
+
+    private CheckoutPlan buildCheckoutPlan(Long userId,
+                                           List<OrderLine> lines,
+                                           boolean fromCart,
+                                           List<CreateOrderRequest.CouponSelection> coupons) {
         Map<Long, Product> products = productMapper.selectByIds(
                         lines.stream().map(OrderLine::productId).distinct().toList())
                 .stream().collect(Collectors.toMap(Product::getId, Function.identity()));
@@ -250,126 +294,119 @@ public class OrderServiceImpl implements OrderService {
         }
 
         // 券全部预校验完再动库存：平台券只能分配给一个子订单，店铺券只能用于本店
-        Map<Long, UserCoupon> groupCoupons = validateCoupons(
-                userId, request.coupons(), groups.keySet(), groupTotals);
+        Map<Long, UserCoupon> groupCoupons = validateCoupons(userId, coupons, groups.keySet(), groupTotals);
         Map<Long, BigDecimal> groupDiscounts = new LinkedHashMap<>();
         for (Map.Entry<Long, UserCoupon> entry : groupCoupons.entrySet()) {
             groupDiscounts.put(entry.getKey(),
                     entry.getValue().getDiscountAmount().min(groupTotals.get(entry.getKey())));
         }
+        return new CheckoutPlan(groups, groupTotals, products, skus, merchants, groupCoupons, groupDiscounts);
+    }
 
-        // 已成功扣减的 **SKU** → 数量；出错或事务回滚时按它回补 Redis
-        Map<Long, Integer> reserved = new LinkedHashMap<>();
-        AtomicBoolean released = new AtomicBoolean(false);
-        Runnable releaseReserved = () -> {
-            if (released.compareAndSet(false, true)) {
-                reserved.forEach(stockService::release);
+    private void reserveStock(CheckoutPlan plan, Map<Long, Integer> reserved) {
+        // 按 skuId 排序预扣，降低多 SKU 并发下的死锁概率
+        plan.groups().values().stream()
+                .flatMap(List::stream)
+                .sorted(Comparator.comparing(OrderLine::skuId))
+                .forEach(line -> reserveStock(plan.skus().get(line.skuId()), line.quantity(), reserved));
+    }
+
+    private List<Long> selectedCartItemIds(Long userId) {
+        return cartItemMapper.selectList(Wrappers.<CartItem>lambdaQuery()
+                        .eq(CartItem::getUserId, userId)
+                        .eq(CartItem::getSelected, 1))
+                .stream().map(CartItem::getId).toList();
+    }
+
+    private List<CreatedOrder> persistOrders(Long userId, Address address, CheckoutPlan plan) {
+        List<CreatedOrder> created = new ArrayList<>(plan.groups().size());
+        for (Map.Entry<Long, List<OrderLine>> entry : plan.groups().entrySet()) {
+            Long merchantId = entry.getKey();
+            BigDecimal goodsTotal = plan.groupTotals().get(merchantId);
+            UserCoupon coupon = plan.groupCoupons().get(merchantId);
+            BigDecimal discount = plan.groupDiscounts().getOrDefault(merchantId, BigDecimal.ZERO);
+
+            Order order = new Order();
+            order.setOrderNo(generateOrderNo());
+            order.setUserId(userId);
+            order.setMerchantId(merchantId);
+            order.setMerchantName(plan.merchants().get(merchantId).getName());
+            order.setOriginalAmount(goodsTotal);
+            order.setDiscountAmount(discount);
+            order.setTotalAmount(goodsTotal.subtract(discount));
+            order.setUserCouponId(coupon == null ? null : coupon.getId());
+            order.setCouponName(coupon == null ? "" : coupon.getCouponName());
+            // M31：先落占位订单，券占用 / DB 扣库存 / 清购物车在补账阶段完成
+            order.setStatus(OrderStatus.CREATING.name());
+            order.setCreateError("");
+            order.setCreateAttempts(0);
+            // 收货信息也快照：用户以后改地址或删地址，这张订单不受影响
+            order.setReceiver(address.getReceiver());
+            order.setPhone(address.getPhone());
+            order.setAddress(address.getProvince() + address.getCity()
+                    + address.getDistrict() + address.getDetail());
+            order.setTrackingNo("");
+            orderMapper.insert(order);
+
+            List<OrderItem> items = new ArrayList<>(entry.getValue().size());
+            for (OrderLine line : entry.getValue()) {
+                Product product = plan.products().get(line.productId());
+                ProductSku sku = plan.skus().get(line.skuId());
+                OrderItem item = new OrderItem();
+                item.setOrderId(order.getId());
+                item.setProductId(product.getId());
+                item.setSkuId(sku.getId());
+                // 以下都是快照：商品改价改名、规格改名甚至被删，都不影响这张订单
+                item.setProductName(product.getName());
+                item.setProductImage(StringUtils.hasText(sku.getImage())
+                        ? sku.getImage() : product.getMainImage());
+                item.setSpecText(sku.getSpecText());
+                item.setUnitPrice(sku.getPrice());
+                item.setQuantity(line.quantity());
+                item.setSubtotal(sku.getPrice().multiply(BigDecimal.valueOf(line.quantity())));
+                orderItemMapper.insert(item);
+                items.add(item);
             }
-        };
-        // 业务 catch 只能覆盖方法内抛出的异常；提交阶段失败要靠事务回调
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCompletion(int status) {
-                    if (status != TransactionSynchronization.STATUS_COMMITTED) {
-                        releaseReserved.run();
-                    }
-                }
-            });
+            created.add(new CreatedOrder(order, items));
         }
+        return created;
+    }
 
-        try {
-            // 按 skuId 排序预扣，降低多 SKU 并发下的死锁概率
-            List<OrderLine> sorted = lines.stream()
-                    .sorted(Comparator.comparing(OrderLine::skuId))
+    private CheckoutView finishCheckout(List<CreatedOrder> created, List<Long> cartItemIds) {
+        List<OrderView> views = created.stream()
+                .map(c -> new OrderView(c.order(), OrderStatus.CREATING.label(),
+                        c.items(), c.items().size()))
+                .toList();
+        List<Long> orderIds = created.stream().map(c -> c.order().getId()).toList();
+        if (orderCreateProperties.async()) {
+            // 事务提交后发 MQ；补账失败由消费端收尾（CREATE_FAILED）
+            orderCreatedMqPublisher.publishAfterCommit(orderIds, cartItemIds);
+        } else {
+            // 同步降级：与旧链路等价（测试 / 无 MQ 环境）
+            orderSettlementService.settle(orderIds, cartItemIds);
+            // 结算服务改的是它自己查出来的实体；占位实体的状态要同步，否则响应里还是「创建中」
+            for (CreatedOrder c : created) {
+                c.order().setStatus(OrderStatus.PENDING_PAYMENT.name());
+            }
+            views = created.stream()
+                    .map(c -> new OrderView(c.order(), OrderStatus.PENDING_PAYMENT.label(),
+                            c.items(), c.items().size()))
                     .toList();
-            for (OrderLine line : sorted) {
-                reserveStock(skus.get(line.skuId()), line.quantity(), reserved);
-            }
-
-            // 购物车结算的待清行先快照：异步补账时按 ID 删除，避免误删补账期间新加入的商品
-            List<Long> cartItemIds = fromCart
-                    ? cartItemMapper.selectList(Wrappers.<CartItem>lambdaQuery()
-                            .eq(CartItem::getUserId, userId)
-                            .eq(CartItem::getSelected, 1))
-                            .stream().map(CartItem::getId).toList()
-                    : List.of();
-
-            List<OrderView> views = new ArrayList<>(groups.size());
-            List<Order> createdOrders = new ArrayList<>(groups.size());
-            for (Map.Entry<Long, List<OrderLine>> entry : groups.entrySet()) {
-                Long merchantId = entry.getKey();
-                BigDecimal goodsTotal = groupTotals.get(merchantId);
-                UserCoupon coupon = groupCoupons.get(merchantId);
-                BigDecimal discount = groupDiscounts.getOrDefault(merchantId, BigDecimal.ZERO);
-
-                Order order = new Order();
-                order.setOrderNo(generateOrderNo());
-                order.setUserId(userId);
-                order.setMerchantId(merchantId);
-                order.setMerchantName(merchants.get(merchantId).getName());
-                order.setOriginalAmount(goodsTotal);
-                order.setDiscountAmount(discount);
-                order.setTotalAmount(goodsTotal.subtract(discount));
-                order.setUserCouponId(coupon == null ? null : coupon.getId());
-                order.setCouponName(coupon == null ? "" : coupon.getCouponName());
-                // M31：先落占位订单，券占用 / DB 扣库存 / 清购物车在补账阶段完成
-                order.setStatus(OrderStatus.CREATING.name());
-                order.setCreateError("");
-                order.setCreateAttempts(0);
-                // 收货信息也快照：用户以后改地址或删地址，这张订单不受影响
-                order.setReceiver(address.getReceiver());
-                order.setPhone(address.getPhone());
-                order.setAddress(address.getProvince() + address.getCity()
-                        + address.getDistrict() + address.getDetail());
-                order.setTrackingNo("");
-                orderMapper.insert(order);
-                createdOrders.add(order);
-
-                List<OrderItem> items = new ArrayList<>(entry.getValue().size());
-                for (OrderLine line : entry.getValue()) {
-                    Product product = products.get(line.productId());
-                    ProductSku sku = skus.get(line.skuId());
-                    OrderItem item = new OrderItem();
-                    item.setOrderId(order.getId());
-                    item.setProductId(product.getId());
-                    item.setSkuId(sku.getId());
-                    // 以下都是快照：商品改价改名、规格改名甚至被删，都不影响这张订单
-                    item.setProductName(product.getName());
-                    item.setProductImage(StringUtils.hasText(sku.getImage())
-                            ? sku.getImage() : product.getMainImage());
-                    item.setSpecText(sku.getSpecText());
-                    item.setUnitPrice(sku.getPrice());
-                    item.setQuantity(line.quantity());
-                    item.setSubtotal(sku.getPrice().multiply(BigDecimal.valueOf(line.quantity())));
-                    orderItemMapper.insert(item);
-                    items.add(item);
-                }
-                views.add(new OrderView(order, OrderStatus.CREATING.label(),
-                        items, items.size()));
-            }
-
-            List<Long> orderIds = createdOrders.stream().map(Order::getId).toList();
-            if (orderCreateProperties.async()) {
-                // 事务提交后发 MQ；补账失败由消费端收尾（CREATE_FAILED）
-                orderCreatedMqPublisher.publishAfterCommit(orderIds, cartItemIds);
-            } else {
-                // 同步降级：与旧链路等价（测试 / 无 MQ 环境）
-                orderSettlementService.settle(orderIds, cartItemIds);
-                // 结算服务改的是它自己查出来的实体；占位实体的状态要同步，否则响应里还是「创建中」
-                for (Order order : createdOrders) {
-                    order.setStatus(OrderStatus.PENDING_PAYMENT.name());
-                }
-                views = views.stream()
-                        .map(v -> new OrderView(v.order(), OrderStatus.PENDING_PAYMENT.label(),
-                                v.items(), v.itemCount()))
-                        .toList();
-            }
-            return CheckoutView.of(views);
-        } catch (RuntimeException e) {
-            releaseReserved.run();
-            throw e;
         }
+        return CheckoutView.of(views);
+    }
+
+    private record CheckoutPlan(
+            Map<Long, List<OrderLine>> groups,
+            Map<Long, BigDecimal> groupTotals,
+            Map<Long, Product> products,
+            Map<Long, ProductSku> skus,
+            Map<Long, Merchant> merchants,
+            Map<Long, UserCoupon> groupCoupons,
+            Map<Long, BigDecimal> groupDiscounts) {
+    }
+
+    private record CreatedOrder(Order order, List<OrderItem> items) {
     }
 
     private Map<Long, UserCoupon> validateCoupons(Long userId,
@@ -857,6 +894,7 @@ public class OrderServiceImpl implements OrderService {
                 new Page<>(normalizePage(page), normalizeSize(size)),
                 adminOrderQuery(status, merchantId, keyword, dateFrom, dateTo));
         fillMerchantNames(result.getRecords());
+        fillStatusLabels(result.getRecords());
         return PageResponse.of(result);
     }
 
@@ -914,6 +952,7 @@ public class OrderServiceImpl implements OrderService {
                 .eq(StringUtils.hasText(status), Order::getStatus, status)
                 .orderByDesc(Order::getId));
         fillMerchantNames(result.getRecords());
+        fillStatusLabels(result.getRecords());
         return PageResponse.of(result);
     }
 
@@ -1071,6 +1110,13 @@ public class OrderServiceImpl implements OrderService {
         for (Order order : orders) {
             Merchant merchant = merchants.get(order.getMerchantId());
             order.setMerchantName(merchant == null ? "" : merchant.getName());
+        }
+    }
+
+    /** 管理端/商家端列表状态中文名统一由后端给，避免前端再维护一份映射 */
+    private void fillStatusLabels(List<Order> orders) {
+        for (Order order : orders) {
+            order.setStatusLabel(OrderStatus.valueOf(order.getStatus()).label());
         }
     }
 

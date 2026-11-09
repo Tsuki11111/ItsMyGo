@@ -261,6 +261,8 @@ export interface Order {
   couponName: string
   /** 见后端 OrderStatus 枚举名：PENDING_PAYMENT / PAID / SHIPPED / ... */
   status: string
+  /** 状态中文名；管理端/商家端列表由后端返回 */
+  statusLabel?: string
   /** 以下三项是下单时的收货信息快照 */
   receiver: string
   phone: string

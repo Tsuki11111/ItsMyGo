@@ -8,7 +8,7 @@ import com.tsuk1.itsmygo.dto.PageResponse;
 import com.tsuk1.itsmygo.dto.SendChatMessageRequest;
 import com.tsuk1.itsmygo.dto.StartConversationRequest;
 import com.tsuk1.itsmygo.entity.Order;
-import com.tsuk1.itsmygo.security.CurrentUser;
+import com.tsuk1.itsmygo.common.identity.CurrentUser;
 
 public interface ChatService {
 

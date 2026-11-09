@@ -6,7 +6,7 @@ import com.tsuk1.itsmygo.dto.AdminInvitationAcceptRequest;
 import com.tsuk1.itsmygo.dto.ChangePasswordRequest;
 import com.tsuk1.itsmygo.dto.ProfileView;
 import com.tsuk1.itsmygo.dto.UpdateProfileRequest;
-import com.tsuk1.itsmygo.security.CurrentUser;
+import com.tsuk1.itsmygo.common.identity.CurrentUser;
 import com.tsuk1.itsmygo.service.AdminInvitationService;
 import com.tsuk1.itsmygo.service.UserService;
 import jakarta.validation.Valid;

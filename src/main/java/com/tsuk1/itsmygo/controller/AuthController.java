@@ -7,7 +7,7 @@ import com.tsuk1.itsmygo.dto.LoginRequest;
 import com.tsuk1.itsmygo.dto.LoginResponse;
 import com.tsuk1.itsmygo.dto.PermissionView;
 import com.tsuk1.itsmygo.dto.RegisterRequest;
-import com.tsuk1.itsmygo.security.CurrentUser;
+import com.tsuk1.itsmygo.common.identity.CurrentUser;
 import com.tsuk1.itsmygo.service.AuthService;
 import com.tsuk1.itsmygo.service.RbacService;
 import jakarta.validation.Valid;

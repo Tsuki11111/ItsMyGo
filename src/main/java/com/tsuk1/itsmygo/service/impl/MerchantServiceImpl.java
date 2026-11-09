@@ -24,7 +24,7 @@ import com.tsuk1.itsmygo.mapper.AdminOperationsMapper;
 import com.tsuk1.itsmygo.mapper.MerchantMapper;
 import com.tsuk1.itsmygo.mapper.OrderMapper;
 import com.tsuk1.itsmygo.mapper.UserMapper;
-import com.tsuk1.itsmygo.security.AuthIdentityService;
+import com.tsuk1.itsmygo.common.identity.AuthIdentityService;
 import com.tsuk1.itsmygo.service.MerchantService;
 import com.tsuk1.itsmygo.service.NotificationService;
 import lombok.extern.slf4j.Slf4j;

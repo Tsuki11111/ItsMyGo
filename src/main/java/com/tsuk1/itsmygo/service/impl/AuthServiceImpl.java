@@ -3,7 +3,7 @@ package com.tsuk1.itsmygo.service.impl;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.tsuk1.itsmygo.common.ResultCode;
 import com.tsuk1.itsmygo.common.Roles;
-import com.tsuk1.itsmygo.common.promotion.PromotionLoginTrigger;
+import com.tsuk1.itsmygo.service.promotion.PromotionLoginTrigger;
 import com.tsuk1.itsmygo.common.exception.BizException;
 import com.tsuk1.itsmygo.dto.LoginRequest;
 import com.tsuk1.itsmygo.dto.LoginResponse;
@@ -12,7 +12,7 @@ import com.tsuk1.itsmygo.entity.User;
 import com.tsuk1.itsmygo.entity.Merchant;
 import com.tsuk1.itsmygo.mapper.MerchantMapper;
 import com.tsuk1.itsmygo.mapper.UserMapper;
-import com.tsuk1.itsmygo.security.JwtService;
+import com.tsuk1.itsmygo.common.security.TokenIssuer;
 import com.tsuk1.itsmygo.service.AuthService;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -24,16 +24,16 @@ public class AuthServiceImpl implements AuthService {
     private final UserMapper userMapper;
     private final MerchantMapper merchantMapper;
     private final PasswordEncoder passwordEncoder;
-    private final JwtService jwtService;
+    private final TokenIssuer tokenIssuer;
     private final PromotionLoginTrigger promotionLoginTrigger;
 
     public AuthServiceImpl(UserMapper userMapper, MerchantMapper merchantMapper,
-                           PasswordEncoder passwordEncoder, JwtService jwtService,
+                           PasswordEncoder passwordEncoder, TokenIssuer tokenIssuer,
                            PromotionLoginTrigger promotionLoginTrigger) {
         this.userMapper = userMapper;
         this.merchantMapper = merchantMapper;
         this.passwordEncoder = passwordEncoder;
-        this.jwtService = jwtService;
+        this.tokenIssuer = tokenIssuer;
         this.promotionLoginTrigger = promotionLoginTrigger;
     }
 
@@ -76,7 +76,7 @@ public class AuthServiceImpl implements AuthService {
     }
 
     private LoginResponse toResponse(User user) {
-        String token = jwtService.issue(user.getId(), user.getUsername(), user.getRole());
+        String token = tokenIssuer.issue(user.getId(), user.getUsername(), user.getRole());
         Merchant merchant = user.getMerchantId() == null ? null
                 : merchantMapper.selectById(user.getMerchantId());
         return new LoginResponse(token, user.getId(), user.getUsername(), user.getNickname(),

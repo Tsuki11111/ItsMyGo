@@ -1,6 +1,7 @@
-package com.tsuk1.itsmygo.common.after_sale;
+package com.tsuk1.itsmygo.task.aftersale;
 
 import com.tsuk1.itsmygo.common.RedisCacheHelper;
+import com.tsuk1.itsmygo.common.after_sale.AfterSaleProperties;
 import com.tsuk1.itsmygo.common.logging.RequestIdFilter;
 import com.tsuk1.itsmygo.service.AfterSaleService;
 import lombok.extern.slf4j.Slf4j;

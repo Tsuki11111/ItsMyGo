@@ -7,7 +7,7 @@ import com.tsuk1.itsmygo.dto.AfterSaleRejectRequest;
 import com.tsuk1.itsmygo.dto.AfterSaleStatsView;
 import com.tsuk1.itsmygo.dto.AfterSaleView;
 import com.tsuk1.itsmygo.dto.PageResponse;
-import com.tsuk1.itsmygo.security.CurrentUser;
+import com.tsuk1.itsmygo.common.identity.CurrentUser;
 import com.tsuk1.itsmygo.service.AfterSaleService;
 import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;

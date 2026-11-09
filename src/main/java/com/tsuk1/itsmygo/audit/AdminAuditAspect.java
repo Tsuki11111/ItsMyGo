@@ -1,9 +1,10 @@
-package com.tsuk1.itsmygo.common.audit;
+package com.tsuk1.itsmygo.audit;
 
 import com.tsuk1.itsmygo.common.Result;
+import com.tsuk1.itsmygo.common.audit.AdminAudit;
 import com.tsuk1.itsmygo.common.logging.RequestIdFilter;
 import com.tsuk1.itsmygo.entity.AdminAuditLog;
-import com.tsuk1.itsmygo.security.CurrentUser;
+import com.tsuk1.itsmygo.common.identity.CurrentUser;
 import com.tsuk1.itsmygo.service.AdminAuditService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;

@@ -11,7 +11,7 @@
 | 你的问题 | 读哪里 |
 |---|---|
 | 要做什么、做到什么程度、什么不做、怎么验收 | [docs/requirements.md](docs/requirements.md) |
-| 选了什么技术、为什么、整体架构、契约怎么对接、决策记录 D1–D15 | [docs/architecture.md](docs/architecture.md) |
+| 选了什么技术、为什么、整体架构、契约怎么对接、决策记录 D1–D36 | [docs/architecture.md](docs/architecture.md) |
 | 每个机制具体怎么实现（认证链路、越权校验、库存、缓存、拆单…） | [docs/implementation.md](docs/implementation.md) |
 | 接口清单、请求 / 响应、限流、SSE 事件 | [docs/api.md](docs/api.md) |
 | 部署、端口、联合部署、生产 VM | [docs/deployment.md](docs/deployment.md) |

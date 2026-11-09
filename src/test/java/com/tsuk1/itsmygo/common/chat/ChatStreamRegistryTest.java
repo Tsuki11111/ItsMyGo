@@ -1,6 +1,6 @@
 package com.tsuk1.itsmygo.common.chat;
 
-import com.tsuk1.itsmygo.security.CurrentUser;
+import com.tsuk1.itsmygo.common.identity.CurrentUser;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;

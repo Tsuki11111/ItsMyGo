@@ -1,5 +1,7 @@
 package com.tsuk1.itsmygo.security;
 
+import com.tsuk1.itsmygo.common.identity.CurrentUser;
+import com.tsuk1.itsmygo.common.security.TokenIssuer;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
@@ -13,7 +15,7 @@ import java.time.Instant;
 import java.util.Date;
 
 @Component
-public class JwtService {
+public class JwtService implements TokenIssuer {
 
     private final SecretKey key;
     private final Duration expire;
@@ -24,6 +26,7 @@ public class JwtService {
         this.expire = Duration.ofMinutes(expireMinutes);
     }
 
+    @Override
     public String issue(Long userId, String username, String role) {
         Instant now = Instant.now();
         return Jwts.builder()

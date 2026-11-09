@@ -1,7 +1,7 @@
 package com.tsuk1.itsmygo.common.chat;
 
 import com.tsuk1.itsmygo.entity.Merchant;
-import com.tsuk1.itsmygo.security.CurrentUser;
+import com.tsuk1.itsmygo.common.identity.CurrentUser;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;

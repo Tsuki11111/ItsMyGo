@@ -4,7 +4,7 @@ import com.tsuk1.itsmygo.dto.agent.AgentConverseRequest;
 import com.tsuk1.itsmygo.dto.agent.AgentHistoryView;
 import com.tsuk1.itsmygo.dto.agent.AgentSessionView;
 import com.tsuk1.itsmygo.dto.agent.AgentStopRequest;
-import com.tsuk1.itsmygo.security.CurrentUser;
+import com.tsuk1.itsmygo.common.identity.CurrentUser;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;

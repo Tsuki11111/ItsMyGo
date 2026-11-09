@@ -817,7 +817,8 @@ class OrderControllerTest extends ApiTestBase {
                         .param("dateTo", today))
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.records.length()").value(1))
-                .andExpect(jsonPath("$.data.records[0].orderNo").value(orderNo));
+                .andExpect(jsonPath("$.data.records[0].orderNo").value(orderNo))
+                .andExpect(jsonPath("$.data.records[0].statusLabel").value("待支付"));
 
         mockMvc.perform(get("/api/admin/orders/export")
                         .header("Authorization", bearer(admin))

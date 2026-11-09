@@ -4,7 +4,7 @@ import com.tsuk1.itsmygo.common.Result;
 import com.tsuk1.itsmygo.dto.CartAddRequest;
 import com.tsuk1.itsmygo.dto.CartUpdateRequest;
 import com.tsuk1.itsmygo.dto.CartView;
-import com.tsuk1.itsmygo.security.CurrentUser;
+import com.tsuk1.itsmygo.common.identity.CurrentUser;
 import com.tsuk1.itsmygo.service.CartService;
 import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;

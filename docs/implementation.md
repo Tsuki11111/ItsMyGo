@@ -3129,3 +3129,35 @@ query 清除、再点同一条可重开；历史通知（订单号 2026110817102
 商城顶栏「我的消息」角标为空、链接 `/user/messages`；用户菜单「商家后台」角标 1；
 进入 `/merchant/messages` 后侧栏消息角标 1，列表为该顾客会话。
 `type-check` / `build:web` 通过。
+
+### 3.52 代码质量整改（R5/R1/R2/T5/R3，2026-11-09）
+
+**R5 包边界**：`CurrentUser` / `AuthIdentityService` 从 `security` 移到 `common.identity`；
+`JwtAuthenticationFilter` 只依赖 `common.rbac.PermissionReader`，`AuthServiceImpl` 只依赖
+`common.security.TokenIssuer`，切断 service ↔ security 反向依赖；`common` 里的订单/售后/商品
+定时任务与 MQ 消费者移到 `task.*`，审计切面移到 `audit`，登录促销触发移到 `service.promotion`，
+切断 common ↔ service 循环。依赖方向变为 security → common、service → common、
+task/audit → common + service。
+
+**R1 订单创建拆分**：`OrderServiceImpl.doCreate` 保留编排，拆出
+`requireAddress` / `buildCheckoutPlan`（校验 + 分店 + 券） / `reserveStock`（按 skuId 排序预扣） /
+`selectedCartItemIds` / `persistOrders`（订单 + 明细快照） / `finishCheckout`（MQ 或同步结算）；
+事务回补、错误文案与返回结构不变。
+
+**R2 智能体动作拆分**：`AgentActionServiceImpl` 从 1,208 行降到约 376 行，只保留
+prepare/update/reprepare/confirm/cancel/list；抽出 `AgentActionSupport`（视图/幂等/JSON/地址）、
+`AgentOrderDraftBuilder`、`AgentRefundActionService`、`AgentUrgeActionService`（冷却、Redis 锁、
+催办事件）。行为与文案保持原样。
+
+**R3 订单状态标签单一来源**：`Order` 增加非数据库列 `statusLabel`
+（`@TableField(exist=false)`）；管理端/商家端分页结果由 `fillStatusLabels` 填充；前端
+`Order` 类型加 `statusLabel?`，列表显示 `row.statusLabel || row.status`；`orderStatus.ts`
+只保留 tag 映射与筛选选项，删除重复中文 label。
+
+**T5 前端测试**：引入 Vitest + jsdom + `@vue/test-utils`；`frontend/vitest.config.ts`
+（jsdom、`@` 别名、`src/**/*.spec.ts`）；首批 3 个 spec 共 11 条，覆盖订单状态 tag/筛选、
+`v-permission` 显隐、登录态 localStorage 读写与坏数据清理。根 `npm run test:web` 转发
+`frontend` 的 `test:run`。
+
+**验证**：后端全量 **357 条**通过（CI 353，跳过 4 条 MinIO）；前端 Vitest **11 条**通过；
+`type-check` / `build` 通过。

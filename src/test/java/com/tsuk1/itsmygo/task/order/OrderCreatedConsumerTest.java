@@ -1,6 +1,7 @@
-package com.tsuk1.itsmygo.common.order;
+package com.tsuk1.itsmygo.task.order;
 
 import com.tsuk1.itsmygo.service.OrderSettlementService;
+import com.tsuk1.itsmygo.task.order.OrderCreatedConsumer;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;

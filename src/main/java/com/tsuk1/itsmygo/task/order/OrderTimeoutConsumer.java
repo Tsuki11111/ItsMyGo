@@ -1,6 +1,8 @@
-package com.tsuk1.itsmygo.common.order;
+package com.tsuk1.itsmygo.task.order;
 
 import com.tsuk1.itsmygo.common.logging.RequestIdFilter;
+import com.tsuk1.itsmygo.common.order.OrderTimeoutProperties;
+import com.tsuk1.itsmygo.common.order.OrderTimeoutRabbitTopology;
 import com.tsuk1.itsmygo.service.OrderService;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;

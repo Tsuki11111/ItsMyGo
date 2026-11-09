@@ -11,7 +11,7 @@ import com.tsuk1.itsmygo.dto.ChatUnreadView;
 import com.tsuk1.itsmygo.dto.ConversationView;
 import com.tsuk1.itsmygo.dto.PageResponse;
 import com.tsuk1.itsmygo.dto.SendChatMessageRequest;
-import com.tsuk1.itsmygo.security.CurrentUser;
+import com.tsuk1.itsmygo.common.identity.CurrentUser;
 import com.tsuk1.itsmygo.service.ChatService;
 import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;

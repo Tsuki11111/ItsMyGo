@@ -3,7 +3,7 @@ package com.tsuk1.itsmygo.controller;
 import com.tsuk1.itsmygo.common.Result;
 import com.tsuk1.itsmygo.dto.AddressRequest;
 import com.tsuk1.itsmygo.entity.Address;
-import com.tsuk1.itsmygo.security.CurrentUser;
+import com.tsuk1.itsmygo.common.identity.CurrentUser;
 import com.tsuk1.itsmygo.service.AddressService;
 import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;

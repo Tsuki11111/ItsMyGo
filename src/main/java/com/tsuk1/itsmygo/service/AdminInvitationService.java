@@ -1,7 +1,7 @@
 package com.tsuk1.itsmygo.service;
 
 import com.tsuk1.itsmygo.dto.AdminInvitationView;
-import com.tsuk1.itsmygo.security.CurrentUser;
+import com.tsuk1.itsmygo.common.identity.CurrentUser;
 
 import java.util.List;
 

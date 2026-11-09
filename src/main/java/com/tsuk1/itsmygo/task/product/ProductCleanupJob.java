@@ -1,6 +1,7 @@
-package com.tsuk1.itsmygo.common.product;
+package com.tsuk1.itsmygo.task.product;
 
 import com.tsuk1.itsmygo.common.RedisCacheHelper;
+import com.tsuk1.itsmygo.common.product.ProductCleanupProperties;
 import com.tsuk1.itsmygo.service.ProductCleanupService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;

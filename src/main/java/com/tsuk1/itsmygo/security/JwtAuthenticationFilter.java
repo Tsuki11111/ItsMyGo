@@ -2,7 +2,9 @@ package com.tsuk1.itsmygo.security;
 
 import io.jsonwebtoken.JwtException;
 import com.tsuk1.itsmygo.common.Roles;
-import com.tsuk1.itsmygo.service.RbacService;
+import com.tsuk1.itsmygo.common.identity.AuthIdentityService;
+import com.tsuk1.itsmygo.common.identity.CurrentUser;
+import com.tsuk1.itsmygo.common.rbac.PermissionReader;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -30,13 +32,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
     private final AuthIdentityService authIdentityService;
-    private final RbacService rbacService;
+    private final PermissionReader permissionReader;
 
     public JwtAuthenticationFilter(JwtService jwtService, AuthIdentityService authIdentityService,
-                                   RbacService rbacService) {
+                                   PermissionReader permissionReader) {
         this.jwtService = jwtService;
         this.authIdentityService = authIdentityService;
-        this.rbacService = rbacService;
+        this.permissionReader = permissionReader;
     }
 
     @Override
@@ -54,7 +56,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     List<GrantedAuthority> authorities = new ArrayList<>();
                     authorities.add(new SimpleGrantedAuthority("ROLE_" + user.role()));
                     if (Roles.ADMIN.equals(user.role())) {
-                        rbacService.permissionCodes(user.id())
+                        permissionReader.permissionCodes(user.id())
                                 .forEach(code -> authorities.add(new SimpleGrantedAuthority(code)));
                     }
                     UsernamePasswordAuthenticationToken authentication =

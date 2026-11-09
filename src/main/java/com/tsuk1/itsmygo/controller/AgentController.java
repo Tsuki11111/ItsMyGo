@@ -8,7 +8,7 @@ import com.tsuk1.itsmygo.dto.agent.AgentPreferenceRequest;
 import com.tsuk1.itsmygo.dto.agent.AgentPreferenceView;
 import com.tsuk1.itsmygo.dto.agent.AgentSessionView;
 import com.tsuk1.itsmygo.dto.agent.AgentStopRequest;
-import com.tsuk1.itsmygo.security.CurrentUser;
+import com.tsuk1.itsmygo.common.identity.CurrentUser;
 import com.tsuk1.itsmygo.service.AgentChatService;
 import com.tsuk1.itsmygo.service.AgentPreferenceService;
 import jakarta.servlet.http.HttpServletResponse;

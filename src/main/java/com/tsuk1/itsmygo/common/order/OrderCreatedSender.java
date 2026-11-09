@@ -12,7 +12,7 @@ import tools.jackson.databind.ObjectMapper;
  * 发送「订单已创建」事件到 RabbitMQ。
  *
  * <p>发送失败只记日志，不阻断下单；`CREATING` 超时扫描会重投兜底
- * （见 {@link com.tsuk1.itsmygo.common.order.OrderCreationScanJob}）。</p>
+ * （见 {@link com.tsuk1.itsmygo.task.order.OrderCreationScanJob}）。</p>
  */
 @Slf4j
 @Component

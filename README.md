@@ -144,6 +144,7 @@ npm run dev:joint:stop         # 停止应用进程
 npm run build                  # 前端生产构建 + 后端 jar（跳过测试）
 npm run type-check             # 前端 vue-tsc
 npm test                       # = ./mvnw test（后端全量）
+npm run test:web               # 前端 Vitest（纯逻辑/组件测试）
 ```
 
 打开 `http://localhost:5173`；本地开发库演示账号 `testuser` / `123456`（仅 DEV seed，生产不创建）。
@@ -230,11 +231,11 @@ cd ~/itsmygo-offline
 | 多商户 + 在线客服 + AI 客服接入（M5.6–M13） | ✅ 2026-10 |
 | 运营后台 + 商品社区 + 平台政策 + 压测（M15–M29） | ✅ 2026-10 ~ 11 |
 | 售后 + 下单异步补账（M30–M31） | ✅ 2026-11 |
-| 交付增强：站内通知 / RBAC P1·P2 / 商品归档 / P0 整改 / 编辑体验 | ✅ 2026-11 |
+| 交付增强：站内通知 / RBAC P1·P2 / 商品归档 / P0 整改 / 编辑体验 / 质量整改 | ✅ 2026-11 |
 | 已确认不做：RBAC 邀请选角色（P2.1）、商户与商品运营二期 | ⏸️ 移出范围 2026-11-08 |
 
 - **交易闭环**：浏览 → 加购 → 按店拆单 → 支付 → 发货 → 收货；取消 / 超时 / 退款回滚库存与优惠券。
-- **测试**：后端 **341 条**（CI 337 条，跳过 4 条依赖 MinIO 的用例）；前端 `type-check` + `build`。
+- **测试**：后端 **357 条**（CI 353 条，跳过 4 条依赖 MinIO 的用例）；前端 Vitest **11 条** + `type-check` + `build`。
 - **压测基线**（2026-11-02）：读接口 2600–3500 QPS、分类 / 令牌 7000+ QPS、
   10 并发抢 5 件库存恰好 5 单、同一订单 5 并发支付只产生 1 条支付记录。
 - 完整里程碑与验收记录见 [HANDOFF.md](HANDOFF.md) §6。
@@ -244,7 +245,7 @@ cd ~/itsmygo-offline
 | 文件 | 作用 |
 |---|---|
 | [docs/requirements.md](docs/requirements.md) | **需求分析** —— 产品定位、角色与场景、功能 / 非功能需求、平台对接前提、验收标准、范围外、里程碑与待定问题 |
-| [docs/architecture.md](docs/architecture.md) | **架构选型** —— 技术栈与理由、总体架构、接口契约概览、关键取舍、决策记录 D1–D15、跨仓库协作 |
+| [docs/architecture.md](docs/architecture.md) | **架构选型** —— 技术栈与理由、总体架构、接口契约概览、关键取舍、决策记录 D1–D36、跨仓库协作 |
 | [docs/implementation.md](docs/implementation.md) | **代码怎么实现的** —— 请求流转、认证链路、各模块实现要点与取舍 |
 | [HANDOFF.md](HANDOFF.md) | **状态与坑的权威源** —— 具体进度、下一步、踩过的坑、环境与操作 |
 | [docs/api.md](docs/api.md) | **后端接口文档** —— 全部接口、请求 / 响应、权限、限流与 SSE 事件 |
