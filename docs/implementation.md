@@ -3179,3 +3179,21 @@ prepare/update/reprepare/confirm/cancel/list；抽出 `AgentActionSupport`（视
 **验证**：真实浏览器查询「推荐5款打印机，每款都给出链接」→ DOM 序列为
 文字 1 → 卡 1 → … → 文字 5 → 卡 5 → 收尾文字，`inlineCards=5`、`gridCards=0`；
 每款商品正文有 2 句以上卖点/场景介绍；卡内按钮文字正常；`npm run build` 通过。
+
+### 3.54 历史回放商品卡按轮次独立去重（2026-11-09）
+
+**问题**：用户在历史会话里看到「文字与商品不对应，而且还会漏掉商品卡片」。前端 `loadHistory` 用
+一个跨消息的 `seenProductIds` 去重，导致后面轮次推荐里与前面重复的商品整张卡被丢掉，但正文仍
+保留该商品介绍，出现「有文字没卡、后一张卡顶到前一条商品」的错位。
+
+**修复**：
+- 新增 `frontend/src/components/chat/productCards.ts` 的 `dedupeProductCards(products)`：
+  每次调用新建 Set，只在单条消息内按 `productId` 去重，跨消息互不影响。
+- `loadHistory` 改为 `dedupeProductCards(item.products || [])`；实时 `final` 事件也复用该函数，
+  再叠加购买意图的 `existingProductIds` 过滤。
+- 新增 `productCards.spec.ts`：同一条消息内重复商品只留一张；两轮各自去重，第二轮不会被第一轮
+  吞卡（防止回退成全局 Set）。
+
+**验证**：历史会话 `e8c35cca80ed4e0c98a55220030c4f35` 最后一条回答正文 6 款商品，修复前只渲染
+4 张卡（缺 1722、1738），修复后 DOM 序列为「文字 1 → 卡 1 → … → 文字 6 → 卡 6」共 6 张；
+Vitest 13/13、`npm run build` 通过。

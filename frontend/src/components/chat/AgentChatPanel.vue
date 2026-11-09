@@ -28,6 +28,7 @@ import { fetchOrders } from '@/api/order'
 import AgentActionCard from './AgentActionCard.vue'
 import AgentFormCard from './AgentFormCard.vue'
 import AgentProductCardView from './AgentProductCard.vue'
+import { dedupeProductCards } from './productCards'
 import { useUserStore } from '@/stores/user'
 import type {
   AgentActionView,
@@ -372,14 +373,10 @@ async function loadHistory(savedSessionId: string) {
   loadingHistory.value = true
   try {
     const view = await fetchAgentHistory(savedSessionId, 30)
-    // 同一张商品卡在会话里只展示一次，避免「点下单后又出现一张同样的卡」
-    const seenProductIds = new Set<string>()
     messages.value = view.messages.map((item, index) => {
-      const products = (item.products || []).filter((product) => {
-        if (seenProductIds.has(product.productId)) return false
-        seenProductIds.add(product.productId)
-        return true
-      })
+      // 只在单条消息内去重：不同轮次的推荐各自保留卡片，
+      // 否则历史回放时后面的推荐会被前面出现过的同款商品卡整张吞掉。
+      const products = dedupeProductCards(item.products || [])
       return {
       id: `h-${index}`,
       role: item.role === 'user' ? 'user' : 'assistant',
@@ -510,7 +507,7 @@ async function sendMessage(preset?: string, formResult?: AgentFormResult,
           assistant.text = event.answer || assistant.text
         }
         assistant.images = event.images || []
-        assistant.products = (event.products || []).filter(
+        assistant.products = dedupeProductCards(event.products || []).filter(
           (product) => !existingProductIds.has(product.productId))
         assistant.forms = event.forms || []
         assistant.webOnly = event.webOnly
