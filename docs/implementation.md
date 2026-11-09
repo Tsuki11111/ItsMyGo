@@ -3168,8 +3168,9 @@ prepare/update/reprepare/confirm/cancel/list；抽出 `AgentActionSupport`（视
 且 rag_helper 侧因先截断再对账只下发 1 张（修复见 rag_helper HANDOFF §3.82）。
 
 **前端实现（`AgentChatPanel.vue`）**：
-- 新增 `messageBlocks(message)`：按行扫描 `/product/(\d+)` 或商品名，命中行先 flush
-  文字块，再紧跟对应 `AgentProductCard`；未被正文引用的卡片收尾为一组 `.product-grid`。
+- 新增 `messageBlocks(message)`：按行扫描 `/product/(\d+)` 或商品名；命中后不立即出卡，
+  先攒这一款后续的介绍文字，遇到下一款商品时再 flush「文字块 → 对应卡片」，
+  保证卡片跟在完整介绍之后；未被正文引用的卡片收尾为一组 `.product-grid`。
 - 模板改为 `v-for` 渲染 `text | card | cards` 三种块；文字块单独挂 `.markdown-body`，
   避免 Markdown 的 `a` 样式把商品卡「查看详情」白字覆盖成粉底粉字。
 - 拆块会打断有序列表编号，渲染前把行首 `^(\s*)(\d+)\.(\s)` 转义为 `$1$2\.$3`；
@@ -3177,4 +3178,4 @@ prepare/update/reprepare/confirm/cancel/list；抽出 `AgentActionSupport`（视
 
 **验证**：真实浏览器查询「推荐5款打印机，每款都给出链接」→ DOM 序列为
 文字 1 → 卡 1 → … → 文字 5 → 卡 5 → 收尾文字，`inlineCards=5`、`gridCards=0`；
-卡内按钮文字正常；`npm run build` 通过。
+每款商品正文有 2 句以上卖点/场景介绍；卡内按钮文字正常；`npm run build` 通过。

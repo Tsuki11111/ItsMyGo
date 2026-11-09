@@ -151,8 +151,8 @@ type AnswerBlock =
 
 /**
  * 把回答切成「文字块 / 商品卡」交替的序列：
- * 商品链接（/product/{id}）或商品名所在的那一行之后紧跟对应卡片，
- * 用户看到的顺序就是「推荐理由 1 → 商品 1 → 推荐理由 2 → 商品 2」。
+ * 商品链接（/product/{id}）或商品名所在的段落（从该行到下一款商品之前）之后
+ * 紧跟对应卡片，用户看到的顺序就是「推荐理由 1 → 商品 1 → 推荐理由 2 → 商品 2」。
  * 没被正文引用的卡片统一收尾，避免丢卡。
  */
 function messageBlocks(message: UiMessage): AnswerBlock[] {
@@ -165,6 +165,7 @@ function messageBlocks(message: UiMessage): AnswerBlock[] {
   const used = new Set<string>()
   const blocks: AnswerBlock[] = []
   const buffer: string[] = []
+  let pending: AgentProductCard[] = []
   const flushText = () => {
     const raw = buffer.join('\n').trim()
     if (raw) {
@@ -177,6 +178,10 @@ function messageBlocks(message: UiMessage): AnswerBlock[] {
     }
     buffer.length = 0
   }
+  const flushCards = () => {
+    for (const product of pending) blocks.push({ type: 'card', product })
+    pending = []
+  }
 
   for (const line of text.split('\n')) {
     const ids = [...line.matchAll(/\/product\/(\d+)/g)].map((match) => match[1])
@@ -187,18 +192,21 @@ function messageBlocks(message: UiMessage): AnswerBlock[] {
           (product.name && line.includes(product.name))),
     )
     if (matched.length) {
-      buffer.push(line)
+      // 上一款商品的介绍收尾 → 先出文字，再出它的卡片；然后开始下一款
       flushText()
+      flushCards()
+      buffer.push(line)
       for (const product of matched) {
         if (used.has(String(product.productId))) continue
         used.add(String(product.productId))
-        blocks.push({ type: 'card', product })
+        pending.push(product)
       }
     } else {
       buffer.push(line)
     }
   }
   flushText()
+  flushCards()
 
   const rest = products.filter((product) => !used.has(String(product.productId)))
   if (rest.length) blocks.push({ type: 'cards', products: rest })
