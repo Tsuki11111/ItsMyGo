@@ -144,6 +144,67 @@ function renderMarkdown(text: string): string {
   return DOMPurify.sanitize(html)
 }
 
+type AnswerBlock =
+  | { type: 'text'; html: string }
+  | { type: 'card'; product: AgentProductCard }
+  | { type: 'cards'; products: AgentProductCard[] }
+
+/**
+ * 把回答切成「文字块 / 商品卡」交替的序列：
+ * 商品链接（/product/{id}）或商品名所在的那一行之后紧跟对应卡片，
+ * 用户看到的顺序就是「推荐理由 1 → 商品 1 → 推荐理由 2 → 商品 2」。
+ * 没被正文引用的卡片统一收尾，避免丢卡。
+ */
+function messageBlocks(message: UiMessage): AnswerBlock[] {
+  const text = message.text || ''
+  const products = message.products || []
+  if (!products.length) {
+    return text ? [{ type: 'text', html: renderMarkdown(text) }] : []
+  }
+
+  const used = new Set<string>()
+  const blocks: AnswerBlock[] = []
+  const buffer: string[] = []
+  const flushText = () => {
+    const raw = buffer.join('\n').trim()
+    if (raw) {
+      // 单个列表项被拆成独立文字块时，转义行首序号，避免 marked 每块都从 1 重新编号
+      const preserved = raw
+        .split('\n')
+        .map((line) => line.replace(/^(\s*)(\d+)\.(\s)/, '$1$2\\.$3'))
+        .join('\n')
+      blocks.push({ type: 'text', html: renderMarkdown(preserved) })
+    }
+    buffer.length = 0
+  }
+
+  for (const line of text.split('\n')) {
+    const ids = [...line.matchAll(/\/product\/(\d+)/g)].map((match) => match[1])
+    const matched = products.filter(
+      (product) =>
+        !used.has(String(product.productId)) &&
+        (ids.includes(String(product.productId)) ||
+          (product.name && line.includes(product.name))),
+    )
+    if (matched.length) {
+      buffer.push(line)
+      flushText()
+      for (const product of matched) {
+        if (used.has(String(product.productId))) continue
+        used.add(String(product.productId))
+        blocks.push({ type: 'card', product })
+      }
+    } else {
+      buffer.push(line)
+    }
+  }
+  flushText()
+
+  const rest = products.filter((product) => !used.has(String(product.productId)))
+  if (rest.length) blocks.push({ type: 'cards', products: rest })
+  return blocks
+}
+
 /**
  * 召回图片来自 RAG 自己的 MinIO（http://<host>:9002/rag-helper-knowledge-files/...）。
  * 展示时改成同源 /rag-images/<bucket>/<path>，由 Nginx 反代到 MinIO：
@@ -713,10 +774,33 @@ onBeforeUnmount(() => {
               {{ message.text }}
             </p>
             <div
-              v-else-if="message.role === 'assistant' && message.text"
-              class="answer markdown-body"
-              v-html="renderMarkdown(message.text)"
-            ></div>
+              v-else-if="message.role === 'assistant' && (message.text || message.products.length)"
+              class="answer"
+            >
+              <template v-for="(block, blockIndex) in messageBlocks(message)" :key="blockIndex">
+                <div
+                  v-if="block.type === 'text'"
+                  class="answer-block markdown-body"
+                  v-html="block.html"
+                ></div>
+                <div v-else-if="block.type === 'card'" class="product-inline">
+                  <AgentProductCardView
+                    :product="block.product"
+                    :busy="streaming"
+                    @buy="buyProduct"
+                  />
+                </div>
+                <div v-else class="product-grid">
+                  <AgentProductCardView
+                    v-for="product in block.products"
+                    :key="product.productId"
+                    :product="product"
+                    :busy="streaming"
+                    @buy="buyProduct"
+                  />
+                </div>
+              </template>
+            </div>
 
             <div v-if="message.images.length" class="images">
               <figure v-for="(image, index) in message.images" :key="index" class="image-item">
@@ -736,16 +820,6 @@ onBeforeUnmount(() => {
             </div>
 
             <p v-if="message.webOnly" class="web-only">本轮仅联网结果，知识库未命中</p>
-
-            <div v-if="message.products.length" class="product-grid">
-              <AgentProductCardView
-                v-for="product in message.products"
-                :key="product.productId"
-                :product="product"
-                :busy="streaming"
-                @buy="buyProduct"
-              />
-            </div>
 
             <div v-if="message.forms.length" class="form-list">
               <AgentFormCard
@@ -1354,6 +1428,17 @@ onBeforeUnmount(() => {
   border: 1px solid var(--c-border);
   border-radius: 8px;
   cursor: zoom-in;
+}
+
+.answer-block {
+  display: block;
+}
+
+/* 穿插在推荐理由之间的单张商品卡：固定窄卡宽，不拉满整行 */
+.product-inline {
+  width: 240px;
+  max-width: 100%;
+  margin: 10px 0 14px;
 }
 
 .product-grid {

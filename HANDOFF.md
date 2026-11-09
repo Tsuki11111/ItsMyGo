@@ -1616,6 +1616,25 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 
 ## 6. 历史记录
 
+### 2026-11-09 · 商品卡按推荐文字穿插展示
+
+**反馈（用户）**：智能体推荐 5 款商品只显示 1 款；希望商品卡穿插进文字间，文字和商品对应。
+
+**根因**：
+- rag_helper `_merge_products` 在按回复引用对账前先截到 8 张，正文引用靠后的商品被丢掉
+  （修复见 rag_helper HANDOFF §3.82）；
+- Java 前端把整段 Markdown 渲染完后再统一渲染 `.product-grid`，卡片全堆在文末。
+
+**实现**：
+- `AgentChatPanel.vue` 新增 `messageBlocks()`：按行扫描 `/product/{id}` 或商品名，输出
+  「文字块 → 对应商品卡」交替序列；未被引用的卡片收尾成一组。
+- 文字块单独挂 `.markdown-body`，避免 Markdown 的 `a` 样式把卡片「查看详情」染成粉底粉字；
+  卡片容器 `.product-inline` 固定 240px。
+- 拆块会打断有序列表编号，渲染前转义行首 `^(\s*)(\d+)\.(\s)`。
+
+**验证**：浏览器实测回答为「文字 1 → 卡 1 → … → 文字 5 → 卡 5 → 收尾文字」，
+`inlineCards=5`、`gridCards=0`；卡片按钮与图片正常；`npm run build` 通过。
+
 ### 2026-11-09 · 代码质量整改 R5/R1/R2/T5/R3
 
 **背景**：全项目质量审查（brooks-health balanced）得分 88/100，Architecture 85 的 Critical
