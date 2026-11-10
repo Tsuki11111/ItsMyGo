@@ -286,7 +286,7 @@ function safeTraceDetail(detail: string): string {
 
 /** 执行主体：主 agent 或子智能体的用户可读名字，统一用「名字正在…」口吻 */
 const TRACE_DEFAULT_ACTOR = '买小购'
-const TRACE_ACTORS = new Set(['买小购', '产品知识库', '商品导购', '订单服务'])
+const TRACE_ACTORS = new Set(['买小购', '产品知识库智能体', '商品导购智能体', '订单服务智能体'])
 /** 升级前存档的是名词标签，这里换成能直接接在「正在」后面的动词短语 */
 const LEGACY_TRACE_DETAILS: Record<string, string> = {
   商品推荐: '推荐商品',
@@ -295,8 +295,11 @@ const LEGACY_TRACE_DETAILS: Record<string, string> = {
 }
 /** 升级前的节点来源标签，映射到新的子智能体名字 */
 const LEGACY_TRACE_ACTORS: Record<string, string> = {
-  产品资料检索: '产品知识库',
-  商品推荐: '商品导购',
+  产品资料检索: '产品知识库智能体',
+  商品推荐: '商品导购智能体',
+  产品知识库: '产品知识库智能体',
+  商品导购: '商品导购智能体',
+  订单服务: '订单服务智能体',
 }
 
 function safeTraceActor(agent: string): string {
