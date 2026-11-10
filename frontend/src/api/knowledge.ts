@@ -42,6 +42,31 @@ export interface KnowledgeDocumentList {
   documents: KnowledgeDocument[]
 }
 
+export interface PlatformPolicySummary {
+  policyKey: string
+  title: string
+  category: string
+  version: string
+  sectionCount: number
+  updatedAt: string
+}
+
+export interface PlatformPolicySection {
+  sectionNo: number
+  heading: string
+  content: string
+}
+
+export interface PlatformPolicyDetail {
+  policyKey: string
+  title: string
+  category: string
+  version: string
+  effectiveAt: string
+  updatedAt: string
+  sections: PlatformPolicySection[]
+}
+
 /** 单文件上传；导入图在 agent 后台跑，请求返回的是 taskId */
 export function uploadKnowledgeFile(
   file: File,
@@ -68,4 +93,13 @@ export function revokeKnowledgeDocument(fileTitle: string): Promise<void> {
     `/admin/knowledge/documents/${encodeURIComponent(fileTitle)}`,
     120000,
   )
+}
+
+/** 平台政策：政策原文以 MySQL 为准，管理端只读展示章节。 */
+export function fetchPlatformPolicies(): Promise<PlatformPolicySummary[]> {
+  return get<PlatformPolicySummary[]>('/policies')
+}
+
+export function fetchPlatformPolicy(policyKey: string): Promise<PlatformPolicyDetail> {
+  return get<PlatformPolicyDetail>(`/policies/${encodeURIComponent(policyKey)}`)
 }

@@ -1616,6 +1616,26 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 
 ## 6. 历史记录
 
+### 2026-11-10 · 平台政策持久化 + 管理端知识库分库
+
+**需求（用户）**：新增平台政策智能体；先把政策持久化，政策要适合 agent 读取，最终确认接入 Milvus；
+管理端知识库改成「一个页面 + 分知识库页内切换」。
+
+**实现**：
+- `V39__platform_policy.sql` 新建 `platform_policy` / `platform_policy_section`；
+  `PlatformPolicySeeder` 首次启动从 `docs/policies/*.md` 解析标题与 `##`/`###` 章节入表，
+  已有数据跳过（避免覆盖管理端修改）；版本 1.0、`ACTIVE`。
+- `GET /api/policies`、`GET /api/policies/{policyKey}` 公开只读；`SecurityConfig` 放行 GET。
+- `pom.xml` 将 `docs/policies` 打进 classpath，Dockerfile 同步复制。
+- `Knowledge.vue` 改为 `el-tabs`：产品文档知识库 / 平台政策库；政策库左侧政策列表，
+  右侧按章节展示，正文用 `marked` + `DOMPurify` 渲染；本期只读。
+- rag_helper 侧：`policy_import.py` 拉 Java 接口导入 `kb_platform_policy`（50 章节）；
+  `policy_kb.search_platform_policy` 单路检索并挂主 agent，提示词要求注明政策标题与章节。
+- 真实问题「退款一般多久能到账？」命中《退换货与售后政策》第 3 条（退款时效）。
+
+**验证**：Java 全量 **359 条通过**；4 份政策章节数 12/15/13/10；管理端 tab 切换正常；
+前端 `npm run build` 通过。
+
 ### 2026-11-10 · 流式执行过程只显示中文动作
 
 **反馈（用户）**：“现在流式的执行过程中暴露了工具和参数，能不能改一下”。

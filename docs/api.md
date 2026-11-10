@@ -1560,6 +1560,18 @@ refundReason, refundAppliedAt, note}`。
 { "promotionEnabled": false, "webSearchEnabled": true, "streamEnabled": false }
 ```
 
+### 19.6 平台政策（2026-11-10）
+
+政策原文以 MySQL 为事实源，供官网政策页与 agent 政策问答使用；接口公开只读。
+
+- `GET /api/policies` → `data: [{policyKey,title,category,version,sectionCount,updatedAt}]`
+  只返回 `ACTIVE` 政策，`sectionCount` 为该政策章节数。
+- `GET /api/policies/{policyKey}` → `data: {policyKey,title,category,version,effectiveAt,updatedAt,sections:[{sectionNo,heading,content}]}`
+  章节按 `section_no` 升序；不存在 → HTTP 200 + `code=404`。
+- `policyKey` 取值：`terms`（用户协议）、`privacy`（隐私政策）、`refund`（退换货与售后政策）、`merchant`（商家入驻与经营规范）。
+- 首次启动由 `PlatformPolicySeeder` 从 `docs/policies/*.md` 解析入库；库中已有政策时跳过，不覆盖后续管理端修改。
+- 管理端知识库页面通过上述接口展示「平台政策库」tab，本章节只读，不做在线编辑。
+
 ---
 
 ## 20. 限流汇总

@@ -3216,3 +3216,27 @@ Vitest 13/13、`npm run build` 通过。
 
 **验证**：真实 gRPC 流式查询 trace 序列只含中文动作，工具名/参数禁词命中为空；
 `npm run build` 通过、Vitest 13/13。
+
+### 3.56 平台政策持久化与知识库分库（2026-11-10）
+
+**目标**：政策（用户协议 / 隐私 / 退换货与售后 / 商家规范）从“前端直接读 Markdown”升级为
+可持久化、可供 agent 检索的正式知识；管理端知识库按知识库类型分页签查看。
+
+**后端**：
+- `V39__platform_policy.sql` 新建 `platform_policy`（`policy_key` 唯一、`title/category/version/status/content_md/effective_at`）
+  与 `platform_policy_section`（`policy_id/section_no/heading/content`，`unique(policy_id, section_no)`）。
+- `PlatformPolicySeeder`（`ApplicationRunner`）首次启动从 `classpath*:policies/*.md` 解析首个 `#` 标题与
+  `##`/`###` 章节，标题前正文归入「总则」；已有政策时跳过，避免重启覆盖管理端修改。
+- `GET /api/policies`、`GET /api/policies/{policyKey}` 公开只读；`SecurityConfig` 放行 GET。
+- `pom.xml` 将 `docs/policies` 打进 classpath，`Dockerfile` 同步 `COPY docs/policies`。
+
+**前端**：
+- `Knowledge.vue` 改为单页 + `el-tabs`：产品文档知识库（原上传/任务/文档表）、平台政策库。
+- 平台政策 tab 左侧政策列表（标题/分类/版本/章节数），右侧章节详情；章节正文用
+  `marked` + `DOMPurify` 渲染 Markdown（表格、列表可读）；只读，本期不做在线编辑。
+
+**测试**：`PlatformPolicyControllerTest`（列表/详情/章节排序）与 `PlatformPolicySeederTest`
+（Markdown 解析、章节号）通过；全量 **359 条通过**。
+
+**验证**：后端启动后 `/api/policies` 返回 4 份政策（12/15/13/10 章节）；管理端 tab 切换正常，
+政策详情按章节渲染。

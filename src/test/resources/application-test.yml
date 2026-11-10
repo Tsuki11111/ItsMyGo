@@ -42,3 +42,6 @@ itsmygo:
   # 定时推广不在单测里跑；需要验证批量路径时直接调 PromotionService.runDaily()
   promotion:
     enabled: false
+  # 测试不自动种政策：政策用例自己准备数据，避免共享测试库被历史种子影响
+  policy:
+    seed-enabled: false

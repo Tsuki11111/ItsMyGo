@@ -1,15 +1,23 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { UploadFile, UploadInstance, UploadRawFile } from 'element-plus'
 import { Delete, Refresh, UploadFilled } from '@element-plus/icons-vue'
 import {
   fetchKnowledgeDocuments,
   fetchKnowledgeTask,
+  fetchPlatformPolicies,
+  fetchPlatformPolicy,
   revokeKnowledgeDocument,
   uploadKnowledgeFile,
 } from '@/api/knowledge'
-import type { KnowledgeDocument } from '@/api/knowledge'
+import type {
+  KnowledgeDocument,
+  PlatformPolicyDetail,
+  PlatformPolicySummary,
+} from '@/api/knowledge'
 
 interface ImportTask {
   taskId: string
@@ -19,6 +27,7 @@ interface ImportTask {
   runningList: string[]
 }
 
+const activeTab = ref<'docs' | 'policy'>('docs')
 const documents = ref<KnowledgeDocument[]>([])
 const loading = ref(false)
 const uploading = ref(false)
@@ -27,6 +36,11 @@ const force = ref(false)
 const tasks = ref<ImportTask[]>([])
 const uploadRef = ref<UploadInstance>()
 const uploadHint = ref('')
+
+const policies = ref<PlatformPolicySummary[]>([])
+const policyLoading = ref(false)
+const policyDetail = ref<PlatformPolicyDetail | null>(null)
+const policyDetailLoading = ref(false)
 
 let pollTimer: number | undefined
 
@@ -77,6 +91,10 @@ function onFilesChanged(_file: UploadFile, files: UploadFile[]) {
 
 function formatTime(value: string): string {
   return value ? value.replace('T', ' ').slice(0, 16) : '—'
+}
+
+function renderPolicyContent(content: string): string {
+  return DOMPurify.sanitize(marked.parse(content || '', { async: false }))
 }
 
 async function loadDocuments() {
@@ -184,6 +202,41 @@ function stopPolling() {
   }
 }
 
+async function loadPolicies() {
+  policyLoading.value = true
+  try {
+    policies.value = await fetchPlatformPolicies()
+    if (!policyDetail.value && policies.value.length) {
+      await selectPolicy(policies.value[0])
+    }
+  } finally {
+    policyLoading.value = false
+  }
+}
+
+async function selectPolicy(row: PlatformPolicySummary) {
+  policyDetailLoading.value = true
+  try {
+    policyDetail.value = await fetchPlatformPolicy(row.policyKey)
+  } finally {
+    policyDetailLoading.value = false
+  }
+}
+
+function onTabChange(name: string | number) {
+  if (name === 'policy' && policies.value.length === 0) {
+    void loadPolicies()
+  }
+}
+
+function refreshActive() {
+  if (activeTab.value === 'policy') {
+    void loadPolicies()
+  } else {
+    void loadDocuments()
+  }
+}
+
 async function revoke(row: KnowledgeDocument) {
   try {
     await ElMessageBox.confirm(
@@ -216,12 +269,14 @@ onBeforeUnmount(stopPolling)
       <div>
         <h2>知识库</h2>
         <p class="page-desc">
-          上传 PDF / Markdown 文档，供买小购检索回答；导入在 agent 后台执行，完成后会出现在下方文档列表。
+          按知识库分别维护：产品文档供买小购检索回答；平台政策以 MySQL 章节为准，供政策问答引用。
         </p>
       </div>
-      <el-button :icon="Refresh" @click="loadDocuments">刷新文档</el-button>
+      <el-button :icon="Refresh" @click="refreshActive">刷新</el-button>
     </div>
 
+    <el-tabs v-model="activeTab" class="kb-tabs" @tab-change="onTabChange">
+      <el-tab-pane label="产品文档知识库" name="docs">
     <section class="upload-card">
       <el-upload
         ref="uploadRef"
@@ -299,6 +354,62 @@ onBeforeUnmount(stopPolling)
         </template>
       </el-table>
     </section>
+      </el-tab-pane>
+
+      <el-tab-pane label="平台政策库" name="policy">
+        <div class="policy-layout">
+          <section class="policy-list">
+            <div class="panel-title">政策（{{ policies.length }}）</div>
+            <el-table
+              v-loading="policyLoading"
+              :data="policies"
+              border
+              highlight-current-row
+              @row-click="selectPolicy"
+            >
+              <el-table-column prop="title" label="政策" min-width="180" show-overflow-tooltip />
+              <el-table-column prop="category" label="分类" width="110" />
+              <el-table-column prop="version" label="版本" width="70" align="center" />
+              <el-table-column prop="sectionCount" label="章节" width="70" align="right" />
+              <template #empty>
+                <el-empty description="还没有平台政策" />
+              </template>
+            </el-table>
+          </section>
+
+          <section v-loading="policyDetailLoading" class="policy-detail">
+            <template v-if="policyDetail">
+              <div class="policy-detail-head">
+                <div>
+                  <h3>{{ policyDetail.title }}</h3>
+                  <p class="policy-meta">
+                    {{ policyDetail.category }} · v{{ policyDetail.version }} ·
+                    更新于 {{ formatTime(policyDetail.updatedAt) }}
+                  </p>
+                </div>
+                <el-tag size="small" type="success">MySQL 原文</el-tag>
+              </div>
+              <div class="policy-sections">
+                <article
+                  v-for="section in policyDetail.sections"
+                  :key="section.sectionNo"
+                  class="policy-section"
+                >
+                  <h4>{{ section.sectionNo }}. {{ section.heading }}</h4>
+                  <div
+                    v-if="section.content"
+                    class="policy-content"
+                    v-html="renderPolicyContent(section.content)"
+                  ></div>
+                  <p v-else class="policy-content">（本节无正文）</p>
+                </article>
+              </div>
+            </template>
+            <el-empty v-else description="从左侧选择一份政策查看章节" />
+          </section>
+        </div>
+      </el-tab-pane>
+    </el-tabs>
   </div>
 </template>
 
@@ -307,6 +418,109 @@ onBeforeUnmount(stopPolling)
   background: #fff;
   padding: 20px;
   border-radius: 8px;
+}
+
+.kb-tabs {
+  margin-top: 4px;
+}
+
+.policy-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.policy-list {
+  min-width: 0;
+}
+
+.policy-detail {
+  min-height: 320px;
+  padding: 16px;
+  background: #fafafa;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+}
+
+.policy-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+
+.policy-detail-head h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.policy-meta {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+.policy-sections {
+  max-height: 560px;
+  overflow-y: auto;
+  margin-top: 12px;
+}
+
+.policy-section {
+  padding: 10px 0;
+  border-bottom: 1px dashed var(--el-border-color-lighter);
+}
+
+.policy-section:last-child {
+  border-bottom: 0;
+}
+
+.policy-section h4 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.policy-content {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--el-text-color-regular);
+  word-break: break-word;
+}
+
+.policy-content :deep(p) {
+  margin: 0 0 6px;
+}
+
+.policy-content :deep(ul),
+.policy-content :deep(ol) {
+  margin: 0 0 6px;
+  padding-left: 20px;
+}
+
+.policy-content :deep(table) {
+  width: 100%;
+  margin: 6px 0;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.policy-content :deep(th),
+.policy-content :deep(td) {
+  padding: 4px 6px;
+  border: 1px solid var(--el-border-color-lighter);
+  text-align: left;
+}
+
+@media (max-width: 1100px) {
+  .policy-layout {
+    grid-template-columns: 1fr;
+  }
 }
 
 .page-head {
