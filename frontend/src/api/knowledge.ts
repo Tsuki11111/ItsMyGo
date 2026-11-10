@@ -78,6 +78,19 @@ export function uploadKnowledgeFile(
   return postForm<KnowledgeUploadResult>('/admin/knowledge/upload', form, 300000)
 }
 
+/** 平台政策只能上传 Markdown；policyKey 为空时后端按文件名推导 */
+export function uploadPlatformPolicy(
+  file: File,
+  policyKey: string,
+): Promise<KnowledgeUploadResult> {
+  const form = new FormData()
+  form.append('files', file)
+  form.append('force', 'true')
+  form.append('knowledgeBase', 'policy')
+  form.append('policyKey', policyKey)
+  return postForm<KnowledgeUploadResult>('/admin/knowledge/upload', form, 300000)
+}
+
 export function fetchKnowledgeDocuments(): Promise<KnowledgeDocumentList> {
   return get<KnowledgeDocumentList>('/admin/knowledge/documents', undefined, 60000)
 }

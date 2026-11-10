@@ -6,10 +6,12 @@ import com.tsuk1.itsmygo.common.ResultCode;
 import com.tsuk1.itsmygo.common.agent.KnowledgeImportClient;
 import com.tsuk1.itsmygo.common.audit.AdminAudit;
 import com.tsuk1.itsmygo.common.exception.BizException;
+import com.tsuk1.itsmygo.common.policy.PlatformPolicyParser;
 import com.tsuk1.itsmygo.common.ratelimit.RateLimit;
 import com.tsuk1.itsmygo.dto.knowledge.KnowledgeDocumentList;
 import com.tsuk1.itsmygo.dto.knowledge.KnowledgeTaskStatus;
 import com.tsuk1.itsmygo.dto.knowledge.KnowledgeUploadResult;
+import com.tsuk1.itsmygo.service.PlatformPolicyService;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -19,6 +21,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Locale;
 
@@ -32,28 +36,62 @@ import java.util.Locale;
 public class AdminKnowledgeController {
 
     private final KnowledgeImportClient importClient;
+    private final PlatformPolicyService platformPolicyService;
 
-    public AdminKnowledgeController(KnowledgeImportClient importClient) {
+    public AdminKnowledgeController(KnowledgeImportClient importClient,
+                                    PlatformPolicyService platformPolicyService) {
         this.importClient = importClient;
+        this.platformPolicyService = platformPolicyService;
     }
 
-    /** 上传 PDF / Markdown；重复检测由导入服务按文件哈希完成 */
+    /** 上传 PDF / Markdown；政策库只接受单个 Markdown，并先写 MySQL 再触发向量同步 */
     @RateLimit(scene = "knowledge-upload", limit = 5, windowSeconds = 60, byUser = true)
     @PostMapping("/upload")
     @AdminAudit(action = "KNOWLEDGE_UPLOAD", label = "导入知识库文档", targetType = "KNOWLEDGE")
     public Result<KnowledgeUploadResult> upload(
             @RequestParam("files") List<MultipartFile> files,
-            @RequestParam(defaultValue = "false") boolean force) {
-        for (MultipartFile file : files) {
-            String name = file == null ? "" : file.getOriginalFilename();
-            String extension = name == null ? "" : name.substring(name.lastIndexOf('.') + 1)
-                    .toLowerCase(Locale.ROOT);
-            if (!"pdf".equals(extension) && !"md".equals(extension)) {
+            @RequestParam(defaultValue = "false") boolean force,
+            @RequestParam(defaultValue = "product") String knowledgeBase,
+            @RequestParam(defaultValue = "") String policyKey) {
+        String base = knowledgeBase == null ? "product" : knowledgeBase.trim().toLowerCase(Locale.ROOT);
+        String key = policyKey == null ? "" : policyKey.trim().toLowerCase(Locale.ROOT);
+        if (!"product".equals(base) && !"policy".equals(base)) {
+            throw new BizException(ResultCode.BAD_REQUEST, "knowledgeBase 只能是 product 或 policy");
+        }
+        if ("policy".equals(base)) {
+            if (files.size() != 1) {
+                throw new BizException(ResultCode.BAD_REQUEST, "政策库一次只能上传一个 Markdown 文件");
+            }
+            MultipartFile file = files.get(0);
+            String name = file.getOriginalFilename() == null ? "" : file.getOriginalFilename();
+            if (!name.toLowerCase(Locale.ROOT).endsWith(".md")) {
+                throw new BizException(ResultCode.BAD_REQUEST, "政策库只支持 Markdown 文件：" + name);
+            }
+            if (key.isBlank()) {
+                key = name.substring(0, name.lastIndexOf('.')).toLowerCase(Locale.ROOT);
+            }
+            if (!PlatformPolicyParser.POLICY_KEYS.contains(key)) {
                 throw new BizException(ResultCode.BAD_REQUEST,
-                        "只支持导入 PDF / Markdown 文件：" + name);
+                        "政策标识必须是 terms/privacy/refund/merchant：" + key);
+            }
+            try {
+                platformPolicyService.importMarkdown(key,
+                        new String(file.getBytes(), StandardCharsets.UTF_8));
+            } catch (IOException e) {
+                throw new BizException(ResultCode.BAD_REQUEST, "读取政策文件失败：" + name);
+            }
+        } else {
+            for (MultipartFile file : files) {
+                String name = file == null ? "" : file.getOriginalFilename();
+                String extension = name == null ? "" : name.substring(name.lastIndexOf('.') + 1)
+                        .toLowerCase(Locale.ROOT);
+                if (!"pdf".equals(extension) && !"md".equals(extension)) {
+                    throw new BizException(ResultCode.BAD_REQUEST,
+                            "只支持导入 PDF / Markdown 文件：" + name);
+                }
             }
         }
-        return Result.ok(importClient.upload(files, force));
+        return Result.ok(importClient.upload(files, force, base, key));
     }
 
     @GetMapping("/documents")

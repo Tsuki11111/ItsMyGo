@@ -19,11 +19,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * 首次启动把 4 份正式政策种入 MySQL。
@@ -35,18 +31,6 @@ import java.util.regex.Pattern;
 public class PlatformPolicySeeder implements ApplicationRunner {
 
     private static final Logger logger = LoggerFactory.getLogger(PlatformPolicySeeder.class);
-
-    private static final Pattern HEADING = Pattern.compile("^(#{2,3})\\s+(.+?)\\s*$");
-
-    /** 文件名与展示用元信息；标题优先取 Markdown 第一行 # 标题。 */
-    private static final Map<String, PolicyMeta> META = new LinkedHashMap<>();
-
-    static {
-        META.put("terms", new PolicyMeta("用户协议", "账户与服务"));
-        META.put("privacy", new PolicyMeta("隐私政策", "隐私与数据"));
-        META.put("refund", new PolicyMeta("退换货与售后政策", "售后与退款"));
-        META.put("merchant", new PolicyMeta("商家入驻与经营规范", "商家经营"));
-    }
 
     private final PlatformPolicyMapper policyMapper;
     private final PlatformPolicySectionMapper sectionMapper;
@@ -86,7 +70,7 @@ public class PlatformPolicySeeder implements ApplicationRunner {
                 continue;
             }
             String key = filename.substring(0, filename.length() - 3);
-            PolicyMeta meta = META.get(key);
+            PlatformPolicyParser.PolicyMeta meta = PlatformPolicyParser.meta(key);
             if (meta == null) {
                 continue;
             }
@@ -101,8 +85,9 @@ public class PlatformPolicySeeder implements ApplicationRunner {
         logger.info("平台政策初始化完成，共 {} 份", seeded);
     }
 
-    private void seedOne(String key, PolicyMeta meta, String markdown) {
-        ParsedPolicy parsed = parse(markdown, meta.defaultTitle());
+    private void seedOne(String key, PlatformPolicyParser.PolicyMeta meta, String markdown) {
+        PlatformPolicyParser.ParsedPolicy parsed =
+                PlatformPolicyParser.parse(markdown, meta.defaultTitle());
         PlatformPolicy policy = new PlatformPolicy();
         policy.setPolicyKey(key);
         policy.setTitle(parsed.title());
@@ -112,7 +97,7 @@ public class PlatformPolicySeeder implements ApplicationRunner {
         policy.setContentMd(markdown);
         policy.setEffectiveAt(LocalDateTime.of(2026, 11, 3, 0, 0));
         policyMapper.insert(policy);
-        for (ParsedSection section : parsed.sections()) {
+        for (PlatformPolicyParser.ParsedSection section : parsed.sections()) {
             PlatformPolicySection row = new PlatformPolicySection();
             row.setPolicyId(policy.getId());
             row.setSectionNo(section.sectionNo());
@@ -120,53 +105,5 @@ public class PlatformPolicySeeder implements ApplicationRunner {
             row.setContent(section.content());
             sectionMapper.insert(row);
         }
-    }
-
-    /** 解析标题与章节；没有二级标题时退化为“全文”一章。 */
-    ParsedPolicy parse(String markdown, String fallbackTitle) {
-        String title = fallbackTitle;
-        List<ParsedSection> sections = new ArrayList<>();
-        StringBuilder body = new StringBuilder();
-        String heading = null;
-        String[] lines = markdown.split("\\R", -1);
-        for (String line : lines) {
-            if (line.startsWith("# ")) {
-                if (title.equals(fallbackTitle)) {
-                    title = line.substring(2).trim();
-                }
-                continue;
-            }
-            Matcher matcher = HEADING.matcher(line);
-            if (matcher.matches()) {
-                flush(sections, heading, body);
-                heading = matcher.group(2).trim();
-                continue;
-            }
-            body.append(line).append('\n');
-        }
-        flush(sections, heading, body);
-        if (sections.isEmpty()) {
-            sections.add(new ParsedSection(1, "全文", markdown.trim()));
-        }
-        return new ParsedPolicy(title, sections);
-    }
-
-    private void flush(List<ParsedSection> sections, String heading, StringBuilder body) {
-        String content = body.toString().trim();
-        body.setLength(0);
-        if (heading != null) {
-            sections.add(new ParsedSection(sections.size() + 1, heading, content));
-        } else if (!content.isEmpty()) {
-            sections.add(new ParsedSection(1, "总则", content));
-        }
-    }
-
-    record PolicyMeta(String defaultTitle, String category) {
-    }
-
-    record ParsedPolicy(String title, List<ParsedSection> sections) {
-    }
-
-    record ParsedSection(int sectionNo, String heading, String content) {
     }
 }

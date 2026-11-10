@@ -4,12 +4,19 @@ import com.tsuk1.itsmygo.common.agent.KnowledgeImportClient;
 import com.tsuk1.itsmygo.dto.knowledge.KnowledgeDocumentList;
 import com.tsuk1.itsmygo.dto.knowledge.KnowledgeDocumentView;
 import com.tsuk1.itsmygo.dto.knowledge.KnowledgeUploadResult;
+import com.tsuk1.itsmygo.entity.PlatformPolicy;
+import com.tsuk1.itsmygo.mapper.PlatformPolicyMapper;
+import com.tsuk1.itsmygo.mapper.PlatformPolicySectionMapper;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
@@ -26,6 +33,12 @@ class AdminKnowledgeControllerTest extends ApiTestBase {
     @MockitoBean
     private KnowledgeImportClient importClient;
 
+    @Autowired
+    private PlatformPolicyMapper policyMapper;
+
+    @Autowired
+    private PlatformPolicySectionMapper sectionMapper;
+
     @Test
     void adminCanListAndUploadKnowledgeDocuments() throws Exception {
         when(importClient.documents()).thenReturn(new KnowledgeDocumentList(1,
@@ -39,7 +52,7 @@ class AdminKnowledgeControllerTest extends ApiTestBase {
                 .andExpect(jsonPath("$.data.total").value(1))
                 .andExpect(jsonPath("$.data.documents[0].fileTitle").value("manual"));
 
-        when(importClient.upload(anyList(), eq(true))).thenReturn(
+        when(importClient.upload(anyList(), eq(true), eq("product"), eq(""))).thenReturn(
                 new KnowledgeUploadResult("受理 1 个文件", List.of("task-1"), List.of(), List.of()));
         MockMultipartFile file = new MockMultipartFile(
                 "files", "manual.pdf", "application/pdf", "pdf".getBytes());
@@ -49,7 +62,41 @@ class AdminKnowledgeControllerTest extends ApiTestBase {
                         .header("Authorization", bearer(admin)))
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.taskIds[0]").value("task-1"));
-        verify(importClient).upload(anyList(), eq(true));
+        verify(importClient).upload(anyList(), eq(true), eq("product"), eq(""));
+    }
+
+    @Test
+    void policyMarkdownIsPersistedBeforeVectorSync() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        when(importClient.upload(anyList(), eq(false), eq("policy"), eq("refund"))).thenReturn(
+                new KnowledgeUploadResult("受理 1 个文件", List.of("task-policy"), List.of(), List.of()));
+        String markdown = """
+                # 退换货与售后政策（上传版）
+
+                ## 一、退货条件
+                正文一
+
+                ### 1. 退款时效
+                正文二
+                """;
+        MockMultipartFile file = new MockMultipartFile(
+                "files", "refund.md", "text/markdown", markdown.getBytes(StandardCharsets.UTF_8));
+
+        mockMvc.perform(multipart("/api/admin/knowledge/upload")
+                        .file(file)
+                        .param("knowledgeBase", "policy")
+                        .param("policyKey", "refund")
+                        .header("Authorization", bearer(admin)))
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.taskIds[0]").value("task-policy"));
+
+        PlatformPolicy policy = policyMapper.selectOne(Wrappers.<PlatformPolicy>lambdaQuery()
+                .eq(PlatformPolicy::getPolicyKey, "refund"));
+        assertThat(policy.getTitle()).isEqualTo("退换货与售后政策（上传版）");
+        assertThat(sectionMapper.selectCount(Wrappers
+                .<com.tsuk1.itsmygo.entity.PlatformPolicySection>lambdaQuery()
+                .eq(com.tsuk1.itsmygo.entity.PlatformPolicySection::getPolicyId, policy.getId())))
+                .isEqualTo(2);
     }
 
     @Test

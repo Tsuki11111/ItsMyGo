@@ -11,4 +11,7 @@ public interface PlatformPolicyService {
     List<PlatformPolicySummaryView> list();
 
     PlatformPolicyDetailView get(String policyKey);
+
+    /** 管理端上传 Markdown：覆盖该政策原文与章节，向量同步由 rag_helper 负责。 */
+    void importMarkdown(String policyKey, String markdown);
 }

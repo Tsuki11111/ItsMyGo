@@ -1623,18 +1623,24 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 
 **实现**：
 - `V39__platform_policy.sql` 新建 `platform_policy` / `platform_policy_section`；
+  `PlatformPolicyParser` 统一 Markdown 解析（Seeder 与上传共用）；
   `PlatformPolicySeeder` 首次启动从 `docs/policies/*.md` 解析标题与 `##`/`###` 章节入表，
   已有数据跳过（避免覆盖管理端修改）；版本 1.0、`ACTIVE`。
 - `GET /api/policies`、`GET /api/policies/{policyKey}` 公开只读；`SecurityConfig` 放行 GET。
 - `pom.xml` 将 `docs/policies` 打进 classpath，Dockerfile 同步复制。
 - `Knowledge.vue` 改为 `el-tabs`：产品文档知识库 / 平台政策库；政策库左侧政策列表，
   右侧按章节展示，正文用 `marked` + `DOMPurify` 渲染；本期只读。
-- rag_helper 侧：`policy_import.py` 拉 Java 接口导入 `kb_platform_policy`（50 章节）；
-  `policy_kb.search_platform_policy` 单路检索并挂主 agent，提示词要求注明政策标题与章节。
-- 真实问题「退款一般多久能到账？」命中《退换货与售后政策》第 3 条（退款时效）。
+- 政策 upload：`POST /api/admin/knowledge/upload` 增加 `knowledgeBase=policy`、`policyKey`，
+  政策只收单个 `.md`，Java 先解析覆盖 MySQL，再带参数转发 8001 重建向量；政策不写产品文档记录。
+- rag_helper 侧：导入图按 `knowledge_base` 分流，政策走
+  `node_policy_chunks → node_dashscope_embedding → node_import_policy_milvus`；
+  `policy_kb.search_platform_policy` 单路检索，独立 `policy-agent` 子智能体回答并注明政策章节。
+- 真实问题「退款一般多久能到账？」命中《退换货与售后政策》第 3 条（退款时效）；
+  管理端上传测试章节后 MySQL/Milvus 同步命中，恢复原文后不再命中。
 
-**验证**：Java 全量 **359 条通过**；4 份政策章节数 12/15/13/10；管理端 tab 切换正常；
-前端 `npm run build` 通过。
+**验证**：Java 全量 **361 通过**；目标测试 `PlatformPolicyControllerTest`、`PlatformPolicyParserTest`、
+`AdminKnowledgeControllerTest` 通过；rag_helper 回归 **93 通过**；4 份政策章节数 12/15/13/10；
+管理端 tab 切换与政策上传正常；前端 `npm run build`、Vitest 通过。
 
 ### 2026-11-10 · 流式执行过程只显示中文动作
 

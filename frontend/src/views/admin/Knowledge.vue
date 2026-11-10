@@ -12,6 +12,7 @@ import {
   fetchPlatformPolicy,
   revokeKnowledgeDocument,
   uploadKnowledgeFile,
+  uploadPlatformPolicy,
 } from '@/api/knowledge'
 import type {
   KnowledgeDocument,
@@ -41,6 +42,17 @@ const policies = ref<PlatformPolicySummary[]>([])
 const policyLoading = ref(false)
 const policyDetail = ref<PlatformPolicyDetail | null>(null)
 const policyDetailLoading = ref(false)
+const policyUploadRef = ref<UploadInstance>()
+const policyTargetKey = ref('refund')
+const policyFile = ref<UploadRawFile | null>(null)
+const policyUploading = ref(false)
+
+const POLICY_TARGETS = [
+  { key: 'terms', label: '用户协议' },
+  { key: 'privacy', label: '隐私政策' },
+  { key: 'refund', label: '退换货与售后政策' },
+  { key: 'merchant', label: '商家入驻与经营规范' },
+]
 
 let pollTimer: number | undefined
 
@@ -223,6 +235,37 @@ async function selectPolicy(row: PlatformPolicySummary) {
   }
 }
 
+function onPolicyFileChanged(_file: UploadFile, files: UploadFile[]) {
+  policyFile.value = files
+    .map((item) => item.raw)
+    .filter((file): file is UploadRawFile => Boolean(file))[0] ?? null
+}
+
+async function startPolicyUpload() {
+  if (!policyFile.value) {
+    ElMessage.warning('请先选择一个 Markdown 政策文件')
+    return
+  }
+  policyUploading.value = true
+  try {
+    const result = await uploadPlatformPolicy(policyFile.value, policyTargetKey.value)
+    if (result.failed.length) {
+      ElMessage.error(result.failed.map((item) => `${item.filename}：${item.reason}`).join('；'))
+    } else {
+      ElMessage.success('政策已写入 MySQL，正在同步向量库')
+    }
+    policyUploadRef.value?.clearFiles()
+    policyFile.value = null
+    await loadPolicies()
+    const target = policies.value.find((item) => item.policyKey === policyTargetKey.value)
+    if (target) await selectPolicy(target)
+  } catch {
+    // 拦截器已提示
+  } finally {
+    policyUploading.value = false
+  }
+}
+
 function onTabChange(name: string | number) {
   if (name === 'policy' && policies.value.length === 0) {
     void loadPolicies()
@@ -357,6 +400,40 @@ onBeforeUnmount(stopPolling)
       </el-tab-pane>
 
       <el-tab-pane label="平台政策库" name="policy">
+        <section class="policy-upload">
+          <div class="policy-upload-hint">
+            政策只支持上传 Markdown（.md）。上传后原文先写 MySQL，再由导入服务重建该政策的章节向量。
+          </div>
+          <div class="policy-upload-actions">
+            <el-select v-model="policyTargetKey" class="policy-target" placeholder="选择目标政策">
+              <el-option
+                v-for="item in POLICY_TARGETS"
+                :key="item.key"
+                :label="item.label"
+                :value="item.key"
+              />
+            </el-select>
+            <el-upload
+              ref="policyUploadRef"
+              :auto-upload="false"
+              accept=".md"
+              :limit="1"
+              :on-change="onPolicyFileChanged"
+              :on-remove="onPolicyFileChanged"
+            >
+              <el-button>选择 Markdown</el-button>
+            </el-upload>
+            <el-button
+              type="primary"
+              :loading="policyUploading"
+              :disabled="!policyFile"
+              @click="startPolicyUpload"
+            >
+              上传并同步
+            </el-button>
+          </div>
+        </section>
+
         <div class="policy-layout">
           <section class="policy-list">
             <div class="panel-title">政策（{{ policies.length }}）</div>
@@ -429,6 +506,32 @@ onBeforeUnmount(stopPolling)
   grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
   gap: 18px;
   align-items: start;
+}
+
+.policy-upload {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  background: #fafafa;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+}
+
+.policy-upload-hint {
+  margin-bottom: 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--el-text-color-secondary);
+}
+
+.policy-upload-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.policy-target {
+  width: 220px;
 }
 
 .policy-list {

@@ -55,7 +55,8 @@ public class KnowledgeImportClient {
                 .build();
     }
 
-    public KnowledgeUploadResult upload(List<MultipartFile> files, boolean force) {
+    public KnowledgeUploadResult upload(List<MultipartFile> files, boolean force,
+                                        String knowledgeBase, String policyKey) {
         requireConfigured();
         if (files == null || files.isEmpty()) {
             throw new BizException(ResultCode.BAD_REQUEST, "请选择要导入的 PDF / Markdown 文件");
@@ -75,6 +76,11 @@ public class KnowledgeImportClient {
             throw new BizException(ResultCode.BAD_REQUEST, "文件为空");
         }
         builder.part("force", Boolean.toString(force));
+        builder.part("knowledge_base", knowledgeBase == null || knowledgeBase.isBlank()
+                ? "product" : knowledgeBase);
+        if (policyKey != null && !policyKey.isBlank()) {
+            builder.part("policy_key", policyKey);
+        }
 
         JsonNode body = call(() -> client.post()
                 .uri("/upload")

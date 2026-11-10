@@ -4,9 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-class PlatformPolicySeederTest {
-
-    private final PlatformPolicySeeder seeder = new PlatformPolicySeeder(null, null);
+class PlatformPolicyParserTest {
 
     @Test
     void parsesMarkdownTitleAndHeadings() {
@@ -26,12 +24,13 @@ class PlatformPolicySeederTest {
                 退款正文
                 """;
 
-        PlatformPolicySeeder.ParsedPolicy parsed = seeder.parse(markdown, "兜底标题");
+        PlatformPolicyParser.ParsedPolicy parsed =
+                PlatformPolicyParser.parse(markdown, "兜底标题");
 
         assertThat(parsed.title()).isEqualTo("测试政策");
-        assertThat(parsed.sections()).extracting(PlatformPolicySeeder.ParsedSection::heading)
+        assertThat(parsed.sections()).extracting(PlatformPolicyParser.ParsedSection::heading)
                 .containsExactly("总则", "一、总则", "1. 适用范围", "二、退款");
-        assertThat(parsed.sections()).extracting(PlatformPolicySeeder.ParsedSection::sectionNo)
+        assertThat(parsed.sections()).extracting(PlatformPolicyParser.ParsedSection::sectionNo)
                 .containsExactly(1, 2, 3, 4);
         assertThat(parsed.sections().get(2).content()).isEqualTo("范围正文");
     }

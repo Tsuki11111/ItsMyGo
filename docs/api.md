@@ -1015,13 +1015,16 @@ Authorization: Bearer <token>
 
 | 方法 | 路径 | 请求/参数 | 返回 |
 |---|---|---|---|
-| POST | `/api/admin/knowledge/upload` | multipart `files`（PDF/Markdown，可多个）+ `force=false` | `KnowledgeUploadResult` |
+| POST | `/api/admin/knowledge/upload` | multipart `files`（产品：PDF/Markdown 可多个；政策：单个 `.md`）+ `force=false` + `knowledgeBase=product|policy` + `policyKey=terms|privacy|refund|merchant` | `KnowledgeUploadResult` |
 | GET | `/api/admin/knowledge/documents` | — | `KnowledgeDocumentList` |
 | GET | `/api/admin/knowledge/tasks/{taskId}` | — | `KnowledgeTaskStatus` |
 | DELETE | `/api/admin/knowledge/documents/{fileTitle}` | — | `null` |
 
 - 仅 ADMIN；Java 带 `AGENT_IMPORT_KEY`（默认复用 `AGENT_GRPC_KEY`）代理到
   rag_helper 的 8001，浏览器不直连 agent。
+- 政策上传：`knowledgeBase=policy` 时必须恰好一个 `.md`，`policyKey` 为空时按文件名推导；
+  Java 先用 `PlatformPolicyParser` 解析并覆盖 MySQL 原文/章节，再带参数转发 8001；
+  政策不写产品文档去重记录，也不出现在 `/documents` 列表。
 - `KnowledgeUploadResult`：`message, taskIds[], duplicates[], failed[]`；
   `duplicates[]` 含 `filename/fileTitle/itemName/chunkCount/status/importedAt`，
   `failed[]` 含 `filename/reason`。

@@ -3225,18 +3225,25 @@ Vitest 13/13、`npm run build` 通过。
 **后端**：
 - `V39__platform_policy.sql` 新建 `platform_policy`（`policy_key` 唯一、`title/category/version/status/content_md/effective_at`）
   与 `platform_policy_section`（`policy_id/section_no/heading/content`，`unique(policy_id, section_no)`）。
-- `PlatformPolicySeeder`（`ApplicationRunner`）首次启动从 `classpath*:policies/*.md` 解析首个 `#` 标题与
-  `##`/`###` 章节，标题前正文归入「总则」；已有政策时跳过，避免重启覆盖管理端修改。
+- `PlatformPolicyParser` 统一 Markdown 解析（H1 标题、`##`/`###` 章节、标题前正文归「总则」），
+  Seeder 与管理端上传共用；`PlatformPolicySeeder`（`ApplicationRunner`）首次启动从
+  `classpath*:policies/*.md` 入库，已有政策时跳过，避免重启覆盖管理端修改。
 - `GET /api/policies`、`GET /api/policies/{policyKey}` 公开只读；`SecurityConfig` 放行 GET。
+- 管理端上传 `POST /api/admin/knowledge/upload` 增加 `knowledgeBase=policy` 与
+  `policyKey`：政策只接受单个 `.md`，Java 先 `PlatformPolicyParser.parse` +
+  `PlatformPolicyService.importMarkdown` 覆盖 MySQL 原文/章节，再带参数转发 8001
+  重建 Milvus；政策不写产品文档去重记录。
 - `pom.xml` 将 `docs/policies` 打进 classpath，`Dockerfile` 同步 `COPY docs/policies`。
 
 **前端**：
 - `Knowledge.vue` 改为单页 + `el-tabs`：产品文档知识库（原上传/任务/文档表）、平台政策库。
 - 平台政策 tab 左侧政策列表（标题/分类/版本/章节数），右侧章节详情；章节正文用
   `marked` + `DOMPurify` 渲染 Markdown（表格、列表可读）；只读，本期不做在线编辑。
+- 平台政策 tab 增加上传区：选择目标政策 + 单个 `.md`，上传后 Java 先落库、再异步重建向量。
 
-**测试**：`PlatformPolicyControllerTest`（列表/详情/章节排序）与 `PlatformPolicySeederTest`
-（Markdown 解析、章节号）通过；全量 **359 条通过**。
+**测试**：`PlatformPolicyControllerTest`（列表/详情/章节排序）、`PlatformPolicyParserTest`
+（Markdown 解析、章节号）、`AdminKnowledgeControllerTest`（产品上传 mock 参数 + 政策先落库
+再同步）通过；全量测试见验证。
 
-**验证**：后端启动后 `/api/policies` 返回 4 份政策（12/15/13/10 章节）；管理端 tab 切换正常，
-政策详情按章节渲染。
+**验证**：Java 全量 **361 通过**；后端启动后 `/api/policies` 返回 4 份政策（12/15/13/10 章节）；
+管理端 tab 切换正常，政策上传后 MySQL 章节更新、Milvus 命中测试章节，恢复原文后不再命中。
