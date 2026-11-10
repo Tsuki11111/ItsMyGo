@@ -1622,12 +1622,13 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 
 **实现**：
 - agent 侧 `_consume_stream` 不再下发工具名/参数/返回原文，`Trace` 只带中文动作；
-- 前端 `AgentChatPanel.vue` 的 `traceLine` 统一渲染成「买小购正在…」口吻，删除工具名拼接；
-  新增 `safeTraceDetail` 兜底隐藏旧历史中的 JSON 形状或整段任务说明（>24 字）`detail`。
+- 前端 `AgentChatPanel.vue` 的 `traceLine` 按 `Trace.agent` 渲染成「{子智能体名字}正在…」口吻，
+  删除工具名拼接；新增 `safeTraceDetail` 兜底隐藏旧历史中的 JSON 形状或整段任务说明（>24 字）
+  `detail`，`safeTraceActor` 只放行四个已知名字。
 
-**验证**：真实 gRPC 流式查询 trace 序列为「买小购正在为您推荐商品 → 买小购正在查询在售商品 →
-买小购正在语义检索商品 → 买小购正在查询商品分类 → 买小购正在查询在售商品 →
-买小购已完成一步 → 买小购正在生成回复」，禁词命中为空；`npm run build`、
+**验证**：真实 gRPC 流式查询 trace 序列为「商品导购正在推荐商品 → 商品导购正在查询在售商品 →
+商品导购正在语义检索商品 → 商品导购正在查询商品分类 → 商品导购正在查询在售商品 →
+商品导购已完成一步 → 买小购正在生成回复」，禁词命中为空；`npm run build`、
 Vitest 13/13 通过。
 
 ### 2026-11-09 · 修复历史回放商品卡被跨轮去重

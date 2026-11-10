@@ -3203,15 +3203,16 @@ Vitest 13/13、`npm run build` 通过。
 **问题**：流式执行过程暴露工具名与参数，例如 `工具 · search_products · {'keyword': ...}`。
 
 **修复**：
-- agent 侧已改为只下发中文动作（见 rag_helper HANDOFF §3.85）：`tool`/`delegate` 的 `agent`
-  为空、`detail` 为「查询在售商品」「为您推荐商品」等；`result` 固定「已完成」；表单为
-  「整理表单信息」。
+- agent 侧已改为只下发中文动作（见 rag_helper HANDOFF §3.85）：`agent` 为执行主体名字
+  （买小购 / 产品知识库 / 商品导购 / 订单服务），`detail` 为「查询在售商品」「推荐商品」等；
+  `result` 固定「已完成」；表单为「整理表单信息」。
 - 前端 `AgentChatPanel.vue` 删除 `TRACE_LABELS` 与「label · agent · detail」拼接；
-  `traceLine` 统一渲染成「买小购正在…」的口吻：tool/delegate→「买小购正在{动作}」、
-  result→「买小购已完成一步」、node→「买小购正在{节点名}」、reply→「买小购正在生成回复」、
+  `traceLine` 统一渲染成「{子智能体名字}正在…」的口吻：tool/delegate→「{名字}正在{动作}」、
+  result→「{名字}已完成一步」、node→「{名字}正在{节点名}」、reply→「买小购正在生成回复」、
   form→「买小购正在整理表单信息」。
 - 新增 `safeTraceDetail`：旧历史里若 `detail` 是 JSON/参数形状（含 `{}[]"'=`）或超过
-  24 字（整段任务说明）则隐藏，避免升级前存档继续显示参数。
+  24 字（整段任务说明）则隐藏；`safeTraceActor` 只放行四个已知名字，旧标签「产品资料检索」
+  「商品推荐」映射到产品知识库 / 商品导购。
 
 **验证**：真实 gRPC 流式查询 trace 序列只含中文动作，工具名/参数禁词命中为空；
 `npm run build` 通过、Vitest 13/13。
