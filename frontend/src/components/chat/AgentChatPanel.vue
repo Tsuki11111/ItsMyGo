@@ -272,17 +272,26 @@ const visibleActions = computed(() =>
  */
 const activeAction = computed(() => visibleActions.value[0] || null)
 
-const TRACE_LABELS: Record<string, string> = {
-  delegate: '派发',
-  tool: '工具',
-  result: '结果',
-  reply: '回复',
-  node: '步骤',
+/**
+ * 执行过程只展示用户可读的动作，不暴露工具名、参数或工具返回原文。
+ * 新事件由 agent 侧直接下发中文文案；旧历史里可能存着工具名/参数，
+ * 这里对 JSON 形状的 detail 做兜底隐藏。
+ */
+function safeTraceDetail(detail: string): string {
+  const value = (detail || '').trim()
+  // 旧历史的 detail 可能是工具参数 JSON 或整段任务说明，只放行短动作文案
+  if (!value || value.length > 24 || /[{}[\]"'=]/.test(value)) return ''
+  return value
 }
 
 function traceLine(trace: AgentTraceEvent): string {
-  const label = TRACE_LABELS[trace.kind] || trace.kind
-  return [label, trace.agent, trace.detail].filter(Boolean).join(' · ')
+  if (trace.kind === 'tool') return safeTraceDetail(trace.detail) || '处理中'
+  if (trace.kind === 'delegate') return safeTraceDetail(trace.detail) || '正在处理'
+  if (trace.kind === 'result') return '完成一步'
+  if (trace.kind === 'node') return safeTraceDetail(trace.detail) || '检索中'
+  if (trace.kind === 'reply') return '生成回复'
+  if (trace.kind === 'form') return '整理表单信息'
+  return '处理中'
 }
 
 function toggleTraces(messageId: string) {

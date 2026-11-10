@@ -3197,3 +3197,20 @@ prepare/update/reprepare/confirm/cancel/list；抽出 `AgentActionSupport`（视
 **验证**：历史会话 `e8c35cca80ed4e0c98a55220030c4f35` 最后一条回答正文 6 款商品，修复前只渲染
 4 张卡（缺 1722、1738），修复后 DOM 序列为「文字 1 → 卡 1 → … → 文字 6 → 卡 6」共 6 张；
 Vitest 13/13、`npm run build` 通过。
+
+### 3.55 流式执行过程只显示中文动作（2026-11-10）
+
+**问题**：流式执行过程暴露工具名与参数，例如 `工具 · search_products · {'keyword': ...}`。
+
+**修复**：
+- agent 侧已改为只下发中文动作（见 rag_helper HANDOFF §3.85）：`tool`/`delegate` 的 `agent`
+  为空、`detail` 为「查询在售商品」「商品推荐」等；`result` 固定「已完成」；表单为
+  「整理表单信息」。
+- 前端 `AgentChatPanel.vue` 删除 `TRACE_LABELS` 与「label · agent · detail」拼接；
+  `traceLine` 只渲染白名单文案：tool→detail 或「处理中」、delegate→detail 或「正在处理」、
+  result→「完成一步」、node→detail 或「检索中」、reply→「生成回复」、form→「整理表单信息」。
+- 新增 `safeTraceDetail`：旧历史里若 `detail` 是 JSON/参数形状（含 `{}[]"'=`）或超过
+  24 字（整段任务说明）则隐藏，避免升级前存档继续显示参数。
+
+**验证**：真实 gRPC 流式查询 trace 序列只含中文动作，工具名/参数禁词命中为空；
+`npm run build` 通过、Vitest 13/13。
