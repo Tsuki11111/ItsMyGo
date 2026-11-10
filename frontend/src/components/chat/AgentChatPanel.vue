@@ -284,14 +284,26 @@ function safeTraceDetail(detail: string): string {
   return value
 }
 
+/** 执行过程统一用「买小购正在…」的口吻，读起来像客服在同步进度 */
+const TRACE_ACTOR = '买小购'
+/** 升级前存档的是名词标签，这里换成能直接接在「正在」后面的动词短语 */
+const LEGACY_TRACE_DETAILS: Record<string, string> = {
+  商品推荐: '为您推荐商品',
+  产品资料检索: '检索产品资料',
+  订单服务: '处理订单',
+}
+
 function traceLine(trace: AgentTraceEvent): string {
-  if (trace.kind === 'tool') return safeTraceDetail(trace.detail) || '处理中'
-  if (trace.kind === 'delegate') return safeTraceDetail(trace.detail) || '正在处理'
-  if (trace.kind === 'result') return '完成一步'
-  if (trace.kind === 'node') return safeTraceDetail(trace.detail) || '检索中'
-  if (trace.kind === 'reply') return '生成回复'
-  if (trace.kind === 'form') return '整理表单信息'
-  return '处理中'
+  const raw = safeTraceDetail(trace.detail)
+  const detail = LEGACY_TRACE_DETAILS[raw] || raw
+  if (trace.kind === 'tool' || trace.kind === 'delegate') {
+    return `${TRACE_ACTOR}正在${detail || '处理'}`
+  }
+  if (trace.kind === 'result') return `${TRACE_ACTOR}已完成一步`
+  if (trace.kind === 'node') return `${TRACE_ACTOR}正在${detail || '检索资料'}`
+  if (trace.kind === 'reply') return `${TRACE_ACTOR}正在生成回复`
+  if (trace.kind === 'form') return `${TRACE_ACTOR}正在整理表单信息`
+  return `${TRACE_ACTOR}正在处理`
 }
 
 function toggleTraces(messageId: string) {

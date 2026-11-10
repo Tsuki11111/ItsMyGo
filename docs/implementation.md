@@ -3204,11 +3204,12 @@ Vitest 13/13、`npm run build` 通过。
 
 **修复**：
 - agent 侧已改为只下发中文动作（见 rag_helper HANDOFF §3.85）：`tool`/`delegate` 的 `agent`
-  为空、`detail` 为「查询在售商品」「商品推荐」等；`result` 固定「已完成」；表单为
+  为空、`detail` 为「查询在售商品」「为您推荐商品」等；`result` 固定「已完成」；表单为
   「整理表单信息」。
 - 前端 `AgentChatPanel.vue` 删除 `TRACE_LABELS` 与「label · agent · detail」拼接；
-  `traceLine` 只渲染白名单文案：tool→detail 或「处理中」、delegate→detail 或「正在处理」、
-  result→「完成一步」、node→detail 或「检索中」、reply→「生成回复」、form→「整理表单信息」。
+  `traceLine` 统一渲染成「买小购正在…」的口吻：tool/delegate→「买小购正在{动作}」、
+  result→「买小购已完成一步」、node→「买小购正在{节点名}」、reply→「买小购正在生成回复」、
+  form→「买小购正在整理表单信息」。
 - 新增 `safeTraceDetail`：旧历史里若 `detail` 是 JSON/参数形状（含 `{}[]"'=`）或超过
   24 字（整段任务说明）则隐藏，避免升级前存档继续显示参数。
 
