@@ -74,8 +74,8 @@
   .search {
     display:flex; align-items:center; gap:8px; width:250px; height:34px;
     border:1px solid rgba(120,170,255,.22); border-radius:9px;
-    background:rgba(5,12,25,.72); padding:0 10px;
-    backdrop-filter:blur(12px);
+    background:rgba(5,12,25,.34); padding:0 10px;
+    backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px);
     transition:border-color .2s, box-shadow .2s;
   }
   .search:focus-within { border-color:rgba(103,232,249,.55); box-shadow:0 0 0 3px rgba(103,232,249,.08); }
@@ -90,11 +90,11 @@
     border-radius:4px; padding:1px 4px; line-height:1;
   }
   button {
-    font-family:inherit; color:#bcd2ee; background:rgba(7,14,28,.66);
+    font-family:inherit; color:#bcd2ee; background:rgba(7,14,28,.32);
     border:1px solid rgba(120,170,255,.2); border-radius:8px; height:34px;
     padding:0 11px; font-size:11px; letter-spacing:.04em; cursor:pointer;
     display:inline-flex; align-items:center; gap:6px; white-space:nowrap;
-    backdrop-filter:blur(12px); transition:all .18s;
+    backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); transition:all .18s;
   }
   button:hover { color:#fff; border-color:rgba(103,232,249,.55); background:rgba(15,33,55,.86); box-shadow:0 0 18px rgba(103,232,249,.1); }
   button.active { color:#03111b; background:linear-gradient(100deg,var(--cyan),var(--teal)); border-color:transparent; box-shadow:0 0 22px rgba(103,232,249,.24); }
@@ -104,9 +104,9 @@
   #legend {
     position:fixed; z-index:9; left:22px; bottom:52px; width:212px;
     border:1px solid rgba(120,170,255,.14); border-radius:12px;
-    background:linear-gradient(180deg,rgba(7,15,30,.7),rgba(4,9,20,.82));
-    backdrop-filter:blur(14px); padding:12px 12px 10px;
-    box-shadow:0 18px 50px rgba(0,0,0,.28);
+    background:linear-gradient(180deg,rgba(7,15,30,.3),rgba(4,9,20,.42));
+    backdrop-filter:blur(20px) saturate(135%); -webkit-backdrop-filter:blur(20px) saturate(135%); padding:12px 12px 10px;
+    box-shadow:0 18px 50px rgba(0,0,0,.2);
   }
   .legend-title {
     display:flex; justify-content:space-between; align-items:center;
@@ -155,9 +155,9 @@
   #tooltip {
     position:fixed; z-index:30; pointer-events:none; opacity:0; transform:translateY(4px);
     transition:opacity .14s, transform .14s; max-width:280px;
-    background:rgba(6,13,27,.94); border:1px solid rgba(120,190,255,.3);
-    border-radius:9px; padding:9px 11px; box-shadow:0 12px 34px rgba(0,0,0,.5);
-    backdrop-filter:blur(14px);
+    background:rgba(6,13,27,.72); border:1px solid rgba(120,190,255,.3);
+    border-radius:9px; padding:9px 11px; box-shadow:0 12px 34px rgba(0,0,0,.36);
+    backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px);
   }
   #tooltip.show { opacity:1; transform:translateY(0); }
   #tooltip .tt-cat { font-size:8px; letter-spacing:.14em; text-transform:uppercase; margin-bottom:4px; }
@@ -169,10 +169,10 @@
   #panel {
     position:fixed; z-index:20; top:78px; right:22px; bottom:22px; width:min(470px, calc(100vw - 44px));
     display:flex; flex-direction:column;
-    border:1px solid rgba(120,190,255,.22); border-radius:14px;
-    background:linear-gradient(180deg,rgba(9,18,36,.94),rgba(5,11,24,.95));
-    box-shadow:0 28px 80px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.04);
-    backdrop-filter:blur(22px);
+    border:1px solid rgba(150,210,255,.22); border-radius:14px;
+    background:linear-gradient(180deg,rgba(12,27,52,.4),rgba(5,11,24,.5));
+    box-shadow:0 28px 80px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.05);
+    backdrop-filter:blur(28px) saturate(145%); -webkit-backdrop-filter:blur(28px) saturate(145%);
     transform:translateX(calc(100% + 30px)); opacity:0; pointer-events:none;
     transition:transform .34s cubic-bezier(.2,.8,.2,1), opacity .24s;
     overflow:hidden;
@@ -191,9 +191,10 @@
   }
   .panel-title { margin-top:9px; font-size:22px; font-weight:700; letter-spacing:.02em; color:#f3faff; line-height:1.25; }
   .panel-sub { margin-top:4px; font-size:11px; color:#88a0c2; letter-spacing:.04em; }
-  .panel-body { padding:15px 18px 22px; overflow:auto; flex:1 1 auto; scrollbar-width:thin; scrollbar-color:rgba(120,170,255,.3) transparent; }
+  .panel-body { padding:15px 18px 22px; overflow:auto; flex:1 1 auto; scrollbar-width:thin; scrollbar-color:rgba(120,170,255,.3) transparent; overscroll-behavior:contain; }
   .panel-body::-webkit-scrollbar { width:6px; }
   .panel-body::-webkit-scrollbar-thumb { background:rgba(120,170,255,.26); border-radius:3px; }
+  .panel-body::-webkit-scrollbar-track { background:transparent; }
   .panel-desc { font-size:12px; line-height:1.85; color:#b9cde8; margin:0 0 14px; }
   .panel-desc strong { color:#fff; font-weight:600; }
   .chips { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:15px; }
@@ -214,7 +215,7 @@
     color:#8fa9c9; word-break:break-all; line-height:1.55;
   }
   .file-row svg { width:12px; height:12px; flex:0 0 auto; margin-top:1px; opacity:.7; }
-  .code-block { border:1px solid rgba(120,170,255,.14); border-radius:8px; overflow:hidden; margin:8px 0 12px; background:rgba(2,7,15,.66); }
+  .code-block { border:1px solid rgba(120,170,255,.14); border-radius:8px; overflow:hidden; margin:8px 0 12px; background:rgba(2,7,15,.42); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); }
   .code-block summary {
     cursor:pointer; list-style:none; padding:8px 11px; display:flex; align-items:center; gap:8px;
     color:#8ca7c8; font-size:10px; letter-spacing:.02em; border-bottom:1px solid transparent;
@@ -224,7 +225,10 @@
   .code-block summary::-webkit-details-marker { display:none; }
   .code-block summary .arrow { margin-left:auto; transition:transform .18s; font-size:9px; color:#5f7595; }
   .code-block[open] summary .arrow { transform:rotate(90deg); }
-  .code-block pre { margin:0; padding:11px 12px; overflow:auto; max-height:340px; scrollbar-width:thin; }
+  .code-block pre { margin:0; padding:11px 12px; overflow:auto; max-height:420px; scrollbar-width:thin; scrollbar-color:rgba(120,170,255,.34) transparent; overscroll-behavior:contain; }
+  .code-block pre::-webkit-scrollbar { width:7px; height:7px; }
+  .code-block pre::-webkit-scrollbar-thumb { background:rgba(120,170,255,.3); border-radius:4px; }
+  .code-block pre::-webkit-scrollbar-track { background:rgba(120,170,255,.04); }
   .code-block code { font-family:"Cascadia Code","SFMono-Regular",Consolas,monospace; font-size:10px; line-height:1.65; color:#b8d2ee; white-space:pre; }
   .kw { color:#c4a7ff; } .st { color:#a7e8b8; } .cm { color:#5e7596; font-style:italic; } .num { color:#ffd27a; }
   .talk {
@@ -516,8 +520,15 @@ const NODES = [
     "weight": 1.2,
     "summary": "/internal/agent/** 只认 X-Agent-Ticket，查询、动作草稿、消费报告统一入口。",
     "tech": "Spring MVC · 内部 API",
-    "file": "controller/AgentToolController.java:45-160",
-    "talk": "Java 是工具的最终执行者，Python 只能拿短期票据申请。"
+    "file": "src/main/java/com/tsuk1/itsmygo/controller/AgentToolController.java:58-106",
+    "talk": "Java 是工具的最终执行者，Python 只能拿短期票据申请。",
+    "snippets": [
+      {
+        "label": "工具入口：票据换身份",
+        "file": "src/main/java/com/tsuk1/itsmygo/controller/AgentToolController.java:58-106",
+        "code": "    public AgentToolController(AgentToolTicketService ticketService,\n                               OrderService orderService,\n                               AgentCatalogService catalogService,\n                               AgentActionService actionService,\n                               ShipmentService shipmentService,\n                               ConsumptionReportService reportService) {\n        this.ticketService = ticketService;\n        this.orderService = orderService;\n        this.catalogService = catalogService;\n        this.actionService = actionService;\n        this.shipmentService = shipmentService;\n        this.reportService = reportService;\n    }\n\n    @PostMapping(\"/orders/query\")\n    public Result<List<AgentOrderView>> query(\n            @RequestHeader(value = \"X-Agent-Ticket\", required = false) String ticket,\n            @RequestBody(required = false) AgentOrderQueryRequest request) {\n        AgentToolTicketService.Identity identity = requireIdentity(ticket);\n        String orderNo = request == null ? null : request.orderNo();\n        String status = request == null ? null : request.status();\n        int limit = request == null || request.limit() == null ? DEFAULT_LIMIT : request.limit();\n        List<OrderView> orders = orderService.findForAgent(identity.userId(), orderNo, status, limit);\n        return Result.ok(orders.stream()\n                .map(order -> {\n                    // 老订单没有运单：按历史发货时间懒生成\n                    if (order.order().getShippedAt() != null) {\n                        shipmentService.createForOrder(order.order());\n                    }\n                    return AgentOrderView.from(order,\n                            shipmentService.viewForOrder(order.order()));\n                })\n                .toList());\n    }\n\n    @PostMapping(\"/catalog/products\")\n    public Result<List<AgentProductView>> searchProducts(\n            @RequestHeader(value = \"X-Agent-Ticket\", required = false) String ticket,\n            @RequestBody(required = false) AgentProductSearchRequest request) {\n        requireIdentity(ticket);\n        return Result.ok(catalogService.searchProducts(request));\n    }\n\n    @GetMapping(\"/catalog/all\")\n    public Result<List<AgentProductView>> allProducts(\n            @RequestHeader(value = \"X-Agent-Ticket\", required = false) String ticket,\n            @RequestParam(defaultValue = \"100\") int limit) {\n        requireIdentity(ticket);\n        return Result.ok(catalogService.listAll(limit));"
+      }
+    ]
   },
   {
     "id": "guard",
@@ -527,8 +538,15 @@ const NODES = [
     "weight": 1.1,
     "summary": "商户/顾客对象级校验，越权统一 404；管理端按权限码收敛。",
     "tech": "Spring Security · 对象级校验",
-    "file": "common/exception/GlobalExceptionHandler.java",
-    "talk": "越权不暴露存在性，统一 404 比 403 更安全。"
+    "file": "src/main/java/com/tsuk1/itsmygo/common/exception/GlobalExceptionHandler.java:14-48",
+    "talk": "越权不暴露存在性，统一 404 比 403 更安全。",
+    "snippets": [
+      {
+        "label": "统一异常出口：业务码 / 权限 / 校验",
+        "file": "src/main/java/com/tsuk1/itsmygo/common/exception/GlobalExceptionHandler.java:14-48",
+        "code": "public class GlobalExceptionHandler {\n\n    @ExceptionHandler(BizException.class)\n    public Result<Void> handleBizException(BizException e) {\n        log.warn(\"业务异常: {}\", e.getMessage());\n        return Result.fail(e.getCode(), e.getMessage());\n    }\n\n    /** 方法级权限（RBAC @PreAuthorize）拒绝：与业务异常统一按 body.code 返回 403 */\n    @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)\n    public Result<Void> handleAccessDenied(org.springframework.security.access.AccessDeniedException e) {\n        log.warn(\"权限不足: {}\", e.getMessage());\n        return Result.fail(ResultCode.FORBIDDEN);\n    }\n\n    /** @Valid 校验失败：取第一条字段错误作为提示 */\n    @ExceptionHandler(MethodArgumentNotValidException.class)\n    public Result<Void> handleValidation(MethodArgumentNotValidException e) {\n        String message = e.getBindingResult().getFieldErrors().stream()\n                .map(FieldError::getDefaultMessage)\n                .findFirst()\n                .orElse(ResultCode.BAD_REQUEST.getMessage());\n        return Result.fail(ResultCode.BAD_REQUEST, message);\n    }\n\n    @ExceptionHandler(Exception.class)\n    public Result<Void> handleUnexpected(Exception e) {\n        log.error(\"未预期异常\", e);\n        return Result.fail(ResultCode.INTERNAL_ERROR);\n    }\n\n    /**\n     * 客户端在 SSE / 异步请求过程中断开（浏览器关页、切网、代理超时）：\n     * 不是服务端故障，**不记 ERROR 堆栈**，也不写响应体（反正也写不出去）。\n     * 常出现在 Chat 的 SseEmitter 推送路径上。"
+      }
+    ]
   },
   {
     "id": "product",
@@ -538,8 +556,15 @@ const NODES = [
     "weight": 1.35,
     "summary": "商品主表 + SKU + 图片 + 详情聚合，管理端与顾客端共用。",
     "tech": "MyBatis-Plus · MySQL",
-    "file": "service/impl/ProductServiceImpl.java",
-    "talk": "商品详情是聚合根，但库存与价格以 SKU 为准。"
+    "file": "src/main/java/com/tsuk1/itsmygo/service/impl/ProductServiceImpl.java:212-282",
+    "talk": "商品详情是聚合根，但库存与价格以 SKU 为准。",
+    "snippets": [
+      {
+        "label": "商品详情：缓存 + 实时库存 + 下架拦截",
+        "file": "src/main/java/com/tsuk1/itsmygo/service/impl/ProductServiceImpl.java:212-282",
+        "code": "    public Product detailForCustomer(Long id) {\n        if (!bloomFilter.mightContain(id)) {\n            throw new BizException(ResultCode.NOT_FOUND, \"商品不存在或已下架\");\n        }\n        Product product = cacheHelper.getOrLoad(cacheKey(id), PRODUCT_CACHE_TTL, Product.class,\n                () -> loadDetail(id));\n        // 缓存里不含店铺状态：店铺被禁用后即使商品缓存还在，也必须 404\n        requireActiveMerchant(product.getMerchantId());\n        return withRealtimeStock(product);\n    }\n\n    /** 回源：商品本体 + 它的规格与 SKU。进缓存的是数据库里的库存值，展示时才换成实时值 */\n    private Product loadDetail(Long id) {\n        Product product = requireOnSale(id);\n        ProductSkuView view = productSkuService.get(id);\n        product.setSpecs(view.specs());\n        product.setSkus(view.skus());\n        return product;\n    }\n\n    /**\n     * 把库存换成**实时值**再返回：详情缓存里的库存会滞后（下单不会去失效它，\n     * 否则高频下单会把缓存打穿），而用户要知道的是「现在还能买多少」。\n     * 每个 SKU 也一并换掉 —— 前端选中某一款时要立刻看到它的余量。\n     *\n     * 改的是 getOrLoad 出来的副本，不会污染缓存。\n     */\n    private Product withRealtimeStock(Product product) {\n        List<ProductSku> skus = product.getSkus();\n        if (skus == null || skus.isEmpty()) {\n            product.setStock(0);\n            return product;\n        }\n        Map<Long, Integer> realtime = stockService.currentSkuStocks(\n                skus.stream().map(ProductSku::getId).toList());\n        int total = 0;\n        for (ProductSku sku : skus) {\n            int stock = realtime.getOrDefault(sku.getId(), 0);\n            sku.setStock(stock);\n            total += stock;\n        }\n        product.setStock(total);\n        return product;\n    }\n\n    /** 实时库存独立接口：给列表页/轮询用，避免为了一个数字去拉整个详情 */\n    @Override\n    public StockView stockForCustomer(Long id) {\n        requireOnSale(id);\n        // skuId 列表从详情缓存取，命中就零查库；库存走批量 multiGet\n        Product cached = cacheHelper.getOrLoad(cacheKey(id), PRODUCT_CACHE_TTL, Product.class,\n                () -> loadDetail(id));\n        requireActiveMerchant(cached.getMerchantId());\n        withRealtimeStock(cached);\n\n        List<ProductSku> skus = cached.getSkus() == null ? List.of() : cached.getSkus();\n        List<StockView.SkuStockView> skuViews = skus.stream()\n                .map(sku -> new StockView.SkuStockView(sku.getId(), sku.getStock(), sku.getStock() > 0))\n                .toList();\n        return new StockView(id, cached.getStock(), cached.getStock() > 0, skuViews);\n    }\n\n    private Product requireOnSale(Long id) {\n        Product product = productMapper.selectById(id);\n        if (product == null || !Integer.valueOf(ON_SALE).equals(product.getStatus())) {\n            throw new BizException(ResultCode.NOT_FOUND, \"商品不存在或已下架\");\n        }\n        return product;\n    }\n\n    @Override"
+      }
+    ]
   },
   {
     "id": "sku",
@@ -567,8 +592,15 @@ const NODES = [
     "weight": 1.2,
     "summary": "商品搜索、分类筛选、多条件分页。",
     "tech": "MyBatis-Plus · 索引",
-    "file": "controller/ProductController.java",
-    "talk": "搜索条件走数据库索引，展示层不拼接 SQL。"
+    "file": "src/main/java/com/tsuk1/itsmygo/controller/ProductController.java:29-57",
+    "talk": "搜索条件走数据库索引，展示层不拼接 SQL。",
+    "snippets": [
+      {
+        "label": "商品搜索入口：分页 / 关键字 / 品牌",
+        "file": "src/main/java/com/tsuk1/itsmygo/controller/ProductController.java:29-57",
+        "code": "    public Result<PageResponse<Product>> page(\n            @RequestParam(defaultValue = \"1\") int page,\n            @RequestParam(defaultValue = \"20\") int size,\n            @RequestParam(required = false) Long categoryId,\n            @RequestParam(required = false) String keyword,\n            /** 品牌专区用：按商品品牌精确筛选 */\n            @RequestParam(required = false) String brand,\n            /** 店铺主页用：只看该商户的商品 */\n            @RequestParam(required = false) Long merchantId) {\n        // 顾客端只展示 ACTIVE 店铺的商品\n        return Result.ok(productService.page(\n                page, size, categoryId, keyword, brand, true, merchantId, true));\n    }\n\n    /** 品牌专区：在售商品的品牌与数量 */\n    @GetMapping(\"/brands\")\n    public Result<List<BrandView>> brands() {\n        return Result.ok(productService.brands());\n    }\n\n    @GetMapping(\"/{id}\")\n    public Result<Product> detail(@PathVariable Long id) {\n        return Result.ok(productService.detailForCustomer(id));\n    }\n\n    /** 实时库存：数据来自 Redis 计数器，不查库、也不受商品详情缓存影响 */\n    @GetMapping(\"/{id}/stock\")\n    public Result<StockView> stock(@PathVariable Long id) {\n        return Result.ok(productService.stockForCustomer(id));"
+      }
+    ]
   },
   {
     "id": "cache",
@@ -578,8 +610,15 @@ const NODES = [
     "weight": 1.25,
     "summary": "商品详情缓存：空值、击穿、雪崩；更新后主动 evict。",
     "tech": "RedisCacheHelper · Bloom",
-    "file": "common/cache/RedisCacheHelper.java",
-    "talk": "缓存不是事实源，商品更新必须主动 evict。"
+    "file": "src/main/java/com/tsuk1/itsmygo/common/RedisCacheHelper.java:41-95",
+    "talk": "缓存不是事实源，商品更新必须主动 evict。",
+    "snippets": [
+      {
+        "label": "getOrLoad：缓存 + 空值 + 互斥加载",
+        "file": "src/main/java/com/tsuk1/itsmygo/common/RedisCacheHelper.java:41-95",
+        "code": "    public <T> T getOrLoad(String key, Duration baseTtl, Class<T> type, Supplier<T> loader) {\n        String cached = redisTemplate.opsForValue().get(key);\n        if (cached != null) {\n            try {\n                return objectMapper.readValue(cached, type);\n            } catch (Exception e) {\n                // 缓存内容坏了（格式变更、人工改坏）—— 删掉重来，别让请求失败\n                log.warn(\"缓存反序列化失败，将删除重建: {}\", key);\n                redisTemplate.delete(key);\n            }\n        }\n\n        String lockKey = key + \":loading\";\n        Boolean gotLock = redisTemplate.opsForValue().setIfAbsent(lockKey, \"1\", LOAD_LOCK_TTL);\n\n        if (Boolean.TRUE.equals(gotLock)) {\n            try {\n                // 双重检查：抢锁期间别人可能已经写好了\n                String loaded = redisTemplate.opsForValue().get(key);\n                if (loaded != null) {\n                    return objectMapper.readValue(loaded, type);\n                }\n                T value = loader.get();\n                if (value != null) {\n                    redisTemplate.opsForValue().set(key, objectMapper.writeValueAsString(value), jittered(baseTtl));\n                }\n                return value;\n            } finally {\n                redisTemplate.delete(lockKey);\n            }\n        }\n\n        // 没抢到锁 —— 别人正在加载，等它写好即可，绝不能也去回源\n        for (int round = 0; round < MAX_WAIT_ROUNDS; round++) {\n            sleep();\n            String loaded = redisTemplate.opsForValue().get(key);\n            if (loaded != null) {\n                return objectMapper.readValue(loaded, type);\n            }\n        }\n        // 等不到（Redis 或数据库可能有问题）：直接回源，保证功能可用，不把请求打挂\n        log.warn(\"等待缓存加载超时，本次直接回源: {}\", key);\n        return loader.get();\n    }\n\n    /** 数据变更后调用 —— 删缓存而不是更新缓存 */\n    public void evict(String key) {\n        redisTemplate.delete(key);\n    }\n\n    /** TTL 加随机抖动（±20%），防止一批 key 在同一秒集体过期（缓存雪崩） */\n    private Duration jittered(Duration base) {\n        long baseSeconds = base.toSeconds();\n        long jitter = ThreadLocalRandom.current().nextLong(-baseSeconds / 5, baseSeconds / 5 + 1);\n        return Duration.ofSeconds(baseSeconds + jitter);"
+      }
+    ]
   },
   {
     "id": "bloom",
@@ -589,8 +628,15 @@ const NODES = [
     "weight": 1.1,
     "summary": "商品 ID 布隆过滤器挡住不存在的详情查询，降低缓存穿透。",
     "tech": "Bloom Filter · 预热",
-    "file": "common/bloom/ProductBloomFilter.java",
-    "talk": "布隆只能挡不存在，不能替代 DB 校验。"
+    "file": "src/main/java/com/tsuk1/itsmygo/common/ProductBloomFilter.java:45-121",
+    "talk": "布隆只能挡不存在，不能替代 DB 校验。",
+    "snippets": [
+      {
+        "label": "布隆过滤器：脚本判重与重建",
+        "file": "src/main/java/com/tsuk1/itsmygo/common/ProductBloomFilter.java:45-121",
+        "code": "    private static final Duration TTL = Duration.ofDays(7);\n\n    /** 一次往返把 6 个 bit 全写上并续期，避免 6 次网络调用。ARGV[1] 是 TTL，其后是各位的偏移 */\n    private static final RedisScript<List> ADD_SCRIPT = new DefaultRedisScript<>(\"\"\"\n            redis.call('EXPIRE', KEYS[1], ARGV[1])\n            for i = 2, #ARGV do\n                redis.call('SETBIT', KEYS[1], ARGV[i], 1)\n            end\n            return {1}\n            \"\"\", List.class);\n\n    private static final RedisScript<List> MIGHT_CONTAIN_SCRIPT = new DefaultRedisScript<>(\"\"\"\n            for i = 1, #ARGV do\n                if redis.call('GETBIT', KEYS[1], ARGV[i]) == 0 then\n                    return {0}\n                end\n            end\n            return {1}\n            \"\"\", List.class);\n\n    private final StringRedisTemplate redisTemplate;\n    private final ProductMapper productMapper;\n\n    public ProductBloomFilter(StringRedisTemplate redisTemplate, ProductMapper productMapper) {\n        this.redisTemplate = redisTemplate;\n        this.productMapper = productMapper;\n    }\n\n    /**\n     * 启动时把库里已有的商品 ID 灌进去。\n     * 不做这一步，重启后（或 Redis 过期后）过滤器是空的，\n     * 会**把所有请求都判为「不存在」** —— 比没有过滤器还糟。\n     */\n    @Override\n    @Transactional(readOnly = true)\n    public void run(ApplicationArguments args) {\n        try {\n            List<Product> products = productMapper.selectList(null);\n            if (products.isEmpty()) {\n                return;\n            }\n            for (Product product : products) {\n                add(product.getId());\n            }\n            log.info(\"布隆过滤器已预热 {} 个商品 ID\", products.size());\n        } catch (Exception e) {\n            // 预热失败不该拦住应用启动；之后新商品仍会被增量加入\n            log.warn(\"布隆过滤器预热失败，将退化为不放行过滤: {}\", e.getMessage());\n        }\n    }\n\n    public void add(Long productId) {\n        if (productId == null) {\n            return;\n        }\n        addTo(KEY, productId);\n    }\n\n    /** @return false 表示**一定不存在**（可以放心拒掉）；true 只是「可能存在」，仍需查库 */\n    public boolean mightContain(Long productId) {\n        if (productId == null) {\n            return false;\n        }\n        List<String> values = new ArrayList<>(HASH_COUNT);\n        for (int i = 0; i < HASH_COUNT; i++) {\n            values.add(String.valueOf(index(productId, i)));\n        }\n        List<?> result = redisTemplate.execute(MIGHT_CONTAIN_SCRIPT, List.of(KEY), values.toArray());\n        return result != null && !result.isEmpty() && \"1\".equals(String.valueOf(result.get(0)));\n    }\n\n    /**\n     * 全量重建 —— 用于「有商品没走 create 接口入库」的场景（数据迁移、手工 SQL、导入脚本）。\n     *\n     * **建到临时 key 再 RENAME 切换，绝不能「先删再建」**：\n     * 先删的话，重建完成前过滤器是空的，那一小段时间里**所有商品都会被判为「不存在」**，\n     * 比不重建还糟。"
+      }
+    ]
   },
   {
     "id": "archive",
@@ -600,8 +646,15 @@ const NODES = [
     "weight": 1.05,
     "summary": "长期下架商品归档，无引用才物理删除，默认 dry-run。",
     "tech": "Flyway V37 · 定时任务",
-    "file": "task/product/ProductCleanupJob.java",
-    "talk": "删除有引用商品前必须检查订单/售后/购物车等引用。"
+    "file": "src/main/java/com/tsuk1/itsmygo/task/product/ProductCleanupJob.java:22-66",
+    "talk": "删除有引用商品前必须检查订单/售后/购物车等引用。",
+    "snippets": [
+      {
+        "label": "归档清理：分布式锁 + 定时扫描",
+        "file": "src/main/java/com/tsuk1/itsmygo/task/product/ProductCleanupJob.java:22-66",
+        "code": "    private static final String LOCK_KEY = RedisCacheHelper.key(\"product-cleanup:scan-lock\");\n\n    private final ProductCleanupService cleanupService;\n    private final ProductCleanupProperties properties;\n    private final StringRedisTemplate redisTemplate;\n\n    public ProductCleanupJob(ProductCleanupService cleanupService,\n                             ProductCleanupProperties properties,\n                             StringRedisTemplate redisTemplate) {\n        this.cleanupService = cleanupService;\n        this.properties = properties;\n        this.redisTemplate = redisTemplate;\n    }\n\n    @Scheduled(fixedDelayString = \"${itsmygo.product-cleanup.scan-interval-ms:86400000}\")\n    public void scan() {\n        String token = UUID.randomUUID().toString();\n        Boolean locked;\n        try {\n            locked = redisTemplate.opsForValue().setIfAbsent(LOCK_KEY, token,\n                    Duration.ofSeconds(properties.getScanLockTtlSeconds()));\n        } catch (RuntimeException e) {\n            log.warn(\"商品清理扫描抢锁异常，跳过本轮: {}\", e.getMessage());\n            return;\n        }\n        if (!Boolean.TRUE.equals(locked)) {\n            log.info(\"商品清理扫描已有实例在跑，跳过本轮\");\n            return;\n        }\n        try {\n            cleanupService.run(properties.isDryRun());\n        } catch (RuntimeException e) {\n            log.warn(\"商品清理扫描失败: {}\", e.getMessage());\n        } finally {\n            try {\n                String current = redisTemplate.opsForValue().get(LOCK_KEY);\n                if (token.equals(current)) {\n                    redisTemplate.delete(LOCK_KEY);\n                }\n            } catch (RuntimeException ignored) {\n                // 锁会自动过期\n            }\n        }\n    }\n}"
+      }
+    ]
   },
   {
     "id": "cart",
@@ -629,8 +682,15 @@ const NODES = [
     "weight": 1.3,
     "summary": "选地址、优惠券、勾选商品，生成结算预览。",
     "tech": "CheckoutService · BigDecimal",
-    "file": "service/impl/CheckoutServiceImpl.java",
-    "talk": "金额只认后端重算，前端展示不作为下单依据。"
+    "file": "src/main/java/com/tsuk1/itsmygo/controller/OrderController.java:41-60",
+    "talk": "金额只认后端重算，前端展示不作为下单依据。",
+    "snippets": [
+      {
+        "label": "结算入口：token 幂等 + 下单",
+        "file": "src/main/java/com/tsuk1/itsmygo/controller/OrderController.java:41-60",
+        "code": "    public Result<String> token(@AuthenticationPrincipal CurrentUser user) {\n        return Result.ok(orderService.issueToken(user.id()));\n    }\n\n    /** 按用户限流：防脚本刷单（配合提交令牌，双重保险） */\n    @RateLimit(scene = \"order\", limit = 10, windowSeconds = 60, byUser = true)\n    @PostMapping\n    public Result<CheckoutView> create(@AuthenticationPrincipal CurrentUser user,\n                                       @Valid @RequestBody CreateOrderRequest request) {\n        return Result.ok(orderService.create(user.id(), request));\n    }\n\n    /**\n     * 我的订单列表 —— 带明细。\n     *\n     * @param previewLimit 每个订单最多返回几条明细，默认 3（列表卡片只显示前几件 + 「共 N 件」）；\n     *                     传 0 表示全给\n     * @param status       逗号分隔的订单状态名（如 `PAID,SHIPPED`）；不传表示全部\n     */\n    @GetMapping"
+      }
+    ]
   },
   {
     "id": "coupon",
@@ -640,8 +700,15 @@ const NODES = [
     "weight": 1.2,
     "summary": "券归属、状态、门槛、每店一张校验，按店铺分摊优惠。",
     "tech": "CouponService · BigDecimal",
-    "file": "service/impl/CouponServiceImpl.java",
-    "talk": "优惠券按商户拆分，退款时按比例回滚。"
+    "file": "src/main/java/com/tsuk1/itsmygo/service/impl/CouponServiceImpl.java:50-120",
+    "talk": "优惠券按商户拆分，退款时按比例回滚。",
+    "snippets": [
+      {
+        "label": "领券：库存/限领/时间窗",
+        "file": "src/main/java/com/tsuk1/itsmygo/service/impl/CouponServiceImpl.java:50-120",
+        "code": "    public List<CouponView> claimable(Long userId) {\n        List<Coupon> coupons = couponMapper.selectList(Wrappers.<Coupon>lambdaQuery()\n                .eq(Coupon::getStatus, ENABLED)\n                .apply(\"valid_from <= NOW() AND valid_to >= NOW() AND claimed_count < total_count\")\n                .orderByDesc(Coupon::getId));\n        if (coupons.isEmpty()) return List.of();\n\n        Map<Long, Merchant> merchants = loadMerchants(coupons.stream()\n                .map(Coupon::getMerchantId).filter(Objects::nonNull).toList());\n\n        Set<Long> claimedIds = userId == null ? Set.of()\n                : userCouponMapper.selectList(Wrappers.<UserCoupon>lambdaQuery()\n                        .eq(UserCoupon::getUserId, userId)\n                        .in(UserCoupon::getCouponId, coupons.stream().map(Coupon::getId).toList()))\n                .stream().map(UserCoupon::getCouponId).collect(Collectors.toSet());\n\n        return coupons.stream()\n                // 店铺券只在店铺营业中时可领；平台券不受影响\n                .filter(coupon -> coupon.getMerchantId() == null\n                        || isActive(merchants.get(coupon.getMerchantId())))\n                .map(coupon -> new CouponView(\n                        coupon.getId(), coupon.getMerchantId(),\n                        merchantName(merchants, coupon.getMerchantId()),\n                        coupon.getName(), coupon.getThresholdAmount(),\n                        coupon.getDiscountAmount(), coupon.getTotalCount(), coupon.getClaimedCount(),\n                        coupon.getTotalCount() - coupon.getClaimedCount(),\n                        coupon.getValidFrom(), coupon.getValidTo(),\n                        claimedIds.contains(coupon.getId())))\n                .toList();\n    }\n\n    @Override\n    @Transactional\n    public void claim(Long userId, Long couponId) {\n        Coupon coupon = couponMapper.selectById(couponId);\n        if (coupon == null) {\n            throw new BizException(ResultCode.NOT_FOUND, \"优惠券不存在\");\n        }\n        if (!Integer.valueOf(ENABLED).equals(coupon.getStatus())) {\n            throw new BizException(ResultCode.BAD_REQUEST, \"优惠券已停用\");\n        }\n        if (coupon.getMerchantId() != null\n                && !isActive(merchantMapper.selectById(coupon.getMerchantId()))) {\n            throw new BizException(ResultCode.BAD_REQUEST, \"店铺已停用，无法领取该券\");\n        }\n\n        UserCoupon userCoupon = new UserCoupon();\n        userCoupon.setUserId(userId);\n        userCoupon.setCouponId(couponId);\n        userCoupon.setMerchantId(coupon.getMerchantId());\n        // 快照：模板以后改价/改期，不影响已领的券\n        userCoupon.setCouponName(coupon.getName());\n        userCoupon.setThresholdAmount(coupon.getThresholdAmount());\n        userCoupon.setDiscountAmount(coupon.getDiscountAmount());\n        userCoupon.setValidFrom(coupon.getValidFrom());\n        userCoupon.setValidTo(coupon.getValidTo());\n        userCoupon.setStatus(UserCoupon.UNUSED);\n\n        try {\n            userCouponMapper.insert(userCoupon);\n        } catch (DuplicateKeyException e) {\n            throw new BizException(ResultCode.BAD_REQUEST, \"该优惠券已领取\");\n        }\n\n        // 最终以这条条件更新为准：领完/失效都会返回 0，事务回滚上面那条插入\n        if (couponMapper.claimOne(couponId) == 0) {\n            throw new BizException(ResultCode.BAD_REQUEST, \"优惠券已领完或已失效\");\n        }\n    }\n\n    @Override"
+      }
+    ]
   },
   {
     "id": "address",
@@ -651,8 +718,15 @@ const NODES = [
     "weight": 1.1,
     "summary": "地址归属校验，默认地址快照进订单。",
     "tech": "AddressService",
-    "file": "service/impl/AddressServiceImpl.java",
-    "talk": "地址是快照，用户后续修改不影响历史订单。"
+    "file": "src/main/java/com/tsuk1/itsmygo/service/impl/AddressServiceImpl.java:25-112",
+    "talk": "地址是快照，用户后续修改不影响历史订单。",
+    "snippets": [
+      {
+        "label": "地址簿：归属校验 + 默认地址",
+        "file": "src/main/java/com/tsuk1/itsmygo/service/impl/AddressServiceImpl.java:25-112",
+        "code": "    public List<Address> list(Long userId) {\n        return addressMapper.selectList(Wrappers.<Address>lambdaQuery()\n                .eq(Address::getUserId, userId)\n                .orderByDesc(Address::getIsDefault)\n                .orderByDesc(Address::getId));\n    }\n\n    @Override\n    @Transactional\n    public Address create(Long userId, AddressRequest request) {\n        Address address = new Address();\n        apply(address, request);\n        address.setUserId(userId);\n        if (isDefault(address)) {\n            clearDefault(userId);\n        }\n        addressMapper.insert(address);\n        return address;\n    }\n\n    @Override\n    @Transactional\n    public Address update(Long userId, Long id, AddressRequest request) {\n        Address address = requireOwned(userId, id);\n        apply(address, request);\n        if (isDefault(address)) {\n            clearDefault(userId);\n        }\n        addressMapper.updateById(address);\n        return address;\n    }\n\n    @Override\n    public void delete(Long userId, Long id) {\n        requireOwned(userId, id);\n        addressMapper.deleteById(id);\n    }\n\n    @Override\n    @Transactional\n    public void setDefault(Long userId, Long id) {\n        requireOwned(userId, id);\n        clearDefault(userId);\n\n        Address update = new Address();\n        update.setId(id);\n        update.setIsDefault(1);\n        addressMapper.updateById(update);\n    }\n\n    private void apply(Address address, AddressRequest request) {\n        address.setReceiver(request.receiver());\n        address.setPhone(request.phone());\n        address.setProvince(request.province());\n        address.setCity(request.city());\n        address.setDistrict(request.district());\n        address.setDetail(request.detail());\n        // 浏览器 PUT 必填 isDefault；内部工具（agent address_edit）只改收货信息、传 null，\n        // 这里保留原默认标记，避免顺带把用户的默认地址清掉。\n        if (request.isDefault() != null) {\n            address.setIsDefault(Boolean.TRUE.equals(request.isDefault()) ? 1 : 0);\n        }\n    }\n\n    private boolean isDefault(Address address) {\n        return Integer.valueOf(1).equals(address.getIsDefault());\n    }\n\n    /** 一个用户至多一个默认地址 */\n    private void clearDefault(Long userId) {\n        Address reset = new Address();\n        reset.setIsDefault(0);\n        addressMapper.update(reset, Wrappers.<Address>lambdaUpdate()\n                .eq(Address::getUserId, userId)\n                .eq(Address::getIsDefault, 1));\n    }\n\n    /**\n     * 越权校验的唯一出口：别人的地址一律按「不存在」处理，\n     * 不返回 403 —— 那等于告诉调用方「这条数据存在，只是不属于你」。\n     */\n    private Address requireOwned(Long userId, Long id) {\n        Address address = addressMapper.selectById(id);\n        if (address == null || !userId.equals(address.getUserId())) {\n            throw new BizException(ResultCode.NOT_FOUND, \"地址不存在\");\n        }\n        return address;\n    }"
+      }
+    ]
   },
   {
     "id": "split",
@@ -824,8 +898,15 @@ const NODES = [
     "weight": 1.2,
     "summary": "CREATING / PENDING_PAYMENT / PAID / SHIPPED / COMPLETED / CANCELLED / REFUNDING / REFUNDED。",
     "tech": "OrderStatus 枚举",
-    "file": "entity/OrderStatus.java",
-    "talk": "状态迁移集中在枚举和 transition，禁止业务代码随手 set。"
+    "file": "src/main/java/com/tsuk1/itsmygo/entity/OrderStatus.java:1-60",
+    "talk": "状态迁移集中在枚举和 transition，禁止业务代码随手 set。",
+    "snippets": [
+      {
+        "label": "订单状态机：9 态与可取消规则",
+        "file": "src/main/java/com/tsuk1/itsmygo/entity/OrderStatus.java:1-60",
+        "code": "package com.tsuk1.itsmygo.entity;\n\n/**\n * 订单状态机。**合法流转只认这一个地方**，不要散落到各个 Service 里判断。\n *\n * <pre>\n * 创建中(CREATING) ──补账成功──> 待支付 ──支付──> 待发货 ──发货──> 待收货 ──确认收货──> 已完成\n *      └──补账失败/超时──> 创建失败（终态，可重新下单）\n *\n * 待支付 ──取消──> 已取消（终态）\n * 待发货 / 待收货 / 已完成 ──申请退款──> 退款中 ──同意──> 已退款（终态）\n *                                      └──驳回──> 回到申请前的状态\n * </pre>\n *\n * 待收货之后不能再取消（货已经出去了），只能走退款。\n * 已退款 / 已取消 / 已完成 是终态（已完成仍可申请退款 —— 相当于七天无理由）。\n * 创建中/创建失败是 M31 下单异步补账引入的状态：创建中不可支付、不可取消。\n */\npublic enum OrderStatus {\n\n    /** 占位订单已落库，等待异步补账（扣 DB 库存 / 占券 / 清购物车） */\n    CREATING(\"创建中\"),\n    /** 补账失败或超时；终态，用户需要重新下单 */\n    CREATE_FAILED(\"创建失败\"),\n    PENDING_PAYMENT(\"待支付\"),\n    /** 已支付，等待商家发货 */\n    PAID(\"待发货\"),\n    /** 已发货，等待买家确认收货 */\n    SHIPPED(\"待收货\"),\n    COMPLETED(\"已完成\"),\n    CANCELLED(\"已取消\"),\n    REFUNDING(\"退款中\"),\n    REFUNDED(\"已退款\");\n\n    private final String label;\n\n    OrderStatus(String label) {\n        this.label = label;\n    }\n\n    public String label() {\n        return label;\n    }\n\n    public boolean canTransitionTo(OrderStatus target) {\n        return switch (this) {\n            case CREATING -> target == PENDING_PAYMENT || target == CREATE_FAILED;\n            case PENDING_PAYMENT -> target == PAID || target == CANCELLED;\n            case PAID -> target == SHIPPED || target == CANCELLED || target == REFUNDING;\n            case SHIPPED -> target == COMPLETED || target == REFUNDING;\n            case COMPLETED -> target == REFUNDING;\n            // 退款被驳回不是「流转到某个固定状态」，而是回到申请前那个状态，\n            // 所以这里放行到 PAID / SHIPPED / COMPLETED，具体由 Service 校验一致性\n            case REFUNDING -> target == REFUNDED || target == PAID\n                    || target == SHIPPED || target == COMPLETED;\n            case REFUNDED, CANCELLED, CREATE_FAILED -> false;\n        };\n    }\n\n    /** 取消要回滚库存；只有「还没付款」的订单可以取消（已支付统一走退款/售后） */"
+      }
+    ]
   },
   {
     "id": "reserve",
@@ -871,8 +952,15 @@ const NODES = [
     "weight": 1.25,
     "summary": "下单事务失败时通过 afterCompletion 回补 Redis 预扣。",
     "tech": "TransactionSynchronization",
-    "file": "service/impl/OrderServiceImpl.java",
-    "talk": "预扣与事务绑定，提交失败必须反向 release。"
+    "file": "src/main/java/com/tsuk1/itsmygo/service/impl/StockServiceImpl.java:81-90",
+    "talk": "预扣与事务绑定，提交失败必须反向 release。",
+    "snippets": [
+      {
+        "label": "release：预扣库存回补",
+        "file": "src/main/java/com/tsuk1/itsmygo/service/impl/StockServiceImpl.java:81-90",
+        "code": "    public void release(Long skuId, int quantity) {\n        String key = key(skuId);\n        // 键可能已过期，直接 INCRBY 会凭空造一个库存键 —— 所以只补已存在的\n        if (Boolean.TRUE.equals(redisTemplate.hasKey(key))) {\n            redisTemplate.opsForValue().increment(key, quantity);\n            redisTemplate.expire(key, stockTtl());\n        }\n    }\n\n    @Override"
+      }
+    ]
   },
   {
     "id": "reconcile",
@@ -882,8 +970,15 @@ const NODES = [
     "weight": 1.3,
     "summary": "OrderCreatedConsumer 消费创建事件，重试结算，扫描任务兜底长时间 CREATING。",
     "tech": "RabbitMQ · 定时扫描",
-    "file": "task/order/OrderCreatedConsumer.java",
-    "talk": "异步链路要有消费重试 + 扫描兜底，不能只靠一次 MQ。"
+    "file": "src/main/java/com/tsuk1/itsmygo/task/order/OrderCreatedConsumer.java:30-76",
+    "talk": "异步链路要有消费重试 + 扫描兜底，不能只靠一次 MQ。",
+    "snippets": [
+      {
+        "label": "异步补账消费者：MQ 消息幂等",
+        "file": "src/main/java/com/tsuk1/itsmygo/task/order/OrderCreatedConsumer.java:30-76",
+        "code": "    public OrderCreatedConsumer(OrderSettlementService settlementService,\n                                ObjectMapper objectMapper) {\n        this.settlementService = settlementService;\n        this.objectMapper = objectMapper;\n    }\n\n    @RabbitListener(queues = OrderCreatedRabbitTopology.QUEUE)\n    public void onMessage(Message message) {\n        String traceId = (String) message.getMessageProperties().getHeaders()\n                .get(RequestIdFilter.TRACE_HEADER);\n        if (traceId == null || traceId.isBlank()) {\n            traceId = \"mq-\" + UUID.randomUUID().toString().replace(\"-\", \"\");\n        }\n        MDC.put(RequestIdFilter.TRACE_ID, traceId);\n        try {\n            handlePayload(new String(message.getBody(), StandardCharsets.UTF_8));\n        } finally {\n            MDC.remove(RequestIdFilter.TRACE_ID);\n        }\n    }\n\n    void handlePayload(String payload) {\n        OrderCreatedEvent event;\n        try {\n            event = objectMapper.readValue(payload, OrderCreatedEvent.class);\n        } catch (RuntimeException e) {\n            log.warn(\"忽略无法解析的订单创建事件: {}\", payload);\n            return;\n        }\n        List<Long> orderIds = event.orderIds() == null ? List.of() : event.orderIds();\n        if (orderIds.isEmpty()) {\n            return;\n        }\n        try {\n            settlementService.settle(orderIds, event.cartItemIds());\n        } catch (RuntimeException e) {\n            log.warn(\"订单异步补账失败，转创建失败: orderIds={} err={}\", orderIds, e.getMessage());\n            try {\n                settlementService.failCreation(orderIds, \"补账失败：\" + e.getMessage());\n            } catch (RuntimeException compensationError) {\n                log.error(\"订单创建失败收尾也失败，交给扫描兜底: orderIds={}\", orderIds, compensationError);\n            }\n            // 已经做过失败收尾就 ack；不要无限重投\n            throw new AmqpRejectAndDontRequeueException(\n                    \"订单补账失败: orderIds=\" + orderIds);\n        }\n    }"
+      }
+    ]
   },
   {
     "id": "ttl",
@@ -893,8 +988,20 @@ const NODES = [
     "weight": 1.05,
     "summary": "库存缓存 30min + 5min 随机抖动，避免同一秒集中过期。",
     "tech": "Redis TTL",
-    "file": "service/impl/StockServiceImpl.java:38-40",
-    "talk": "TTL 加抖动是防雪崩的常规手段。"
+    "file": "src/main/java/com/tsuk1/itsmygo/service/impl/StockServiceImpl.java:38-51",
+    "talk": "TTL 加抖动是防雪崩的常规手段。",
+    "snippets": [
+      {
+        "label": "库存 TTL：30 分钟 + 抖动",
+        "file": "src/main/java/com/tsuk1/itsmygo/service/impl/StockServiceImpl.java:38-51",
+        "code": "    private static final Duration STOCK_TTL_BASE = Duration.ofMinutes(30);\n    /** 抖动范围 ±5 分钟 —— 防止批量加载的键在同一秒集体过期（缓存雪崩） */\n    private static final long STOCK_TTL_JITTER_SECONDS = 300;\n\n    /** 加载锁的存活时间：只是防「持有者崩了导致死锁」，要远小于一次业务耗时 */\n    private static final Duration LOAD_LOCK_TTL = Duration.ofSeconds(5);\n    private static final long WAIT_INTERVAL_MILLIS = 50;\n    /** 最多等 500ms；超时说明 Redis 或数据库出了问题，宁可快速失败也不放过去打数据库 */\n    private static final int MAX_WAIT_ROUNDS = 10;\n\n    /**\n     * KEYS[1] = 库存键，ARGV[1] = 本次要扣的数量\n     * 返回：扣减后的余量（>= 0），或 -1 表示「键不存在」/「库存不足」\n     */"
+      },
+      {
+        "label": "stockTtl：随机抖动",
+        "file": "src/main/java/com/tsuk1/itsmygo/service/impl/StockServiceImpl.java:219-227",
+        "code": "    private Duration stockTtl() {\n        long jitter = ThreadLocalRandom.current()\n                .nextLong(-STOCK_TTL_JITTER_SECONDS, STOCK_TTL_JITTER_SECONDS + 1);\n        return STOCK_TTL_BASE.plusSeconds(jitter);\n    }\n\n    private String key(Long skuId) {\n        return KEY_PREFIX + skuId;\n    }"
+      }
+    ]
   },
   {
     "id": "sellable",
@@ -904,8 +1011,15 @@ const NODES = [
     "weight": 1.15,
     "summary": "可售 = Redis 预扣后的余量；DB 条件扣减作为最终兜底。",
     "tech": "Redis + DB",
-    "file": "service/impl/StockServiceImpl.java",
-    "talk": "缓存允许短暂偏差，DB 条件更新是最终一致性防线。"
+    "file": "src/main/java/com/tsuk1/itsmygo/service/impl/StockServiceImpl.java:152-198",
+    "talk": "缓存允许短暂偏差，DB 条件更新是最终一致性防线。",
+    "snippets": [
+      {
+        "label": "库存加载：DB 回源 + 互斥锁",
+        "file": "src/main/java/com/tsuk1/itsmygo/service/impl/StockServiceImpl.java:152-198",
+        "code": "    private void loadIfAbsent(Long skuId, String key) {\n        if (isLoaded(key)) {\n            return;\n        }\n\n        String lockKey = key + \":loading\";\n        // SETNX + TTL 一条命令完成，别拆成 SETNX 再 EXPIRE（两步之间崩掉就是死锁）\n        Boolean gotLock = redisTemplate.opsForValue()\n                .setIfAbsent(lockKey, \"1\", LOAD_LOCK_TTL);\n\n        if (Boolean.TRUE.equals(gotLock)) {\n            try {\n                // 双重检查：抢锁这段时间里，上一个持锁者可能已经把数据写好了\n                if (isLoaded(key)) {\n                    return;\n                }\n                ProductSku sku = skuMapper.selectById(skuId);\n                if (sku != null) {\n                    redisTemplate.opsForValue().set(key, String.valueOf(sku.getStock()), stockTtl());\n                }\n            } finally {\n                // 放锁一定要在 finally 里，否则中途抛异常锁会一直留到 TTL 到期\n                redisTemplate.delete(lockKey);\n            }\n            return;\n        }\n\n        // 没抢到锁 —— 说明别人正在加载，**绝不能也去查库**，自旋等它写完即可\n        awaitLoaded(key);\n    }\n\n    private void awaitLoaded(String key) {\n        for (int round = 0; round < MAX_WAIT_ROUNDS; round++) {\n            try {\n                Thread.sleep(WAIT_INTERVAL_MILLIS);\n            } catch (InterruptedException e) {\n                Thread.currentThread().interrupt();\n                return;\n            }\n            if (isLoaded(key)) {\n                return;\n            }\n        }\n        // 等不到就放弃：后续 Lua 会因键不存在返回 -1，上层按「库存不足」处理\n        log.warn(\"等待库存缓存加载超时: {}\", key);\n    }"
+      }
+    ]
   },
   {
     "id": "aftersale",
@@ -969,8 +1083,15 @@ const NODES = [
     "weight": 1.2,
     "summary": "发货写物流单，订单进入 SHIPPED，买家可查看物流。",
     "tech": "ShipmentService",
-    "file": "service/impl/ShipmentServiceImpl.java",
-    "talk": "物流是发货的副作用，失败不能回滚已支付订单。"
+    "file": "src/main/java/com/tsuk1/itsmygo/service/impl/ShipmentServiceImpl.java:57-145",
+    "talk": "物流是发货的副作用，失败不能回滚已支付订单。",
+    "snippets": [
+      {
+        "label": "发货：生成物流单 + 轨迹",
+        "file": "src/main/java/com/tsuk1/itsmygo/service/impl/ShipmentServiceImpl.java:57-145",
+        "code": "    public void createForOrder(Order order) {\n        if (order == null || order.getId() == null || find(order.getId()) != null) {\n            return;\n        }\n        int seed = (int) Math.floorMod(order.getId(), (long) CARRIERS.size());\n        Courier courier = COURIERS.get(seed);\n\n        // 商家配了发货坐标就从商家发货；否则回退虚拟转运中心\n        Merchant merchant = order.getMerchantId() == null\n                ? null : merchantMapper.selectById(order.getMerchantId());\n        boolean merchantLocated = merchant != null\n                && merchant.getShipLng() != null && merchant.getShipLat() != null;\n        String originName;\n        double originLng;\n        double originLat;\n        if (merchantLocated) {\n            originName = merchant.getName() + \"发货仓\";\n            originLng = merchant.getShipLng().doubleValue();\n            originLat = merchant.getShipLat().doubleValue();\n        } else {\n            Origin origin = ORIGINS.get(seed);\n            originName = origin.name();\n            originLng = origin.lng();\n            originLat = origin.lat();\n        }\n\n        LocalDateTime shippedAt = order.getShippedAt() == null\n                ? LocalDateTime.now() : order.getShippedAt();\n        Shipment shipment = new Shipment();\n        shipment.setOrderId(order.getId());\n        shipment.setTrackingNo(StringUtils.hasText(order.getTrackingNo())\n                ? order.getTrackingNo() : \"MYG\" + order.getOrderNo());\n        shipment.setCarrier(CARRIERS.get(seed));\n        shipment.setCourierName(courier.name());\n        shipment.setCourierPhone(courier.phone());\n        shipment.setOriginName(originName);\n        shipment.setOriginLng(originLng);\n        shipment.setOriginLat(originLat);\n        shipment.setStatus(ShipmentStatus.PICKED_UP.name());\n        shipment.setShippedAt(shippedAt);\n        shipment.setEta(shippedAt.plusMinutes(properties.deliveryMinutes()));\n        shipmentMapper.insert(shipment);\n    }\n\n    @Override\n    public LogisticsView viewForOrder(Order order) {\n        if (order == null || order.getId() == null) {\n            return null;\n        }\n        Shipment shipment = find(order.getId());\n        if (shipment == null) {\n            return null;\n        }\n\n        LocalDateTime now = LocalDateTime.now();\n        LocalDateTime shippedAt = shipment.getShippedAt();\n        LocalDateTime eta = shipment.getEta();\n        long totalSeconds = Math.max(1, Duration.between(shippedAt, eta).getSeconds());\n        LocalDateTime inTransitAt = shippedAt.plusSeconds(Math.max(1, totalSeconds / 4));\n        LocalDateTime outForDeliveryAt = eta.minusSeconds(Math.max(1, totalSeconds / 5));\n        if (outForDeliveryAt.isBefore(inTransitAt)) {\n            outForDeliveryAt = inTransitAt;\n        }\n\n        boolean cancelled = ShipmentStatus.CANCELLED.name().equals(shipment.getStatus());\n        ShipmentStatus status;\n        LocalDateTime deliveredAt = shipment.getDeliveredAt();\n        if (cancelled) {\n            status = ShipmentStatus.CANCELLED;\n        } else if (!now.isBefore(eta)) {\n            status = ShipmentStatus.DELIVERED;\n            deliveredAt = eta;\n        } else if (!now.isBefore(outForDeliveryAt)) {\n            status = ShipmentStatus.OUT_FOR_DELIVERY;\n        } else if (!now.isBefore(inTransitAt)) {\n            status = ShipmentStatus.IN_TRANSIT;\n        } else {\n            status = ShipmentStatus.PICKED_UP;\n        }\n\n        if (!status.name().equals(shipment.getStatus())\n                || (deliveredAt != null && !deliveredAt.equals(shipment.getDeliveredAt()))) {\n            shipment.setStatus(status.name());\n            shipment.setDeliveredAt(deliveredAt);\n            shipmentMapper.updateById(shipment);\n        }\n\n        long elapsed = Math.max(0, Duration.between(shippedAt, now).getSeconds());\n        int progress = (int) Math.min(100, elapsed * 100 / totalSeconds);"
+      }
+    ]
   },
   {
     "id": "review",
@@ -980,8 +1101,15 @@ const NODES = [
     "weight": 1.1,
     "summary": "完成订单后可评价，评价与商品评分聚合。",
     "tech": "ReviewService",
-    "file": "service/impl/ReviewServiceImpl.java",
-    "talk": "评价只允许已完成订单，防刷。"
+    "file": "src/main/java/com/tsuk1/itsmygo/service/impl/ReviewServiceImpl.java:64-101",
+    "talk": "评价只允许已完成订单，防刷。",
+    "snippets": [
+      {
+        "label": "评价：订单完成才可评",
+        "file": "src/main/java/com/tsuk1/itsmygo/service/impl/ReviewServiceImpl.java:64-101",
+        "code": "    public void create(Long userId, ReviewRequest request) {\n        OrderItem item = orderItemMapper.selectById(request.orderItemId());\n        if (item == null) {\n            throw new BizException(ResultCode.NOT_FOUND, \"订单项不存在\");\n        }\n        Order order = orderMapper.selectById(item.getOrderId());\n        // 别人的订单一律当不存在\n        if (order == null || !userId.equals(order.getUserId())) {\n            throw new BizException(ResultCode.NOT_FOUND, \"订单项不存在\");\n        }\n        if (!OrderStatus.COMPLETED.name().equals(order.getStatus())) {\n            throw new BizException(ResultCode.BAD_REQUEST, \"只有已完成订单可以评价\");\n        }\n        if (reviewMapper.exists(Wrappers.<Review>lambdaQuery()\n                .eq(Review::getOrderItemId, item.getId()))) {\n            throw new BizException(ResultCode.BAD_REQUEST, \"该商品已评价\");\n        }\n\n        Review review = new Review();\n        review.setUserId(userId);\n        review.setOrderId(order.getId());\n        review.setOrderItemId(item.getId());\n        review.setProductId(item.getProductId());\n        review.setMerchantId(order.getMerchantId());\n        review.setSkuId(item.getSkuId());\n        review.setRating(request.rating());\n        review.setContent(request.content() == null ? \"\" : request.content().trim());\n        review.setStatus(VISIBLE);\n\n        try {\n            reviewMapper.insert(review);\n        } catch (DuplicateKeyException e) {\n            // 并发提交：唯一索引是最终防线，转成人话而不是 500\n            throw new BizException(ResultCode.BAD_REQUEST, \"该商品已评价\");\n        }\n    }\n\n    @Override"
+      }
+    ]
   },
   {
     "id": "scan",
@@ -991,8 +1119,15 @@ const NODES = [
     "weight": 1.2,
     "summary": "定时扫描长时间 CREATING / 到期售后，补偿 MQ 丢失。",
     "tech": "Scheduled · 补偿",
-    "file": "task/order/OrderTimeoutScanJob.java",
-    "talk": "异步系统必须有扫描兜底，MQ 不是 100% 可靠。"
+    "file": "src/main/java/com/tsuk1/itsmygo/task/order/OrderTimeoutScanJob.java:30-92",
+    "talk": "异步系统必须有扫描兜底，MQ 不是 100% 可靠。",
+    "snippets": [
+      {
+        "label": "超时关单扫描：锁 + 批量",
+        "file": "src/main/java/com/tsuk1/itsmygo/task/order/OrderTimeoutScanJob.java:30-92",
+        "code": "    private static final String LOCK_KEY = RedisCacheHelper.key(\"order-timeout:scan-lock\");\n    private static final DefaultRedisScript<Long> RELEASE_SCRIPT = new DefaultRedisScript<>(\n            \"if redis.call('get', KEYS[1]) == ARGV[1] \"\n                    + \"then return redis.call('del', KEYS[1]) else return 0 end\",\n            Long.class);\n\n    private final OrderService orderService;\n    private final StringRedisTemplate redisTemplate;\n    private final OrderTimeoutProperties properties;\n\n    public OrderTimeoutScanJob(OrderService orderService,\n                               StringRedisTemplate redisTemplate,\n                               OrderTimeoutProperties properties) {\n        this.orderService = orderService;\n        this.redisTemplate = redisTemplate;\n        this.properties = properties;\n    }\n\n    @Scheduled(fixedDelayString = \"${itsmygo.order-timeout.scan-interval-ms:300000}\")\n    public void scan() {\n        MDC.put(RequestIdFilter.TRACE_ID,\n                \"scan-\" + UUID.randomUUID().toString().replace(\"-\", \"\"));\n        try {\n            doScan();\n        } finally {\n            MDC.remove(RequestIdFilter.TRACE_ID);\n        }\n    }\n\n    private void doScan() {\n        String token = UUID.randomUUID().toString();\n        Boolean locked;\n        try {\n            locked = redisTemplate.opsForValue().setIfAbsent(\n                    LOCK_KEY, token, Duration.ofSeconds(properties.scanLockTtlSeconds()));\n        } catch (RuntimeException e) {\n            log.warn(\"超时关单扫描抢锁失败，跳过本轮: {}\", e.getMessage());\n            return;\n        }\n        if (!Boolean.TRUE.equals(locked)) {\n            return;\n        }\n\n        try {\n            int cancelled = orderService.cancelExpired(properties.minutes());\n            if (cancelled > 0) {\n                log.info(\"超时关单扫描取消 {} 笔订单（阈值 {} 分钟）\",\n                        cancelled, properties.minutes());\n            }\n        } catch (RuntimeException e) {\n            log.warn(\"超时关单扫描失败: {}\", e.getMessage());\n        } finally {\n            release(token);\n        }\n    }\n\n    private void release(String token) {\n        try {\n            redisTemplate.execute(RELEASE_SCRIPT, List.of(LOCK_KEY), token);\n        } catch (RuntimeException e) {\n            log.warn(\"释放超时关单扫描锁失败（TTL 会自动过期）: {}\", e.getMessage());\n        }\n    }"
+      }
+    ]
   },
   {
     "id": "chat",
@@ -1002,8 +1137,15 @@ const NODES = [
     "weight": 1.4,
     "summary": "顾客/商家/客服会话，SSE 推消息，未读与历史分页。",
     "tech": "SseEmitter · ChatService",
-    "file": "service/impl/ChatServiceImpl.java",
-    "talk": "聊天是长连接 + 短轮询兜底，不做全局 SSE。"
+    "file": "src/main/java/com/tsuk1/itsmygo/service/impl/ChatServiceImpl.java:512-570",
+    "talk": "聊天是长连接 + 短轮询兜底，不做全局 SSE。",
+    "snippets": [
+      {
+        "label": "聊天写入：消息落库 + 未读 + 推送",
+        "file": "src/main/java/com/tsuk1/itsmygo/service/impl/ChatServiceImpl.java:512-570",
+        "code": "    private ChatMessage appendMessage(Conversation conversation, Long senderUserId, String senderType,\n                                      String contentType, String content, String cardData) {\n        ChatMessage message = new ChatMessage();\n        message.setConversationId(conversation.getId());\n        message.setSenderUserId(senderUserId);\n        message.setSenderType(senderType);\n        message.setContentType(contentType);\n        message.setContent(content);\n        message.setCardData(cardData);\n        message.setCreatedAt(LocalDateTime.now());\n        chatMessageMapper.insert(message);\n\n        String preview = preview(contentType, content);\n        conversationMapper.updateLastMessage(conversation.getId(), message.getId(), preview,\n                message.getCreatedAt());\n        // MERCHANT 消息加顾客未读；CUSTOMER / AGENT 都加商家未读\n        // （AGENT 是买小购替顾客发给商家的通知，顾客自己不需要未读）\n        boolean fromMerchant = ChatMessage.SENDER_MERCHANT.equals(senderType);\n        conversationMapper.addUnread(conversation.getId(),\n                fromMerchant ? 1 : 0, fromMerchant ? 0 : 1);\n\n        Long conversationId = conversation.getId();\n        Long messageId = message.getId();\n        afterCommit(() -> pushMessage(conversationId, messageId));\n        return message;\n    }\n\n    private void pushMessage(Long conversationId, Long messageId) {\n        Conversation conversation = conversationMapper.selectById(conversationId);\n        ChatMessage message = chatMessageMapper.selectById(messageId);\n        if (conversation == null || message == null) {\n            return;\n        }\n        Merchant merchant = merchantMapper.selectById(conversation.getMerchantId());\n        User customer = userMapper.selectById(conversation.getCustomerUserId());\n        ChatMessageView view = toMessageView(message);\n\n        if (customer != null) {\n            ConversationView customerView = toConversationView(conversation,\n                    Conversation.SIDE_CUSTOMER, registry.isMerchantOnline(conversation.getMerchantId()),\n                    merchant, customer);\n            registry.sendToUser(customer.getId(), ChatEvent.MESSAGE,\n                    new ChatEvent.Message(Conversation.SIDE_CUSTOMER, view, customerView,\n                            conversationMapper.sumCustomerUnread(customer.getId())));\n        }\n        List<Long> recipients = merchantRecipients(merchant);\n        if (merchant != null && !recipients.isEmpty()) {\n            ConversationView merchantView = toConversationView(conversation,\n                    Conversation.SIDE_MERCHANT, false, merchant, customer);\n            long unread = conversationMapper.sumMerchantUnread(merchant.getId());\n            for (Long recipient : recipients) {\n                registry.sendToUser(recipient, ChatEvent.MESSAGE,\n                        new ChatEvent.Message(Conversation.SIDE_MERCHANT, view, merchantView, unread));\n            }\n        }\n    }\n\n    // ── 查询与组装 ──"
+      }
+    ]
   },
   {
     "id": "notify",
@@ -1031,8 +1173,15 @@ const NODES = [
     "weight": 1.3,
     "summary": "客服动作以卡片/表单回传，确认后由 Java 执行，前端只展示状态。",
     "tech": "Vue · AgentActionCard",
-    "file": "frontend/src/components/chat/AgentActionCard.vue",
-    "talk": "动作卡是 HITL 的 UI 载体，确认前不产生副作用。"
+    "file": "frontend/src/components/chat/AgentActionCard.vue:214-280",
+    "talk": "动作卡是 HITL 的 UI 载体，确认前不产生副作用。",
+    "snippets": [
+      {
+        "label": "下单卡编辑：地址 / 规格 / 数量",
+        "file": "frontend/src/components/chat/AgentActionCard.vue:214-280",
+        "code": "}\n\nfunction qtyKey(item: { productId?: number; skuId?: number }): string {\n  return `${item.productId ?? ''}-${item.skuId ?? ''}`\n}\n\nasync function startEdit() {\n  if (!canEdit.value) return\n  editing.value = true\n  editAddressId.value = orderSummary.value.address?.id ?? null\n  editQuantities.value = {}\n  editSkuIds.value = {}\n  const productIds = new Set<number>()\n  for (const group of orderSummary.value.groups) {\n    for (const item of group.items) {\n      if (item.productId && item.skuId) {\n        editQuantities.value[qtyKey(item)] = item.quantity\n        editSkuIds.value[qtyKey(item)] = item.skuId\n        productIds.add(item.productId)\n      }\n    }\n  }\n  try {\n    addresses.value = await fetchAddresses()\n  } catch {\n    addresses.value = []\n  }\n  loadingProducts.value = true\n  try {\n    const loaded = await Promise.all([...productIds].map(async (id) => {\n      try {\n        return [id, await fetchProduct(id)] as const\n      } catch {\n        return null\n      }\n    }))\n    productCache.value = Object.fromEntries(\n      loaded.filter((entry): entry is readonly [number, Product] => entry !== null),\n    )\n  } finally {\n    loadingProducts.value = false\n  }\n}\n\nfunction skuOptions(item: { productId?: number }) {\n  const product = item.productId ? productCache.value[item.productId] : undefined\n  return (product?.skus ?? []).filter((sku) => sku.status === 1)\n}\n\nfunction cancelEdit() {\n  editing.value = false\n}\n\nasync function reprepare() {\n  if (!canReprepare.value || busy.value) return\n  busy.value = true\n  try {\n    const updated = await reprepareAgentOrder(props.action.actionNo)\n    emit('updated', updated)\n    ElMessage.success('已重新生成下单草稿，请核对后确认')\n  } catch {\n    // http.ts 已提示业务错误\n  } finally {\n    busy.value = false\n  }\n}"
+      }
+    ]
   },
   {
     "id": "bell",
@@ -1042,8 +1191,15 @@ const NODES = [
     "weight": 1.15,
     "summary": "顶栏通知铃铛，30s 可见轮询、未读、已读、全部已读。",
     "tech": "Vue · NotificationBell",
-    "file": "frontend/src/components/NotificationBell.vue",
-    "talk": "通知入口按角色复用同一组件，链接由后端按收件人生成。"
+    "file": "frontend/src/components/NotificationBell.vue:1-120",
+    "talk": "通知入口按角色复用同一组件，链接由后端按收件人生成。",
+    "snippets": [
+      {
+        "label": "通知铃铛：轮询 / 已读 / 跳转",
+        "file": "frontend/src/components/NotificationBell.vue:1-120",
+        "code": "<script setup lang=\"ts\">\nimport { computed, onBeforeUnmount, onMounted, ref } from 'vue'\nimport { useRouter } from 'vue-router'\nimport { Bell } from '@element-plus/icons-vue'\nimport { ElMessage } from 'element-plus'\nimport {\n  fetchNotifications,\n  fetchNotificationUnreadCount,\n  markAllNotificationsRead,\n  markNotificationRead,\n} from '@/api/notifications'\nimport type { NotificationView } from '@/api/types'\nimport { useUserStore } from '@/stores/user'\n\n/** 商家端 / 管理端 / 顾客端顶栏通知铃铛：30s 可见轮询未读数，展开时拉最近 20 条。 */\nconst router = useRouter()\nconst userStore = useUserStore()\nconst unread = ref(0)\nconst items = ref<NotificationView[]>([])\nconst open = ref(false)\nconst loading = ref(false)\nconst viewportWidth = ref(typeof window === 'undefined' ? 360 : window.innerWidth)\nconst popoverWidth = computed(() => Math.max(260, Math.min(360, viewportWidth.value - 24)))\nlet timer: number | undefined\n\nfunction onResize() {\n  viewportWidth.value = window.innerWidth\n}\n\nasync function refreshUnread() {\n  try {\n    unread.value = await fetchNotificationUnreadCount()\n  } catch {\n    // 拦截器已提示；保留旧值\n  }\n}\n\nasync function loadList() {\n  loading.value = true\n  try {\n    const view = await fetchNotifications(20)\n    items.value = view.items\n    unread.value = view.unreadCount\n  } catch {\n    // 拦截器已提示\n  } finally {\n    loading.value = false\n  }\n}\n\nfunction onShow() {\n  void loadList()\n}\n\nfunction resolveLink(link: string): string {\n  // 兼容历史数据：平台自营店的商家侧通知曾存成 /merchant/**，管理员点进去会被守卫拦截\n  if (userStore.isAdmin && link.startsWith('/merchant')) {\n    return '/admin' + link.slice('/merchant'.length)\n  }\n  return link\n}\n\nasync function onClick(item: NotificationView) {\n  if (!item.read) {\n    try {\n      await markNotificationRead(item.id)\n      item.read = true\n      unread.value = Math.max(0, unread.value - 1)\n    } catch {\n      // 已读失败不挡跳转\n    }\n  }\n  open.value = false\n  const link = resolveLink(item.link)\n  if (link) router.push(link)\n}\n\nasync function readAll() {\n  try {\n    await markAllNotificationsRead()\n    items.value = items.value.map((item) => ({ ...item, read: true }))\n    unread.value = 0\n    ElMessage.success('已全部标记为已读')\n  } catch {\n    // 拦截器已提示\n  }\n}\n\nfunction onVisibilityChange() {\n  if (document.visibilityState === 'visible') void refreshUnread()\n}\n\nonMounted(() => {\n  void refreshUnread()\n  timer = window.setInterval(() => {\n    if (document.visibilityState === 'visible') void refreshUnread()\n  }, 30_000)\n  document.addEventListener('visibilitychange', onVisibilityChange)\n  window.addEventListener('resize', onResize)\n})\n\nonBeforeUnmount(() => {\n  if (timer !== undefined) {\n    window.clearInterval(timer)\n    timer = undefined\n  }\n  document.removeEventListener('visibilitychange', onVisibilityChange)\n  window.removeEventListener('resize', onResize)\n})\n\nfunction timeText(ts: string) {\n  return (ts || '').replace('T', ' ').slice(0, 16)\n}\n<\/script>\n\n<template>\n  <el-popover\n    v-model:visible=\"open\"\n    placement=\"bottom-end\"\n    :width=\"popoverWidth\""
+      }
+    ]
   },
   {
     "id": "unread",
@@ -1053,8 +1209,15 @@ const NODES = [
     "weight": 1.1,
     "summary": "聊天/通知未读数聚合到顶栏角标。",
     "tech": "Pinia · 轮询",
-    "file": "frontend/src/stores/badge.ts",
-    "talk": "角标只做提醒，不承担消息投递。"
+    "file": "frontend/src/stores/badge.ts:1-92",
+    "talk": "角标只做提醒，不承担消息投递。",
+    "snippets": [
+      {
+        "label": "未读角标：可见时轮询",
+        "file": "frontend/src/stores/badge.ts:1-92",
+        "code": "import { ref } from 'vue'\nimport { defineStore } from 'pinia'\nimport { fetchCouponCenter } from '@/api/coupon'\nimport { fetchCart } from '@/api/cart'\nimport { getToken } from '@/api/http'\nimport { useChatStore } from '@/stores/chat'\nimport { useUserStore } from '@/stores/user'\nimport type { CartView, CouponView } from '@/api/types'\n\n/**\n * 顶栏角标：可领券数量 + 购物车商品总数 + 消息未读数。\n *\n * 三个角标都走这里轮询（30s，且只在页面可见时），不再为消息单独建全局 SSE：\n * SSE 只在实际聊天页可见时连接（stores/chat.ts），避免多标签占满浏览器连接池。\n */\nexport const useBadgeStore = defineStore('badge', () => {\n  const claimableCoupons = ref(0)\n  const cartCount = ref(0)\n\n  let timer: number | undefined\n\n  async function refreshCoupons() {\n    try {\n      syncCoupons(await fetchCouponCenter())\n    } catch {\n      // 拦截器已提示；保留上一次的值\n    }\n  }\n\n  /** 领券中心拿到的列表直接复用，省一次请求 */\n  function syncCoupons(coupons: CouponView[]) {\n    claimableCoupons.value = coupons.filter((item) => !item.claimed).length\n  }\n\n  async function refreshCart() {\n    const user = useUserStore()\n    if (!getToken() || !user.isLoggedIn) {\n      cartCount.value = 0\n      return\n    }\n    try {\n      syncCart(await fetchCart())\n    } catch {\n      cartCount.value = 0\n    }\n  }\n\n  /** 购物车接口本来就返回整份购物车，直接同步，省一次请求 */\n  function syncCart(view: CartView) {\n    cartCount.value = view.items.reduce((sum, item) => sum + item.quantity, 0)\n  }\n\n  function resetAuth() {\n    cartCount.value = 0\n    // 登出后 claimed 标记消失，可领数量会变回「全部」\n    void refreshCoupons()\n  }\n\n  async function refreshAll() {\n    await Promise.all([refreshCoupons(), refreshCart(), useChatStore().refreshUnread()])\n  }\n\n  function startPolling() {\n    stopPolling()\n    timer = window.setInterval(() => {\n      // 后台标签页不轮询，回到前台后下一轮自然刷新\n      if (document.visibilityState === 'visible') {\n        void refreshAll()\n      }\n    }, 30_000)\n  }\n\n  function stopPolling() {\n    if (timer !== undefined) {\n      window.clearInterval(timer)\n      timer = undefined\n    }\n  }\n\n  return {\n    claimableCoupons,\n    cartCount,\n    refreshCoupons,\n    refreshCart,\n    syncCoupons,\n    syncCart,\n    resetAuth,\n    refreshAll,\n    startPolling,\n    stopPolling,\n  }\n})"
+      }
+    ]
   },
   {
     "id": "clean",
@@ -1064,8 +1227,15 @@ const NODES = [
     "weight": 1.05,
     "summary": "消息/会话历史归档与清理，避免无限增长。",
     "tech": "MySQL · 定时任务",
-    "file": "task/chat/ChatCleanupJob.java",
-    "talk": "历史消息要可回放，但不能无限占在线库。"
+    "file": "src/main/java/com/tsuk1/itsmygo/service/impl/ProductCleanupServiceImpl.java:78-159",
+    "talk": "历史消息要可回放，但不能无限占在线库。",
+    "snippets": [
+      {
+        "label": "商品清理：归档/物理删 + 通知",
+        "file": "src/main/java/com/tsuk1/itsmygo/service/impl/ProductCleanupServiceImpl.java:78-159",
+        "code": "    public ProductCleanupReport run(boolean dryRun) {\n        LocalDateTime now = LocalDateTime.now();\n        int batch = Math.max(1, Math.min(properties.getBatchLimit(), 500));\n\n        List<Product> archiveCandidates = productMapper.selectList(Wrappers.<Product>lambdaQuery()\n                .eq(Product::getStatus, OFF_SHELF)\n                .isNull(Product::getArchivedAt)\n                .le(Product::getUpdatedAt, now.minusDays(properties.getOffShelfDays()))\n                .orderByAsc(Product::getId)\n                .last(\"LIMIT \" + batch));\n\n        int archived = 0;\n        if (!dryRun) {\n            for (Product product : archiveCandidates) {\n                int rows = productMapper.update(null, Wrappers.<Product>lambdaUpdate()\n                        .eq(Product::getId, product.getId())\n                        .eq(Product::getStatus, OFF_SHELF)\n                        .isNull(Product::getArchivedAt)\n                        .set(Product::getArchivedAt, now));\n                if (rows > 0) {\n                    archived++;\n                    // 归档后清购物车里的失效行（不进订单，无历史价值）\n                    cartItemMapper.delete(Wrappers.<CartItem>lambdaQuery()\n                            .eq(CartItem::getProductId, product.getId()));\n                    cacheHelper.evict(RedisCacheHelper.key(CACHE_KEY_PREFIX + product.getId()));\n                }\n            }\n        }\n\n        List<Product> purgeCandidates = productMapper.selectList(Wrappers.<Product>lambdaQuery()\n                .eq(Product::getStatus, OFF_SHELF)\n                .isNotNull(Product::getArchivedAt)\n                .le(Product::getArchivedAt, now.minusDays(properties.getArchiveGraceDays()))\n                .orderByAsc(Product::getId)\n                .last(\"LIMIT \" + batch));\n\n        int purgeable = 0;\n        int purged = 0;\n        int skipped = 0;\n        for (Product product : purgeCandidates) {\n            if (referenceChecker.hasReferences(product.getId())) {\n                skipped++;\n                continue;\n            }\n            purgeable++;\n            if (!dryRun) {\n                purge(product.getId());\n                purged++;\n            }\n        }\n\n        ProductCleanupReport report = new ProductCleanupReport(\n                dryRun, archiveCandidates.size(), dryRun ? 0 : archived,\n                purgeable, dryRun ? 0 : purged, skipped);\n        log.info(\"商品清理完成：dryRun={} 待归档={} 已归档={} 可清理={} 已清理={} 有引用跳过={}\",\n                dryRun, report.archiveCandidates(), report.archived(),\n                report.purgeCandidates(), report.purged(), report.skippedReferenced());\n        if (report.archiveCandidates() > 0 || report.purgeCandidates() > 0) {\n            notifyAdmins(report);\n        }\n        return report;\n    }\n\n    private void purge(Long productId) {\n        List<ProductSpec> specs = productSpecMapper.selectList(Wrappers.<ProductSpec>lambdaQuery()\n                .eq(ProductSpec::getProductId, productId));\n        if (!specs.isEmpty()) {\n            List<Long> specIds = specs.stream().map(ProductSpec::getId).toList();\n            productSpecValueMapper.delete(Wrappers.<ProductSpecValue>lambdaQuery()\n                    .in(ProductSpecValue::getSpecId, specIds));\n        }\n        productSpecMapper.delete(Wrappers.<ProductSpec>lambdaQuery()\n                .eq(ProductSpec::getProductId, productId));\n        productSkuMapper.delete(Wrappers.<ProductSku>lambdaQuery()\n                .eq(ProductSku::getProductId, productId));\n        priceHistoryMapper.delete(Wrappers.<ProductPriceHistory>lambdaQuery()\n                .eq(ProductPriceHistory::getProductId, productId));\n        productMapper.deleteById(productId);\n        cacheHelper.evict(RedisCacheHelper.key(CACHE_KEY_PREFIX + productId));\n        log.info(\"已物理清理无引用归档商品: productId={}\", productId);\n    }"
+      }
+    ]
   },
   {
     "id": "grpc",
@@ -1147,8 +1317,15 @@ const NODES = [
     "weight": 1.2,
     "summary": "智能体评测任务、评分与结果，管理端可触发。",
     "tech": "LLM-as-Judge · Eval",
-    "file": "controller/AdminAgentEvalController.java",
-    "talk": "评测是回归手段，不是上线后的唯一质量保障。"
+    "file": "src/main/java/com/tsuk1/itsmygo/controller/AdminAgentEvalController.java:44-130",
+    "talk": "评测是回归手段，不是上线后的唯一质量保障。",
+    "snippets": [
+      {
+        "label": "Agent 评测任务入口",
+        "file": "src/main/java/com/tsuk1/itsmygo/controller/AdminAgentEvalController.java:44-130",
+        "code": "    public Result<AgentEvalCasesView> cases() {\n        return Result.ok(evalClient.cases());\n    }\n\n    /** 新建自建用例：写到 rag_helper 持久化目录，立即出现在用例列表。 */\n    @RateLimit(scene = \"agent-eval-case\", limit = 10, windowSeconds = 60, byUser = true)\n    @PreAuthorize(\"hasAuthority('admin:agent-eval:run')\")\n    @PostMapping(\"/cases\")\n    @AdminAudit(action = \"AGENT_EVAL_CASE_CREATE\", label = \"新建智能体评测用例\",\n            targetType = \"AGENT_EVAL\")\n    public Result<AgentEvalCasesView.AgentEvalCaseView> createCase(\n            @Valid @RequestBody AgentEvalCaseCreateRequest request) {\n        return Result.ok(evalClient.createCase(request));\n    }\n\n    @GetMapping(\"/results\")\n    public Result<AgentEvalResultListView> results(\n            @RequestParam(defaultValue = \"50\") int limit) {\n        return Result.ok(new AgentEvalResultListView(\n                evalClient.results(clamp(limit, 1, 100))));\n    }\n\n    @GetMapping(\"/results/{name}\")\n    public Result<AgentEvalResultView> result(@PathVariable String name) {\n        return Result.ok(evalClient.result(name));\n    }\n\n    /** 启动后台评测；真正执行在 rag_helper，Java 只负责鉴权和转发。 */\n    @RateLimit(scene = \"agent-eval-run\", limit = 3, windowSeconds = 60, byUser = true)\n    @PreAuthorize(\"hasAuthority('admin:agent-eval:run')\")\n    @PostMapping(\"/runs\")\n    @AdminAudit(action = \"AGENT_EVAL_RUN\", label = \"启动智能体评测\",\n            targetType = \"AGENT_EVAL\")\n    public Result<AgentEvalJobView> run(@Valid @RequestBody AgentEvalRunRequest request) {\n        return Result.ok(evalClient.start(request));\n    }\n\n    @GetMapping(\"/jobs\")\n    public Result<AgentEvalJobListView> jobs(\n            @RequestParam(defaultValue = \"10\") int limit) {\n        return Result.ok(new AgentEvalJobListView(\n                evalClient.jobs(clamp(limit, 1, 20))));\n    }\n\n    @GetMapping(\"/jobs/{id}\")\n    public Result<AgentEvalJobView> job(@PathVariable String id) {\n        AgentEvalJobView job = evalClient.job(id);\n        notifyEvalDone(job);\n        return Result.ok(job);\n    }\n\n    /** 评测跑到终态时给管理员发一条站内通知（幂等：同一 job + 状态只发一次）。 */\n    private void notifyEvalDone(AgentEvalJobView job) {\n        if (job == null) {\n            return;\n        }\n        String status = job.status();\n        if (!\"completed\".equals(status) && !\"failed\".equals(status) && !\"stopped\".equals(status)) {\n            return;\n        }\n        String label = switch (status) {\n            case \"completed\" -> \"已完成\";\n            case \"failed\" -> \"失败\";\n            default -> \"已停止\";\n        };\n        try {\n            notificationService.notifyAdmins(\"AGENT_EVAL_DONE\", \"智能体评测\" + label,\n                    \"评测任务 \" + job.id() + \" \" + label + \"，可到评测台查看结果。\",\n                    \"/admin/agent-eval?jobId=\" + job.id(), \"agent-eval-done:\" + job.id() + \":\" + status);\n        } catch (RuntimeException ignored) {\n            // 通知失败不影响评测状态查询\n        }\n    }\n\n    /** 协作式停止：当前用例跑完后退出，已产出的结果保留。 */\n    @PreAuthorize(\"hasAuthority('admin:agent-eval:run')\")\n    @PostMapping(\"/jobs/{id}/stop\")\n    @AdminAudit(action = \"AGENT_EVAL_STOP\", label = \"停止智能体评测\",\n            targetType = \"AGENT_EVAL\")\n    public Result<AgentEvalJobView> stop(@PathVariable String id) {\n        return Result.ok(evalClient.stop(id));\n    }\n\n    private static int clamp(int value, int min, int max) {\n        return Math.max(min, Math.min(value, max));\n    }\n}"
+      }
+    ]
   },
   {
     "id": "context",
@@ -1158,8 +1335,15 @@ const NODES = [
     "weight": 1.25,
     "summary": "工具 schema、短期票据、会话历史分层；票据不进模型上下文。",
     "tech": "ContextVar · Harness",
-    "file": "common/agent/AgentToolTicketService.java",
-    "talk": "把权限凭证放执行上下文，而不是 prompt。"
+    "file": "src/main/java/com/tsuk1/itsmygo/service/impl/AgentChatServiceImpl.java:99-169",
+    "talk": "把权限凭证放执行上下文，而不是 prompt。",
+    "snippets": [
+      {
+        "label": "Agent SSE：会话/票据/表单",
+        "file": "src/main/java/com/tsuk1/itsmygo/service/impl/AgentChatServiceImpl.java:99-169",
+        "code": "    public SseEmitter converse(CurrentUser user, AgentConverseRequest request) {\n        requireConfigured();\n        // 客服设置：在请求线程读（无行时是默认值 0/1/0），随本轮 gRPC Converse 一起下发\n        AgentPreferenceView preference = preferenceService.get(user.id());\n        String message = request.message().trim();\n        String sessionId;\n        if (StringUtils.hasText(request.sessionId())) {\n            sessionId = request.sessionId().trim();\n            requireOwned(sessionId, user.id());\n            sessionMapper.touch(sessionId, user.id());\n        } else {\n            // Java 先生成并记录归属，再调 Converse；不能等 SessionStart 回来才写，\n            // 否则异步线程写库有竞态，客户端也可能拿到未登记的 id。\n            sessionId = UUID.randomUUID().toString().replace(\"-\", \"\");\n            sessionMapper.insertSession(user.id(), sessionId);\n        }\n\n        if (activeStreams.putIfAbsent(sessionId, Boolean.TRUE) != null) {\n            throw new BizException(ResultCode.TOO_MANY_REQUESTS, \"该会话正在回复中，请稍候\");\n        }\n\n        // 本轮工具票据：agent 的 order-service 工具回调 /internal/agent/** 时带回。\n        // 只放 metadata，不下发浏览器，也不进模型上下文。\n        String toolTicket = toolTicketService.issue(user.id(), sessionId);\n\n        SseEmitter emitter = new SseEmitter(properties.deadlineSeconds() * 1000L + 30_000);\n        AgentSseSink sink = new AgentSseSink(emitter, objectMapper, auxExecutor);\n        Context.CancellableContext context = Context.current().withCancellation();\n        AtomicReference<String> runIdRef = new AtomicReference<>();\n        AtomicBoolean finalSeen = new AtomicBoolean(false);\n        AtomicBoolean errorSeen = new AtomicBoolean(false);\n        AtomicBoolean released = new AtomicBoolean(false);\n\n        String fixedSessionId = sessionId;\n        Runnable cleanup = () -> {\n            context.cancel(null);\n            sink.close();\n            if (released.compareAndSet(false, true)) {\n                activeStreams.remove(fixedSessionId);\n            }\n            String runId = runIdRef.get();\n            if (runId != null && !finalSeen.get() && !errorSeen.get()) {\n                // gRPC context cancel 只断流；Python worker 阻塞在队列上，必须用 runId 停\n                auxExecutor.execute(() -> {\n                    try {\n                        gateway.stop(user.id(), fixedSessionId, runId);\n                    } catch (Exception e) {\n                        log.debug(\"客服 Stop 失败（忽略）: {}\", e.getMessage());\n                    }\n                });\n            }\n        };\n\n        emitter.onCompletion(cleanup);\n        emitter.onTimeout(cleanup);\n        emitter.onError(error -> cleanup.run());\n\n        sink.start();\n        try {\n            FormResult formResult = toFormResult(request.formResult());\n            agentExecutor.execute(() -> stream(user, fixedSessionId, message, formResult, toolTicket,\n                    preference.webSearchEnabled(), preference.streamEnabled(),\n                    sink, context, runIdRef, finalSeen, errorSeen, cleanup));\n        } catch (RejectedExecutionException e) {\n            cleanup.run();\n            throw new BizException(ResultCode.TOO_MANY_REQUESTS, \"客服繁忙，请稍后再试\");\n        }\n        return emitter;\n    }\n\n    /** 前端表单回传 → gRPC 消息；空/缺失一律视为普通文本对话（兼容老客户端）。 */"
+      }
+    ]
   },
   {
     "id": "merchant",
@@ -1187,8 +1371,15 @@ const NODES = [
     "weight": 1.2,
     "summary": "管理后台、操作审计、管理员邀请与 RBAC 子角色。",
     "tech": "Spring Security · AdminAudit",
-    "file": "audit/AdminAuditAspect.java",
-    "talk": "管理操作要审计，权限码控制到按钮/接口。"
+    "file": "src/main/java/com/tsuk1/itsmygo/audit/AdminAuditAspect.java:46-122",
+    "talk": "管理操作要审计，权限码控制到按钮/接口。",
+    "snippets": [
+      {
+        "label": "管理端审计切面：只记写操作",
+        "file": "src/main/java/com/tsuk1/itsmygo/audit/AdminAuditAspect.java:46-122",
+        "code": "    public AdminAuditAspect(AdminAuditService auditService) {\n        this.auditService = auditService;\n    }\n\n    @Around(\"execution(public * com.tsuk1.itsmygo.controller.Admin*Controller.*(..))\")\n    public Object around(ProceedingJoinPoint joinPoint) throws Throwable {\n        ServletRequestAttributes attributes =\n                (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();\n        if (attributes == null) {\n            return joinPoint.proceed();\n        }\n        HttpServletRequest request = attributes.getRequest();\n        String httpMethod = request.getMethod();\n        if (READ_METHODS.contains(httpMethod)) {\n            return joinPoint.proceed();\n        }\n\n        AdminAudit audit = resolveAudit(joinPoint);\n        String uri = request.getRequestURI();\n        String action = audit == null\n                ? httpMethod + \" \" + normalizeUri(uri)\n                : audit.action();\n        String summary = audit == null\n                ? joinPoint.getSignature().getName()\n                : audit.label();\n        String targetType = audit == null\n                ? fallbackTargetType(uri)\n                : audit.targetType();\n\n        long start = System.currentTimeMillis();\n        Object result = null;\n        Throwable failure = null;\n        try {\n            result = joinPoint.proceed();\n            if (result instanceof Result<?> response && response.getCode() != 200) {\n                failure = new IllegalStateException(response.getMessage());\n            }\n            return result;\n        } catch (Throwable t) {\n            failure = t;\n            throw t;\n        } finally {\n            record(joinPoint, request, action, summary, targetType, result, failure,\n                    System.currentTimeMillis() - start);\n        }\n    }\n\n    private void record(ProceedingJoinPoint joinPoint, HttpServletRequest request,\n                        String action, String summary, String targetType, Object result,\n                        Throwable failure, long elapsedMs) {\n        try {\n            AdminAuditLog audit = new AdminAuditLog();\n            CurrentUser actor = currentUser();\n            audit.setActorUserId(actor == null ? 0L : actor.id());\n            audit.setActorUsername(actor == null ? \"\" : actor.username());\n            audit.setAction(truncate(action, 64));\n            audit.setTargetType(truncate(targetType, 32));\n            audit.setTargetId(targetId(request));\n            audit.setSummary(truncate(summary, 255));\n            audit.setResult(failure == null ? \"SUCCESS\" : \"FAILED\");\n            audit.setErrorMessage(failure == null ? \"\" : truncate(message(failure), 512));\n            audit.setIp(truncate(request.getRemoteAddr(), 64));\n            audit.setUserAgent(truncate(request.getHeader(\"User-Agent\"), 512));\n            audit.setTraceId(truncate(MDC.get(RequestIdFilter.TRACE_ID), 64));\n            String query = request.getQueryString();\n            String detail = joinPoint.getSignature().toShortString() + \" | \" + request.getMethod()\n                    + \" \" + request.getRequestURI() + (query == null ? \"\" : \"?\" + query)\n                    + \" | \" + elapsedMs + \"ms\";\n            audit.setDetail(truncate(detail, 2000));\n            audit.setCreatedAt(LocalDateTime.now());\n            auditService.record(audit);\n        } catch (Exception e) {\n            log.error(\"写入管理端审计失败: action={} uri={}\",\n                    action, request.getRequestURI(), e);\n        }\n    }"
+      }
+    ]
   },
   {
     "id": "flyway",
@@ -1198,8 +1389,15 @@ const NODES = [
     "weight": 1.15,
     "summary": "数据库版本化迁移，V38 历史通知链接回填。",
     "tech": "Flyway · MySQL",
-    "file": "src/main/resources/db/migration",
-    "talk": "迁移只增不改，历史脚本不可修改。"
+    "file": "src/main/resources/db/migration/V38__notification_order_links.sql:1-20",
+    "talk": "迁移只增不改，历史脚本不可修改。",
+    "snippets": [
+      {
+        "label": "V38：历史通知链接回填",
+        "file": "src/main/resources/db/migration/V38__notification_order_links.sql:1-20",
+        "code": "-- 站内通知旧订单链接回填（2026-11-08）\n-- 早期订单通知把订单号写进 link（?keyword=<orderNo>），订单页只认 ?orderId=<id>，\n-- 点击历史通知只能落到列表、不会打开详情。这里按订单号回填成订单主键。\nUPDATE notifications n\nJOIN orders o\n  ON SUBSTRING_INDEX(SUBSTRING_INDEX(n.link, 'keyword=', -1), '&', 1) = o.order_no\nSET n.link = REPLACE(n.link, CONCAT('keyword=', o.order_no), CONCAT('orderId=', o.id))\nWHERE n.link LIKE '/admin/orders?keyword=%'\n   OR n.link LIKE '/merchant/orders?keyword=%';"
+      }
+    ]
   },
   {
     "id": "infra",
@@ -1209,8 +1407,15 @@ const NODES = [
     "weight": 1.25,
     "summary": "MySQL/Redis/RabbitMQ/MinIO 复用本机共享容器，命名与 TTL 有约束。",
     "tech": "Docker · 共享中间件",
-    "file": "dev-infra/docker-compose.yml",
-    "talk": "中间件是共享资源，项目只用自己的库/前缀/卷。"
+    "file": "dev-infra/docker-compose.yml:1-80",
+    "talk": "中间件是共享资源，项目只用自己的库/前缀/卷。",
+    "snippets": [
+      {
+        "label": "dev-infra：统一中间件",
+        "file": "dev-infra/docker-compose.yml:1-80",
+        "code": "# 本地开发统一基础设施（ItsMyGo + rag_helper 共用）\n#\n# 目的：把原先散在多个 compose 项目/手动 docker run 里的容器，收进一个 compose 项目，\n# Docker Desktop 的 Containers 页面只显示一个 \"dev-infra\" 分组。\n#\n# 关键约束：\n#   1. 所有数据卷都用 external: true 指向**现有已存在的卷**，不动数据；\n#   2. 容器名保持原样（mysql/redis/minio/...），项目里的脚本和 .env 不用改；\n#   3. 端口保持不变，两个项目的本机进程仍连 localhost。\n#\n# 启动：docker compose --env-file .env up -d\n# 停止：docker compose --env-file .env down        # 不会删除 external 数据卷\n# 查看：docker compose --env-file .env ps\n\nname: dev-infra\n\nservices:\n\n  mysql:\n    image: mysql:8.0\n    container_name: mysql\n    restart: unless-stopped\n    environment:\n      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}\n      MYSQL_USER: ${MYSQL_USER}\n      MYSQL_PASSWORD: ${MYSQL_PASSWORD}\n    command:\n      --character-set-server=utf8mb4\n      --collation-server=utf8mb4_general_ci\n    ports:\n      - \"3306:3306\"\n    volumes:\n      - docker_mysql_data:/var/lib/mysql\n      # 仅初始化空卷时执行；已有数据卷不受影响\n      - \"D:/PycharmProjects/data-agent/docker/mysql:/docker-entrypoint-initdb.d:ro\"\n    healthcheck:\n      test: [\"CMD-SHELL\", \"mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent\"]\n      interval: 10s\n      timeout: 5s\n      retries: 10\n      start_period: 20s\n\n  redis:\n    image: redis:7-alpine\n    container_name: redis\n    restart: unless-stopped\n    command: [\"redis-server\", \"--appendonly\", \"yes\", \"--maxmemory\", \"256mb\",\n              \"--maxmemory-policy\", \"volatile-lru\"]\n    ports:\n      - \"6379:6379\"\n    volumes:\n      - rag_helper_redis_data:/data\n    healthcheck:\n      test: [\"CMD\", \"redis-cli\", \"ping\"]\n      interval: 10s\n      timeout: 5s\n      retries: 5\n\n  minio:\n    image: minio/minio:latest\n    container_name: minio\n    restart: unless-stopped\n    command: server /data --console-address \":9001\"\n    environment:\n      MINIO_ROOT_USER: ${MINIO_ROOT_USER}\n      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}\n    ports:\n      - \"9000:9000\"\n      - \"9001:9001\"\n    volumes:\n      - rag_helper_minio_data:/data\n\n  rabbitmq:\n    image: rabbitmq:4-management\n    container_name: its-my-go-rabbitmq\n    # 固定 hostname = 固定 Erlang 节点名，重建容器后仍能复用旧数据卷里的用户/队列\n    hostname: its-my-go-rabbitmq\n    restart: unless-stopped\n    environment:\n      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME}"
+      }
+    ]
   },
   {
     "id": "deploy",
@@ -1220,8 +1425,15 @@ const NODES = [
     "weight": 1.15,
     "summary": "开发 dev-infra、演示 Docker、生产离线包；同一时间只起一个环境。",
     "tech": "Docker Compose · 离线包",
-    "file": "deploy.sh",
-    "talk": "环境隔离不是口号：端口、容器名、数据卷都要分开。"
+    "file": "deploy.sh:1-60",
+    "talk": "环境隔离不是口号：端口、容器名、数据卷都要分开。",
+    "snippets": [
+      {
+        "label": "deploy.sh：三环境入口",
+        "file": "deploy.sh:1-60",
+        "code": "#!/usr/bin/env bash\n# ItsMyGo 一键部署（Docker Compose）\n#\n#   ./deploy.sh              启动全栈（首次自动生成 .env / 管理员 / 演示数据）\n#   ./deploy.sh up --no-seed 启动但不导入演示数据\n#   ./deploy.sh down         停止（保留数据）\n#   ./deploy.sh logs         跟踪后端日志\n#   ./deploy.sh status       查看容器状态\n#   ./deploy.sh seed         重新导入 44 个演示商品\n#   ./deploy.sh reset        停止并删除所有数据卷（需输入 yes）\n#\n#   —— 联合 rag_helper（演示环境）——\n#   ./deploy.sh joint        启动 ItsMyGo + rag_helper 联合栈（8088）\n#   ./deploy.sh joint-down   停止两套（保留数据）\n#   ./deploy.sh joint-logs   跟踪 rag_helper agent 日志\n#   ./deploy.sh joint-status 查看两套容器状态\n#\n# rag_helper 目录：RAG_HELPER_DIR 环境变量 / 仓库根 .rag-helper-dir 文件 / 默认 ../rag_helper。\nset -euo pipefail\n\nROOT=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"\ncd \"$ROOT\"\n\nusage() {\n  sed -n '2,19p' \"${BASH_SOURCE[0]}\" | sed 's/^# \\{0,1\\}//'\n}\n\nneed_docker() {\n  command -v docker >/dev/null 2>&1 || { echo \"未安装 Docker，请先安装 Docker Desktop。\"; exit 1; }\n  docker info >/dev/null 2>&1 || { echo \"Docker Desktop 未启动，请先启动它。\"; exit 1; }\n}\n\nrand_hex() {\n  local bytes=\"${1:-24}\"\n  if command -v openssl >/dev/null 2>&1; then\n    openssl rand -hex \"$bytes\"\n  else\n    od -An -tx1 -N \"$bytes\" /dev/urandom | tr -d ' \\n'\n  fi\n}\n\nenv_get() {\n  [ -f .env ] || return 0\n  grep -E \"^[[:space:]]*$1=\" .env 2>/dev/null | tail -n 1 | cut -d= -f2- | tr -d '\\r'\n}\n\nenv_set() {\n  local key=\"$1\" value=\"$2\"\n  if grep -qE \"^[[:space:]]*${key}=\" .env 2>/dev/null; then\n    sed -i \"s|^[[:space:]]*${key}=.*|${key}=${value}|\" .env\n  else\n    printf '%s=%s\\n' \"$key\" \"$value\" >> .env\n  fi\n}\n\nADMIN_PASSWORD_NEW=\"\"\n\nensure_env() {\n  if [ ! -f .env ]; then\n    cp .env.example .env"
+      }
+    ]
   },
   {
     "id": "tests",
@@ -1231,8 +1443,15 @@ const NODES = [
     "weight": 1.2,
     "summary": "后端 357 tests、前端 Vitest、Playwright 巡检；CI 353。",
     "tech": "JUnit · Vitest · Playwright",
-    "file": "src/test/java",
-    "talk": "质量靠可重复的测试和回归，不靠一次演示。"
+    "file": "src/test/java/com/tsuk1/itsmygo/ApiTestBase.java:1-70",
+    "talk": "质量靠可重复的测试和回归，不靠一次演示。",
+    "snippets": [
+      {
+        "label": "ApiTestBase：集成测试基座",
+        "file": "src/test/java/com/tsuk1/itsmygo/ApiTestBase.java:1-70",
+        "code": "package com.tsuk1.itsmygo;\n\nimport com.baomidou.mybatisplus.core.toolkit.Wrappers;\nimport com.tsuk1.itsmygo.common.Roles;\nimport com.tsuk1.itsmygo.dto.CategoryRequest;\nimport com.tsuk1.itsmygo.dto.LoginRequest;\nimport com.tsuk1.itsmygo.dto.MerchantRequest;\nimport com.tsuk1.itsmygo.dto.ProductRequest;\nimport com.tsuk1.itsmygo.dto.RegisterRequest;\nimport com.tsuk1.itsmygo.entity.ProductSku;\nimport com.tsuk1.itsmygo.entity.User;\nimport com.tsuk1.itsmygo.mapper.ProductSkuMapper;\nimport com.tsuk1.itsmygo.mapper.UserMapper;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport org.springframework.boot.test.context.SpringBootTest;\nimport org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;\nimport org.springframework.data.redis.core.StringRedisTemplate;\nimport org.springframework.http.MediaType;\nimport org.springframework.security.crypto.password.PasswordEncoder;\nimport org.springframework.test.web.servlet.MockMvc;\nimport org.springframework.transaction.annotation.Transactional;\nimport tools.jackson.databind.ObjectMapper;\n\nimport java.math.BigDecimal;\n\nimport static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;\nimport static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;\n\n@SpringBootTest\n@AutoConfigureMockMvc\n@Transactional\nabstract class ApiTestBase {\n\n    @Autowired\n    protected MockMvc mockMvc;\n\n    @Autowired\n    protected ObjectMapper objectMapper;\n\n    @Autowired\n    protected UserMapper userMapper;\n\n    @Autowired\n    protected ProductSkuMapper productSkuMapper;\n\n    @Autowired\n    protected PasswordEncoder passwordEncoder;\n\n    @Autowired\n    protected StringRedisTemplate redisTemplate;\n\n    /**\n     * 清掉跨用例共享的状态。\n     *\n     * - **缓存与限流计数都不参与数据库事务回滚** —— 测试 A 留下的分类树缓存，\n     *   或者打满的注册计数，都会让测试 B 莫名其妙地失败。\n     * - 放在造数据的方法里而不是只靠 `@BeforeEach`：**每次真正要打接口前都清一次**，\n     *   比依赖生命周期回调的时机更可靠（`@TestPropertySource` 在抽象父类上就没能生效）。\n     */\n    protected void resetRateLimits() {\n        var rateKeys = redisTemplate.keys(\"its-my-go:rate:*\");\n        if (rateKeys != null && !rateKeys.isEmpty()) {\n            redisTemplate.delete(rateKeys);\n        }\n    }\n\n    /** 走注册接口造一个顾客，返回 token */\n    protected String customerToken(String username) throws Exception {\n        resetRateLimits();\n        String body = mockMvc.perform(post(\"/api/auth/register\")"
+      }
+    ]
   }
 ];
 const EDGES = [
@@ -2315,6 +2534,18 @@ window.addEventListener("keydown", e => {
 });
 
 /* 初始化统计 */
+/* 面板内滚轮：代码块自己滚，其余区域滚面板，避免被画布缩放吃掉 */
+const panelWheel = $("#panel");
+panelWheel.addEventListener("wheel", e => {
+  const body = panelWheel.querySelector(".panel-body");
+  if (!body) return;
+  const pre = e.target.closest("pre");
+  if (pre && pre.scrollHeight > pre.clientHeight + 1) return;
+  if (body.scrollHeight <= body.clientHeight + 1) return;
+  body.scrollTop += e.deltaY;
+  e.preventDefault();
+}, {passive:false});
+
 $("#stat-nodes").textContent = NODES.length;
 $("#stat-links").textContent = edgeList.length;
 $("#legend-count").textContent = CATS.length + " STAR SYSTEMS";
