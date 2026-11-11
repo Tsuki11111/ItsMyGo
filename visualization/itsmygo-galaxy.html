@@ -1,0 +1,2328 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>ITS_MYGO · AGENT GALAXY</title>
+<style>
+  :root {
+    --bg0:#02040b; --bg1:#050a18; --bg2:#071225;
+    --ink:#dbe9ff; --muted:#7e93b8; --dim:#4a5a78;
+    --line:rgba(120,170,255,.14);
+    --cyan:#67e8f9; --gold:#ffd27a; --violet:#c4a7ff;
+    --green:#7dffc4; --orange:#ffab6b; --blue:#78a9ff;
+    --pink:#ff8bd6; --teal:#5eead4; --slate:#94a3b8;
+    --panel:rgba(8,15,30,.88);
+  }
+  * { box-sizing: border-box; }
+  html, body { width:100%; height:100%; margin:0; overflow:hidden; background:#02040b; color:var(--ink); }
+  body {
+    font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    cursor: default;
+    user-select: none;
+  }
+  #space { position:fixed; inset:0; width:100%; height:100%; display:block; }
+  #vignette {
+    position:fixed; inset:0; pointer-events:none; z-index:2;
+    background:
+      radial-gradient(ellipse at 50% 45%, transparent 35%, rgba(0,2,10,.38) 100%),
+      linear-gradient(180deg, rgba(0,0,0,.35), transparent 22%, transparent 74%, rgba(0,0,0,.5));
+  }
+  #grain {
+    position:fixed; inset:0; z-index:3; pointer-events:none; opacity:.045;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='.6'/></svg>");
+  }
+
+  /* ── HUD shell ─────────────────────────────────── */
+  header {
+    position:fixed; z-index:10; top:18px; left:22px; right:22px;
+    display:flex; align-items:flex-start; justify-content:space-between; gap:18px;
+    pointer-events:none;
+  }
+  header > * { pointer-events:auto; }
+  .brand { display:flex; align-items:center; gap:13px; min-width:0; }
+  .brand-mark {
+    width:44px; height:44px; border-radius:50%; position:relative; flex:0 0 auto;
+    border:1px solid rgba(103,232,249,.38);
+    box-shadow:0 0 24px rgba(103,232,249,.16), inset 0 0 18px rgba(103,232,249,.08);
+    background:radial-gradient(circle at 35% 30%, rgba(103,232,249,.24), rgba(5,10,24,.2) 55%, transparent 70%);
+  }
+  .brand-mark::before, .brand-mark::after {
+    content:""; position:absolute; border-radius:50%;
+    border:1px solid rgba(196,167,255,.55);
+  }
+  .brand-mark::before { inset:9px 3px; transform:rotate(28deg); }
+  .brand-mark::after { inset:3px 12px; transform:rotate(-32deg); border-color:rgba(255,210,122,.5); }
+  .brand-mark i {
+    position:absolute; left:50%; top:50%; width:6px; height:6px; margin:-3px 0 0 -3px;
+    border-radius:50%; background:#fff; box-shadow:0 0 12px #fff,0 0 30px var(--cyan);
+  }
+  h1 {
+    margin:0; font-size:20px; font-weight:700; letter-spacing:.22em; line-height:1;
+    background:linear-gradient(100deg,#f4fbff 0%,#9ae8ff 40%,#c4a7ff 100%);
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+    filter:drop-shadow(0 0 18px rgba(103,232,249,.18));
+    white-space:nowrap;
+  }
+  .sub {
+    margin-top:7px; font-size:10px; color:var(--muted); letter-spacing:.14em;
+    text-transform:uppercase; white-space:nowrap;
+  }
+  .sub b { color:var(--gold); font-weight:600; }
+  .header-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+  .search {
+    display:flex; align-items:center; gap:8px; width:250px; height:34px;
+    border:1px solid rgba(120,170,255,.22); border-radius:9px;
+    background:rgba(5,12,25,.72); padding:0 10px;
+    backdrop-filter:blur(12px);
+    transition:border-color .2s, box-shadow .2s;
+  }
+  .search:focus-within { border-color:rgba(103,232,249,.55); box-shadow:0 0 0 3px rgba(103,232,249,.08); }
+  .search svg { width:14px; height:14px; flex:0 0 auto; opacity:.6; }
+  .search input {
+    width:100%; background:none; border:0; outline:none; color:var(--ink);
+    font-size:12px; font-family:inherit; letter-spacing:.02em;
+  }
+  .search input::placeholder { color:#586b8c; }
+  .search kbd {
+    font-family:inherit; font-size:9px; color:var(--dim); border:1px solid rgba(120,170,255,.22);
+    border-radius:4px; padding:1px 4px; line-height:1;
+  }
+  button {
+    font-family:inherit; color:#bcd2ee; background:rgba(7,14,28,.66);
+    border:1px solid rgba(120,170,255,.2); border-radius:8px; height:34px;
+    padding:0 11px; font-size:11px; letter-spacing:.04em; cursor:pointer;
+    display:inline-flex; align-items:center; gap:6px; white-space:nowrap;
+    backdrop-filter:blur(12px); transition:all .18s;
+  }
+  button:hover { color:#fff; border-color:rgba(103,232,249,.55); background:rgba(15,33,55,.86); box-shadow:0 0 18px rgba(103,232,249,.1); }
+  button.active { color:#03111b; background:linear-gradient(100deg,var(--cyan),var(--teal)); border-color:transparent; box-shadow:0 0 22px rgba(103,232,249,.24); }
+  button svg { width:13px; height:13px; }
+
+  /* ── left legend ────────────────────────────────── */
+  #legend {
+    position:fixed; z-index:9; left:22px; bottom:52px; width:212px;
+    border:1px solid rgba(120,170,255,.14); border-radius:12px;
+    background:linear-gradient(180deg,rgba(7,15,30,.7),rgba(4,9,20,.82));
+    backdrop-filter:blur(14px); padding:12px 12px 10px;
+    box-shadow:0 18px 50px rgba(0,0,0,.28);
+  }
+  .legend-title {
+    display:flex; justify-content:space-between; align-items:center;
+    font-size:9px; color:var(--muted); letter-spacing:.16em; text-transform:uppercase;
+    padding-bottom:9px; border-bottom:1px solid rgba(120,170,255,.12); margin-bottom:8px;
+  }
+  .legend-title span:last-child { color:var(--dim); letter-spacing:.08em; }
+  .legend-item {
+    display:flex; align-items:center; gap:9px; padding:5px 6px; border-radius:6px;
+    cursor:pointer; transition:background .16s,opacity .16s;
+  }
+  .legend-item:hover { background:rgba(120,170,255,.07); }
+  .legend-item.muted { opacity:.28; }
+  .legend-dot { width:7px; height:7px; border-radius:50%; box-shadow:0 0 9px currentColor; flex:0 0 auto; }
+  .legend-name { font-size:11px; color:#b8cae6; flex:1; letter-spacing:.02em; }
+  .legend-count { font-size:9px; color:var(--dim); font-variant-numeric:tabular-nums; }
+  .legend-tip {
+    margin-top:8px; padding-top:8px; border-top:1px solid rgba(120,170,255,.1);
+    color:#5f7394; font-size:9px; line-height:1.7; letter-spacing:.02em;
+  }
+  .legend-tip b { color:var(--gold); font-weight:500; }
+
+  /* ── bottom HUD ─────────────────────────────────── */
+  #hud {
+    position:fixed; z-index:9; right:22px; bottom:20px; display:flex; align-items:center; gap:13px;
+    color:#5f7394; font-size:10px; letter-spacing:.06em; pointer-events:none;
+  }
+  #hud .stat b { color:#bcd2ee; font-weight:600; }
+  #hud .sep { width:1px; height:10px; background:rgba(120,170,255,.18); }
+  #hints {
+    position:fixed; z-index:9; left:50%; bottom:20px; transform:translateX(-50%);
+    color:#536785; font-size:10px; letter-spacing:.08em; white-space:nowrap; pointer-events:none;
+  }
+  #hints b { color:#9db6d8; font-weight:500; }
+  #pulse {
+    position:fixed; z-index:9; left:22px; bottom:20px; display:flex; align-items:center; gap:8px;
+    color:#5a708f; font-size:9px; letter-spacing:.14em; pointer-events:none;
+  }
+  #pulse i {
+    width:5px; height:5px; border-radius:50%; background:var(--green);
+    box-shadow:0 0 10px var(--green); animation:blink 2.2s infinite;
+  }
+  @keyframes blink { 0%,100%{opacity:.35} 50%{opacity:1} }
+
+  /* ── tooltip ────────────────────────────────────── */
+  #tooltip {
+    position:fixed; z-index:30; pointer-events:none; opacity:0; transform:translateY(4px);
+    transition:opacity .14s, transform .14s; max-width:280px;
+    background:rgba(6,13,27,.94); border:1px solid rgba(120,190,255,.3);
+    border-radius:9px; padding:9px 11px; box-shadow:0 12px 34px rgba(0,0,0,.5);
+    backdrop-filter:blur(14px);
+  }
+  #tooltip.show { opacity:1; transform:translateY(0); }
+  #tooltip .tt-cat { font-size:8px; letter-spacing:.14em; text-transform:uppercase; margin-bottom:4px; }
+  #tooltip .tt-name { font-size:12px; color:#eef8ff; font-weight:600; margin-bottom:3px; }
+  #tooltip .tt-tech { font-size:10px; color:#8da7c9; line-height:1.5; }
+  #tooltip .tt-hint { margin-top:7px; padding-top:6px; border-top:1px solid rgba(120,170,255,.16); color:#5c7293; font-size:9px; }
+
+  /* ── detail panel ───────────────────────────────── */
+  #panel {
+    position:fixed; z-index:20; top:78px; right:22px; bottom:22px; width:min(470px, calc(100vw - 44px));
+    display:flex; flex-direction:column;
+    border:1px solid rgba(120,190,255,.22); border-radius:14px;
+    background:linear-gradient(180deg,rgba(9,18,36,.94),rgba(5,11,24,.95));
+    box-shadow:0 28px 80px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.04);
+    backdrop-filter:blur(22px);
+    transform:translateX(calc(100% + 30px)); opacity:0; pointer-events:none;
+    transition:transform .34s cubic-bezier(.2,.8,.2,1), opacity .24s;
+    overflow:hidden;
+  }
+  #panel.open { transform:translateX(0); opacity:1; pointer-events:auto; }
+  .panel-head { padding:17px 18px 13px; border-bottom:1px solid rgba(120,170,255,.12); position:relative; flex:0 0 auto; }
+  .panel-head::before {
+    content:""; position:absolute; left:18px; right:18px; top:0; height:1px;
+    background:linear-gradient(90deg,transparent,var(--accent),transparent); opacity:.8;
+  }
+  .panel-kicker { display:flex; align-items:center; gap:8px; font-size:9px; letter-spacing:.16em; text-transform:uppercase; color:var(--accent); }
+  .panel-kicker .dot { width:5px; height:5px; border-radius:50%; background:var(--accent); box-shadow:0 0 9px var(--accent); }
+  .panel-close {
+    position:absolute; top:12px; right:12px; width:28px; height:28px; padding:0; justify-content:center;
+    border-radius:7px; background:rgba(255,255,255,.03);
+  }
+  .panel-title { margin-top:9px; font-size:22px; font-weight:700; letter-spacing:.02em; color:#f3faff; line-height:1.25; }
+  .panel-sub { margin-top:4px; font-size:11px; color:#88a0c2; letter-spacing:.04em; }
+  .panel-body { padding:15px 18px 22px; overflow:auto; flex:1 1 auto; scrollbar-width:thin; scrollbar-color:rgba(120,170,255,.3) transparent; }
+  .panel-body::-webkit-scrollbar { width:6px; }
+  .panel-body::-webkit-scrollbar-thumb { background:rgba(120,170,255,.26); border-radius:3px; }
+  .panel-desc { font-size:12px; line-height:1.85; color:#b9cde8; margin:0 0 14px; }
+  .panel-desc strong { color:#fff; font-weight:600; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:15px; }
+  .chip {
+    display:inline-flex; align-items:center; gap:5px; padding:4px 8px; border-radius:5px;
+    border:1px solid color-mix(in srgb,var(--accent) 35%, transparent);
+    background:color-mix(in srgb,var(--accent) 7%, transparent);
+    color:#cfe8f7; font-size:10px; line-height:1.2; letter-spacing:.02em;
+  }
+  .chip.related { cursor:pointer; border-color:rgba(120,170,255,.22); background:rgba(120,170,255,.05); color:#a9c1df; }
+  .chip.related:hover { border-color:var(--accent); color:#fff; }
+  .sec-label { display:flex; align-items:center; gap:8px; margin:16px 0 8px; font-size:9px; color:#7188a8; letter-spacing:.16em; text-transform:uppercase; }
+  .sec-label::after { content:""; flex:1; height:1px; background:rgba(120,170,255,.1); }
+  .file-row {
+    display:flex; align-items:flex-start; gap:8px; padding:7px 9px; border-radius:6px;
+    background:rgba(120,170,255,.045); border:1px solid rgba(120,170,255,.1);
+    font-family:"Cascadia Code","SFMono-Regular",Consolas,monospace; font-size:10px;
+    color:#8fa9c9; word-break:break-all; line-height:1.55;
+  }
+  .file-row svg { width:12px; height:12px; flex:0 0 auto; margin-top:1px; opacity:.7; }
+  .code-block { border:1px solid rgba(120,170,255,.14); border-radius:8px; overflow:hidden; margin:8px 0 12px; background:rgba(2,7,15,.66); }
+  .code-block summary {
+    cursor:pointer; list-style:none; padding:8px 11px; display:flex; align-items:center; gap:8px;
+    color:#8ca7c8; font-size:10px; letter-spacing:.02em; border-bottom:1px solid transparent;
+    background:rgba(120,170,255,.035);
+  }
+  .code-block[open] summary { border-bottom-color:rgba(120,170,255,.1); color:#c5dcf4; }
+  .code-block summary::-webkit-details-marker { display:none; }
+  .code-block summary .arrow { margin-left:auto; transition:transform .18s; font-size:9px; color:#5f7595; }
+  .code-block[open] summary .arrow { transform:rotate(90deg); }
+  .code-block pre { margin:0; padding:11px 12px; overflow:auto; max-height:340px; scrollbar-width:thin; }
+  .code-block code { font-family:"Cascadia Code","SFMono-Regular",Consolas,monospace; font-size:10px; line-height:1.65; color:#b8d2ee; white-space:pre; }
+  .kw { color:#c4a7ff; } .st { color:#a7e8b8; } .cm { color:#5e7596; font-style:italic; } .num { color:#ffd27a; }
+  .talk {
+    border-left:2px solid var(--accent); padding:9px 11px; margin:10px 0 14px;
+    background:linear-gradient(90deg,color-mix(in srgb,var(--accent) 6%, transparent),transparent);
+    color:#a9c3de; font-size:11px; line-height:1.8;
+  }
+  .talk b { display:block; color:var(--accent); font-size:9px; letter-spacing:.14em; margin-bottom:4px; font-weight:500; }
+  .foot-note { margin-top:16px; padding-top:10px; border-top:1px solid rgba(120,170,255,.1); color:#5d7392; font-size:9px; line-height:1.7; }
+
+  /* ── responsive ─────────────────────────────────── */
+  @media (max-width: 1000px) {
+    header { top:12px; left:14px; right:14px; }
+    h1 { font-size:16px; letter-spacing:.16em; }
+    .sub { font-size:8px; }
+    .search { width:190px; }
+    .header-actions button span { display:none; }
+    .header-actions button { padding:0 9px; }
+    #legend { left:14px; bottom:48px; width:180px; padding:10px; }
+    .legend-name { font-size:10px; }
+    #hints { display:none; }
+    #panel { top:66px; right:14px; bottom:14px; width:min(430px, calc(100vw - 28px)); }
+    #hud { right:14px; bottom:14px; }
+    #pulse { left:14px; bottom:14px; }
+  }
+  @media (max-width: 680px) {
+    .brand-mark { width:32px; height:32px; }
+    h1 { font-size:13px; }
+    .sub { font-size:7px; letter-spacing:.08em; }
+    .header-actions { gap:5px; }
+    .search { width:135px; height:30px; padding:0 8px; }
+    .search kbd { display:none; }
+    .header-actions button { height:30px; font-size:10px; }
+    #tour { display:none; }
+    #legend { display:none; }
+    #panel { top:58px; right:8px; bottom:8px; width:calc(100vw - 16px); border-radius:11px; }
+    .panel-title { font-size:19px; }
+    #hud { display:none; }
+    #pulse { display:none; }
+    #hints { display:none; }
+  }
+</style>
+</head>
+<body>
+<canvas id="space"></canvas>
+<div id="vignette"></div>
+<div id="grain"></div>
+
+<header>
+  <div class="brand">
+    <div class="brand-mark"><i></i></div>
+    <div>
+      <h1>ITS MY GO GALAXY</h1>
+      <div class="sub">ITS_MYGO · 一次买够 / 项目逻辑星图 · <b>LIVE MAP</b></div>
+    </div>
+  </div>
+  <div class="header-actions">
+    <div class="search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input id="search" type="text" placeholder="搜索节点 / 技术 / 文件…" autocomplete="off" spellcheck="false">
+      <kbd>/</kbd>
+    </div>
+    <button id="auto" class="active" title="自动旋转">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg><span>自动旋转</span>
+    </button>
+    <button id="tour" title="按主链路巡游">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg><span>主线巡游</span>
+    </button>
+    <button id="reset" title="重置视角">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v7h7"/></svg><span>重置</span>
+    </button>
+  </div>
+</header>
+
+<aside id="legend">
+  <div class="legend-title"><span>SYSTEMS</span><span id="legend-count">9 STAR SYSTEMS</span></div>
+  <div id="legend-items"></div>
+  <div class="legend-tip">拖动旋转 · 滚轮缩放<br><b>点击节点</b>展开代码实现</div>
+</aside>
+
+<aside id="panel" aria-live="polite"></aside>
+
+<div id="tooltip"></div>
+
+<div id="hud">
+  <div class="stat"><b id="stat-nodes">0</b> NODES</div>
+  <div class="sep"></div>
+  <div class="stat"><b id="stat-links">0</b> LINKS</div>
+  <div class="sep"></div>
+  <div class="stat">ZOOM <b id="stat-zoom">1.0</b>×</div>
+</div>
+<div id="hints"><b>拖拽</b> 旋转星图 &nbsp;·&nbsp; <b>滚轮</b> 缩放 &nbsp;·&nbsp; <b>点击节点</b> 展开实现 &nbsp;·&nbsp; <b>空格</b> 暂停旋转</div>
+<div id="pulse"><i></i> SIGNAL STABLE · 8003</div>
+
+<script>
+"use strict";
+
+/* ═══════════════════════════════════════════════════════════════
+   数据：节点 / 系统 / 关系
+   ═══════════════════════════════════════════════════════════════ */
+const CATS = [
+  {
+    "id": "gateway",
+    "name": "接入与安全",
+    "en": "GATEWAY",
+    "color": "#67e8f9",
+    "center": [
+      -12,
+      4,
+      2
+    ],
+    "desc": "JWT、身份快照、RBAC、Agent 票据"
+  },
+  {
+    "id": "catalog",
+    "name": "商品与搜索",
+    "en": "CATALOG",
+    "color": "#7dffc4",
+    "center": [
+      -6,
+      8.5,
+      -4
+    ],
+    "desc": "商品、SKU、搜索、缓存与归档"
+  },
+  {
+    "id": "checkout",
+    "name": "购物车与结算",
+    "en": "CHECKOUT",
+    "color": "#ffd27a",
+    "center": [
+      2,
+      7.5,
+      3
+    ],
+    "desc": "购物车、优惠券、地址、拆单"
+  },
+  {
+    "id": "order",
+    "name": "订单与支付",
+    "en": "ORDER",
+    "color": "#ffab6b",
+    "center": [
+      11,
+      4,
+      -2
+    ],
+    "desc": "下单编排、支付、状态机、发货"
+  },
+  {
+    "id": "stock",
+    "name": "库存与并发",
+    "en": "STOCK",
+    "color": "#f472b6",
+    "center": [
+      10,
+      -3,
+      3
+    ],
+    "desc": "Lua 预扣、CAS 调整、补账"
+  },
+  {
+    "id": "fulfillment",
+    "name": "售后与履约",
+    "en": "FULFILLMENT",
+    "color": "#c4a7ff",
+    "center": [
+      5,
+      -8,
+      -2
+    ],
+    "desc": "售后、退款、超时关单、物流"
+  },
+  {
+    "id": "engagement",
+    "name": "消息与通知",
+    "en": "ENGAGEMENT",
+    "color": "#78a9ff",
+    "center": [
+      -4,
+      -8,
+      4
+    ],
+    "desc": "SSE 聊天、站内通知、动作卡"
+  },
+  {
+    "id": "agent",
+    "name": "AI 客服 / Agent",
+    "en": "AGENT",
+    "color": "#5eead4",
+    "center": [
+      -1,
+      -1,
+      8
+    ],
+    "desc": "gRPC 桥接、事件流、草稿与确认"
+  },
+  {
+    "id": "ops",
+    "name": "商家与基础设施",
+    "en": "OPS",
+    "color": "#94a3b8",
+    "center": [
+      -11,
+      -4,
+      -5
+    ],
+    "desc": "入驻审核、迁移、中间件、交付"
+  }
+];
+const NODES = [
+  {
+    "id": "jwt",
+    "label": "JWT",
+    "en": "JWT_FILTER",
+    "cat": "gateway",
+    "weight": 1.5,
+    "summary": "解析 Bearer JWT，按角色与权限码组装 Authentication，权限每次请求重新计算。",
+    "tech": "Spring Security · OncePerRequestFilter",
+    "file": "security/JwtAuthenticationFilter.java:44-73",
+    "talk": "认证只解析一次，权限每次请求重新算，避免旧 token 残留越权。",
+    "snippets": [
+      {
+        "label": "JWT -> 身份快照 -> authorities",
+        "file": "src/main/java/com/tsuk1/itsmygo/security/JwtAuthenticationFilter.java:45-78",
+        "code": "    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)\n            throws ServletException, IOException {\n        String header = request.getHeader(HEADER);\n        if (header != null && header.startsWith(PREFIX)) {\n            try {\n                // JWT 只负责证明「你是谁」；角色/店铺状态以数据库快照为准\n                CurrentUser parsed = jwtService.parse(header.substring(PREFIX.length()));\n                CurrentUser user = authIdentityService.load(parsed.id());\n                if (user != null) {\n                    // Spring Security 的 hasRole(\"ADMIN\") 匹配的是 ROLE_ADMIN 这个 authority；\n                    // 管理端再附加权限码（rbac 关闭时 RbacService 返回全部权限码，等价旧行为）\n                    List<GrantedAuthority> authorities = new ArrayList<>();\n                    authorities.add(new SimpleGrantedAuthority(\"ROLE_\" + user.role()));\n                    if (Roles.ADMIN.equals(user.role())) {\n                        permissionReader.permissionCodes(user.id())\n                                .forEach(code -> authorities.add(new SimpleGrantedAuthority(code)));\n                    }\n                    UsernamePasswordAuthenticationToken authentication =\n                            new UsernamePasswordAuthenticationToken(user, null, authorities);\n                    SecurityContextHolder.getContext().setAuthentication(authentication);\n                } else {\n                    SecurityContextHolder.clearContext();\n                }\n            } catch (JwtException | IllegalArgumentException e) {\n                SecurityContextHolder.clearContext();\n            }\n        }\n        chain.doFilter(request, response);\n    }\n}"
+      }
+    ]
+  },
+  {
+    "id": "identity",
+    "label": "身份快照",
+    "en": "IDENTITY",
+    "cat": "gateway",
+    "weight": 1.35,
+    "summary": "用户/商家身份 60 秒快照；商家非 ACTIVE 自动降级 CUSTOMER。",
+    "tech": "Caffeine/Redis 缓存 · 60s TTL",
+    "file": "common/identity/AuthIdentityService.java:36-55",
+    "talk": "身份快照只在短 TTL 内复用，状态变化最多 60 秒生效。",
+    "snippets": [
+      {
+        "label": "load()：快照与商家状态降级",
+        "file": "src/main/java/com/tsuk1/itsmygo/common/identity/AuthIdentityService.java:36-58",
+        "code": "public CurrentUser load(Long userId) {\n    AuthSnapshot snapshot = cacheHelper.getOrLoad(key(userId), TTL, AuthSnapshot.class,\n            () -> loadSnapshot(userId));\n    if (snapshot == null || !Integer.valueOf(1).equals(snapshot.status())) {\n        return null;\n    }\n\n    String role = snapshot.role();\n    Long merchantId = snapshot.merchantId();\n    if (Roles.MERCHANT.equals(role)) {\n        // 店铺非 ACTIVE 时，商家端权限立即降为普通顾客\n        if (merchantId == null || !Merchant.ACTIVE.equals(snapshot.merchantStatus())) {\n            role = Roles.CUSTOMER;\n            merchantId = null;\n        }\n    } else {\n        merchantId = null;\n    }\n    return new CurrentUser(userId, snapshot.username(), role, merchantId);\n}\n\n/** 审核/禁用/启用后调用，让下一次请求立刻读到新状态 */\npublic void evict(Long userId) {"
+      }
+    ]
+  },
+  {
+    "id": "rbac",
+    "label": "RBAC",
+    "en": "RBAC",
+    "cat": "gateway",
+    "weight": 1.3,
+    "summary": "开关关闭时返回全权限；开启后按 4 个管理子角色加载权限码，Redis 60s 缓存。",
+    "tech": "@PreAuthorize · Redis",
+    "file": "service/impl/RbacServiceImpl.java:55-75",
+    "talk": "开关是灰度边界：关闭保持旧行为，开启才进入细粒度权限。",
+    "snippets": [
+      {
+        "label": "permissionCodes()：开关 + 缓存",
+        "file": "src/main/java/com/tsuk1/itsmygo/service/impl/RbacServiceImpl.java:61-82",
+        "code": "public Set<String> permissionCodes(Long adminUserId) {\n    if (adminUserId == null) {\n        return Set.of();\n    }\n    if (!properties.isEnabled()) {\n        return allCodes();\n    }\n    String cached = redisTemplate.opsForValue().get(PERM_PREFIX + adminUserId);\n    if (cached != null) {\n        return split(cached);\n    }\n    Set<String> codes = computePermissionCodes(adminUserId);\n    redisTemplate.opsForValue().set(PERM_PREFIX + adminUserId, String.join(\",\", codes), TTL);\n    return codes;\n}\n\n@Override\npublic List<String> roleCodes(Long adminUserId) {\n    if (adminUserId == null) {\n        return List.of();\n    }\n    String cached = redisTemplate.opsForValue().get(ROLE_PREFIX + adminUserId);"
+      }
+    ]
+  },
+  {
+    "id": "ticket",
+    "label": "工具票据",
+    "en": "TOOL_TICKET",
+    "cat": "gateway",
+    "weight": 1.25,
+    "summary": "Java 签发 10 分钟票据，只存 ContextVar；Python 回调时带 X-Agent-Ticket。",
+    "tech": "Redis · ContextVar",
+    "file": "common/agent/AgentToolTicketService.java:30-55",
+    "talk": "票据是能力凭证，模型上下文永远看不到它。",
+    "snippets": [
+      {
+        "label": "票据签发与解析",
+        "file": "src/main/java/com/tsuk1/itsmygo/common/agent/AgentToolTicketService.java:30-55",
+        "code": "public String issue(long userId, String sessionId) {\n    String ticket = UUID.randomUUID().toString();\n    String value = userId + SEP + (sessionId == null ? \"\" : sessionId);\n    redis.opsForValue().set(PREFIX + ticket, value, TTL);\n    return ticket;\n}\n\n/** @return 票据对应的身份；不存在 / 已过期返回 null */\npublic Identity resolve(String ticket) {\n    if (!StringUtils.hasText(ticket)) {\n        return null;\n    }\n    String value = redis.opsForValue().get(PREFIX + ticket);\n    if (value == null) {\n        return null;\n    }\n    int sep = value.indexOf(SEP);\n    if (sep < 0) {\n        return null;\n    }\n    try {\n        return new Identity(Long.parseLong(value.substring(0, sep)), value.substring(sep + 1));\n    } catch (NumberFormatException e) {\n        return null;\n    }\n}"
+      }
+    ]
+  },
+  {
+    "id": "agentTool",
+    "label": "工具入口",
+    "en": "AGENT_TOOL",
+    "cat": "gateway",
+    "weight": 1.2,
+    "summary": "/internal/agent/** 只认 X-Agent-Ticket，查询、动作草稿、消费报告统一入口。",
+    "tech": "Spring MVC · 内部 API",
+    "file": "controller/AgentToolController.java:45-160",
+    "talk": "Java 是工具的最终执行者，Python 只能拿短期票据申请。"
+  },
+  {
+    "id": "guard",
+    "label": "越权边界",
+    "en": "GUARD",
+    "cat": "gateway",
+    "weight": 1.1,
+    "summary": "商户/顾客对象级校验，越权统一 404；管理端按权限码收敛。",
+    "tech": "Spring Security · 对象级校验",
+    "file": "common/exception/GlobalExceptionHandler.java",
+    "talk": "越权不暴露存在性，统一 404 比 403 更安全。"
+  },
+  {
+    "id": "product",
+    "label": "商品",
+    "en": "PRODUCT",
+    "cat": "catalog",
+    "weight": 1.35,
+    "summary": "商品主表 + SKU + 图片 + 详情聚合，管理端与顾客端共用。",
+    "tech": "MyBatis-Plus · MySQL",
+    "file": "service/impl/ProductServiceImpl.java",
+    "talk": "商品详情是聚合根，但库存与价格以 SKU 为准。"
+  },
+  {
+    "id": "sku",
+    "label": "SKU",
+    "en": "SKU",
+    "cat": "catalog",
+    "weight": 1.3,
+    "summary": "多规格 SKU、价格、库存、规格文本；调整库存走 CAS。",
+    "tech": "ProductSku · compareAndSetStock",
+    "file": "service/impl/ProductSkuServiceImpl.java:133-151",
+    "talk": "调库存不是覆盖写，带 expectedStock 才能防并发丢更新。",
+    "snippets": [
+      {
+        "label": "CAS 调整库存",
+        "file": "src/main/java/com/tsuk1/itsmygo/service/impl/ProductSkuServiceImpl.java:131-152",
+        "code": "@Override\n@Transactional\npublic ProductSku adjustStock(Long productId, Long skuId, Integer stock, Integer expectedStock,\n                              Long merchantId) {\n    requireOwnedProduct(productId, merchantId);\n    ProductSku sku = skuMapper.selectById(skuId);\n    if (sku == null || !productId.equals(sku.getProductId())) {\n        // 别人商品下的 SKU 一律当「不存在」，不泄露存在性\n        throw new BizException(ResultCode.NOT_FOUND, \"SKU 不存在\");\n    }\n\n    int updated = skuMapper.compareAndSetStock(productId, skuId, stock, expectedStock);\n    if (updated == 0) {\n        throw new BizException(ResultCode.BAD_REQUEST, \"库存已变化，请刷新后重试\");\n    }\n\n    // 库存变了，商品汇总、详情缓存、Redis 计数器三处都要跟着动\n    productMapper.recalcFromSkus(productId);\n    cacheHelper.evict(RedisCacheHelper.key(\"product:\" + productId));\n    stockService.reload(skuId);\n    return skuMapper.selectById(skuId);\n}"
+      }
+    ]
+  },
+  {
+    "id": "search",
+    "label": "搜索",
+    "en": "SEARCH",
+    "cat": "catalog",
+    "weight": 1.2,
+    "summary": "商品搜索、分类筛选、多条件分页。",
+    "tech": "MyBatis-Plus · 索引",
+    "file": "controller/ProductController.java",
+    "talk": "搜索条件走数据库索引，展示层不拼接 SQL。"
+  },
+  {
+    "id": "cache",
+    "label": "缓存",
+    "en": "CACHE",
+    "cat": "catalog",
+    "weight": 1.25,
+    "summary": "商品详情缓存：空值、击穿、雪崩；更新后主动 evict。",
+    "tech": "RedisCacheHelper · Bloom",
+    "file": "common/cache/RedisCacheHelper.java",
+    "talk": "缓存不是事实源，商品更新必须主动 evict。"
+  },
+  {
+    "id": "bloom",
+    "label": "布隆",
+    "en": "BLOOM",
+    "cat": "catalog",
+    "weight": 1.1,
+    "summary": "商品 ID 布隆过滤器挡住不存在的详情查询，降低缓存穿透。",
+    "tech": "Bloom Filter · 预热",
+    "file": "common/bloom/ProductBloomFilter.java",
+    "talk": "布隆只能挡不存在，不能替代 DB 校验。"
+  },
+  {
+    "id": "archive",
+    "label": "归档",
+    "en": "ARCHIVE",
+    "cat": "catalog",
+    "weight": 1.05,
+    "summary": "长期下架商品归档，无引用才物理删除，默认 dry-run。",
+    "tech": "Flyway V37 · 定时任务",
+    "file": "task/product/ProductCleanupJob.java",
+    "talk": "删除有引用商品前必须检查订单/售后/购物车等引用。"
+  },
+  {
+    "id": "cart",
+    "label": "购物车",
+    "en": "CART",
+    "cat": "checkout",
+    "weight": 1.35,
+    "summary": "加购/改数量时校验商品在售、店铺 ACTIVE、SKU 归属与库存。",
+    "tech": "Redis/MySQL · 购物车表",
+    "file": "service/impl/CartServiceImpl.java:56-70",
+    "talk": "加购就校验一次，结算时再校验一次，防止中间状态变化。",
+    "snippets": [
+      {
+        "label": "加购校验链",
+        "file": "src/main/java/com/tsuk1/itsmygo/service/impl/CartServiceImpl.java:57-70",
+        "code": "public CartView add(Long userId, CartAddRequest request) {\n    Product product = productMapper.selectById(request.productId());\n    if (product == null || !Integer.valueOf(ON_SALE).equals(product.getStatus())) {\n        throw new BizException(ResultCode.NOT_FOUND, \"商品不存在或已下架\");\n    }\n    requireActiveMerchant(product.getMerchantId());\n    ProductSku sku = requireSkuOf(request.skuId(), product.getId());\n    if (request.quantity() > sku.getStock()) {\n        throw new BizException(ResultCode.BAD_REQUEST, \"库存不足\");\n    }\n\n    cartItemMapper.addQuantity(userId, product.getId(), sku.getId(), request.quantity());\n    return list(userId);\n}"
+      }
+    ]
+  },
+  {
+    "id": "checkout",
+    "label": "结算",
+    "en": "CHECKOUT",
+    "cat": "checkout",
+    "weight": 1.3,
+    "summary": "选地址、优惠券、勾选商品，生成结算预览。",
+    "tech": "CheckoutService · BigDecimal",
+    "file": "service/impl/CheckoutServiceImpl.java",
+    "talk": "金额只认后端重算，前端展示不作为下单依据。"
+  },
+  {
+    "id": "coupon",
+    "label": "优惠券",
+    "en": "COUPON",
+    "cat": "checkout",
+    "weight": 1.2,
+    "summary": "券归属、状态、门槛、每店一张校验，按店铺分摊优惠。",
+    "tech": "CouponService · BigDecimal",
+    "file": "service/impl/CouponServiceImpl.java",
+    "talk": "优惠券按商户拆分，退款时按比例回滚。"
+  },
+  {
+    "id": "address",
+    "label": "地址",
+    "en": "ADDRESS",
+    "cat": "checkout",
+    "weight": 1.1,
+    "summary": "地址归属校验，默认地址快照进订单。",
+    "tech": "AddressService",
+    "file": "service/impl/AddressServiceImpl.java",
+    "talk": "地址是快照，用户后续修改不影响历史订单。"
+  },
+  {
+    "id": "split",
+    "label": "拆单",
+    "en": "SPLIT",
+    "cat": "checkout",
+    "weight": 1.35,
+    "summary": "跨店购物车按 merchantId 分组，每商户生成独立订单。",
+    "tech": "CheckoutPlan · 分组",
+    "file": "service/impl/OrderServiceImpl.java:253-304",
+    "talk": "拆单发生在下单编排里，订单、库存、优惠券都按商户隔离。",
+    "snippets": [
+      {
+        "label": "buildCheckoutPlan：按商户分组",
+        "file": "src/main/java/com/tsuk1/itsmygo/service/impl/OrderServiceImpl.java:253-304",
+        "code": "private CheckoutPlan buildCheckoutPlan(Long userId,\n                                       List<OrderLine> lines,\n                                       boolean fromCart,\n                                       List<CreateOrderRequest.CouponSelection> coupons) {\n    Map<Long, Product> products = productMapper.selectByIds(\n                    lines.stream().map(OrderLine::productId).distinct().toList())\n            .stream().collect(Collectors.toMap(Product::getId, Function.identity()));\n    Map<Long, ProductSku> skus = skuMapper.selectByIds(\n                    lines.stream().map(OrderLine::skuId).distinct().toList())\n            .stream().collect(Collectors.toMap(ProductSku::getId, Function.identity()));\n\n    // 先按商户分组，并校验商品/规格/店铺\n    Map<Long, List<OrderLine>> groups = new LinkedHashMap<>();\n    Map<Long, BigDecimal> groupTotals = new LinkedHashMap<>();\n    Set<Long> merchantIds = new HashSet<>();\n    for (OrderLine line : lines) {\n        Product product = products.get(line.productId());\n        if (product == null || !Integer.valueOf(ON_SALE).equals(product.getStatus())) {\n            throw new BizException(ResultCode.BAD_REQUEST,\n                    fromCart ? \"商品已下架，请先移出购物车\" : \"商品已下架\");\n        }\n        ProductSku sku = skus.get(line.skuId());\n        if (sku == null || !line.productId().equals(sku.getProductId())) {\n            throw new BizException(ResultCode.BAD_REQUEST, \"商品规格不存在，请重新选择\");\n        }\n        if (!Integer.valueOf(ON_SALE).equals(sku.getStatus())) {\n            throw new BizException(ResultCode.BAD_REQUEST, \"该规格已停售\");\n        }\n        merchantIds.add(product.getMerchantId());\n        groups.computeIfAbsent(product.getMerchantId(), k -> new ArrayList<>()).add(line);\n        groupTotals.merge(product.getMerchantId(),\n                sku.getPrice().multiply(BigDecimal.valueOf(line.quantity())), BigDecimal::add);\n    }\n\n    Map<Long, Merchant> merchants = merchantMapper.selectByIds(merchantIds.stream().toList())\n            .stream().collect(Collectors.toMap(Merchant::getId, Function.identity()));\n    for (Long merchantId : groups.keySet()) {\n        Merchant merchant = merchants.get(merchantId);\n        if (merchant == null || !Merchant.ACTIVE.equals(merchant.getStatus())) {\n            throw new BizException(ResultCode.BAD_REQUEST, \"店铺已停用，请先移出购物车\");\n        }\n    }\n\n    // 券全部预校验完再动库存：平台券只能分配给一个子订单，店铺券只能用于本店\n    Map<Long, UserCoupon> groupCoupons = validateCoupons(userId, coupons, groups.keySet(), groupTotals);\n    Map<Long, BigDecimal> groupDiscounts = new LinkedHashMap<>();\n    for (Map.Entry<Long, UserCoupon> entry : groupCoupons.entrySet()) {\n        groupDiscounts.put(entry.getKey(),\n                entry.getValue().getDiscountAmount().min(groupTotals.get(entry.getKey())));\n    }\n    return new CheckoutPlan(groups, groupTotals, products, skus, merchants, groupCoupons, groupDiscounts);\n}"
+      }
+    ]
+  },
+  {
+    "id": "token",
+    "label": "令牌",
+    "en": "TOKEN",
+    "cat": "checkout",
+    "weight": 1.25,
+    "summary": "一次性 token 防重复提交，事务回滚时恢复。",
+    "tech": "Redis · 幂等 token",
+    "file": "service/impl/OrderServiceImpl.java:173-198",
+    "talk": "重复提交不是靠前端按钮禁用，而是后端 token 原子消费。",
+    "snippets": [
+      {
+        "label": "create()：token 幂等 + 回滚恢复",
+        "file": "src/main/java/com/tsuk1/itsmygo/service/impl/OrderServiceImpl.java:173-198",
+        "code": "@Transactional\npublic CheckoutView create(Long userId, CreateOrderRequest request) {\n    // 令牌校验放在最前面：重复提交在这里就被挡住，一个字节的业务逻辑都不会执行\n    consumeToken(userId, request.token());\n\n    // 提交阶段失败（业务方法已返回、代理提交时才报错）不会进下面的 catch，\n    // 所以令牌归还也挂到事务回滚回调上；restoreToken 是幂等的。\n    if (TransactionSynchronizationManager.isSynchronizationActive()) {\n        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {\n            @Override\n            public void afterCompletion(int status) {\n                if (status != TransactionSynchronization.STATUS_COMMITTED) {\n                    restoreToken(userId, request.token());\n                }\n            }\n        });\n    }\n\n    try {\n        return doCreate(userId, request);\n    } catch (RuntimeException e) {\n        // 注意：这是「业务失败」，不是「重复提交」——令牌要还回去\n        restoreToken(userId, request.token());\n        throw e;\n    }\n}"
+      }
+    ]
+  },
+  {
+    "id": "create",
+    "label": "下单",
+    "en": "CREATE",
+    "cat": "order",
+    "weight": 1.65,
+    "summary": "地址 -> 购物车/立即购买 -> 校验分组 -> 预扣库存 -> 落单 -> 结算，一条主链路。",
+    "tech": "@Transactional · CheckoutPlan",
+    "file": "service/impl/OrderServiceImpl.java:200-243",
+    "talk": "主链路只做编排，校验、库存、结算各自可替换。",
+    "snippets": [
+      {
+        "label": "doCreate：下单主链路",
+        "file": "src/main/java/com/tsuk1/itsmygo/service/impl/OrderServiceImpl.java:200-243",
+        "code": "private CheckoutView doCreate(Long userId, CreateOrderRequest request) {\n    Address address = requireAddress(userId, request.addressId());\n\n    // 商品有两种来源，之后一视同仁：立即购买（直接给定）or 购物车勾选项\n    boolean fromCart = request.items() == null || request.items().isEmpty();\n    List<OrderLine> lines = fromCart ? selectedCartLines(userId) : buyNowLines(request.items());\n    if (lines.isEmpty()) {\n        throw new BizException(ResultCode.BAD_REQUEST, \"没有可结算的商品\");\n    }\n\n    CheckoutPlan plan = buildCheckoutPlan(userId, lines, fromCart, request.coupons());\n\n    // 已成功扣减的 **SKU** → 数量；出错或事务回滚时按它回补 Redis\n    Map<Long, Integer> reserved = new LinkedHashMap<>();\n    AtomicBoolean released = new AtomicBoolean(false);\n    Runnable releaseReserved = () -> {\n        if (released.compareAndSet(false, true)) {\n            reserved.forEach(stockService::release);\n        }\n    };\n    // 业务 catch 只能覆盖方法内抛出的异常；提交阶段失败要靠事务回调\n    if (TransactionSynchronizationManager.isSynchronizationActive()) {\n        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {\n            @Override\n            public void afterCompletion(int status) {\n                if (status != TransactionSynchronization.STATUS_COMMITTED) {\n                    releaseReserved.run();\n                }\n            }\n        });\n    }\n\n    try {\n        reserveStock(plan, reserved);\n\n        // 购物车结算的待清行先快照：异步补账时按 ID 删除，避免误删补账期间新加入的商品\n        List<Long> cartItemIds = fromCart ? selectedCartItemIds(userId) : List.of();\n        List<CreatedOrder> created = persistOrders(userId, address, plan);\n        return finishCheckout(created, cartItemIds);\n    } catch (RuntimeException e) {\n        releaseReserved.run();\n        throw e;\n    }\n}"
+      }
+    ]
+  },
+  {
+    "id": "plan",
+    "label": "校验",
+    "en": "PLAN",
+    "cat": "order",
+    "weight": 1.45,
+    "summary": "批量查商品/SKU，校验在售、归属、店铺状态，计算优惠与分组金额。",
+    "tech": "CheckoutPlan · BigDecimal",
+    "file": "service/impl/OrderServiceImpl.java:253-304",
+    "talk": "先做纯校验和计价，再写库，失败时没有脏数据。",
+    "snippets": [
+      {
+        "label": "buildCheckoutPlan：校验与计价",
+        "file": "src/main/java/com/tsuk1/itsmygo/service/impl/OrderServiceImpl.java:253-304",
+        "code": "private CheckoutPlan buildCheckoutPlan(Long userId,\n                                       List<OrderLine> lines,\n                                       boolean fromCart,\n                                       List<CreateOrderRequest.CouponSelection> coupons) {\n    Map<Long, Product> products = productMapper.selectByIds(\n                    lines.stream().map(OrderLine::productId).distinct().toList())\n            .stream().collect(Collectors.toMap(Product::getId, Function.identity()));\n    Map<Long, ProductSku> skus = skuMapper.selectByIds(\n                    lines.stream().map(OrderLine::skuId).distinct().toList())\n            .stream().collect(Collectors.toMap(ProductSku::getId, Function.identity()));\n\n    // 先按商户分组，并校验商品/规格/店铺\n    Map<Long, List<OrderLine>> groups = new LinkedHashMap<>();\n    Map<Long, BigDecimal> groupTotals = new LinkedHashMap<>();\n    Set<Long> merchantIds = new HashSet<>();\n    for (OrderLine line : lines) {\n        Product product = products.get(line.productId());\n        if (product == null || !Integer.valueOf(ON_SALE).equals(product.getStatus())) {\n            throw new BizException(ResultCode.BAD_REQUEST,\n                    fromCart ? \"商品已下架，请先移出购物车\" : \"商品已下架\");\n        }\n        ProductSku sku = skus.get(line.skuId());\n        if (sku == null || !line.productId().equals(sku.getProductId())) {\n            throw new BizException(ResultCode.BAD_REQUEST, \"商品规格不存在，请重新选择\");\n        }\n        if (!Integer.valueOf(ON_SALE).equals(sku.getStatus())) {\n            throw new BizException(ResultCode.BAD_REQUEST, \"该规格已停售\");\n        }\n        merchantIds.add(product.getMerchantId());\n        groups.computeIfAbsent(product.getMerchantId(), k -> new ArrayList<>()).add(line);\n        groupTotals.merge(product.getMerchantId(),\n                sku.getPrice().multiply(BigDecimal.valueOf(line.quantity())), BigDecimal::add);\n    }\n\n    Map<Long, Merchant> merchants = merchantMapper.selectByIds(merchantIds.stream().toList())\n            .stream().collect(Collectors.toMap(Merchant::getId, Function.identity()));\n    for (Long merchantId : groups.keySet()) {\n        Merchant merchant = merchants.get(merchantId);\n        if (merchant == null || !Merchant.ACTIVE.equals(merchant.getStatus())) {\n            throw new BizException(ResultCode.BAD_REQUEST, \"店铺已停用，请先移出购物车\");\n        }\n    }\n\n    // 券全部预校验完再动库存：平台券只能分配给一个子订单，店铺券只能用于本店\n    Map<Long, UserCoupon> groupCoupons = validateCoupons(userId, coupons, groups.keySet(), groupTotals);\n    Map<Long, BigDecimal> groupDiscounts = new LinkedHashMap<>();\n    for (Map.Entry<Long, UserCoupon> entry : groupCoupons.entrySet()) {\n        groupDiscounts.put(entry.getKey(),\n                entry.getValue().getDiscountAmount().min(groupTotals.get(entry.getKey())));\n    }\n    return new CheckoutPlan(groups, groupTotals, products, skus, merchants, groupCoupons, groupDiscounts);\n}"
+      }
+    ]
+  },
+  {
+    "id": "persist",
+    "label": "落库",
+    "en": "PERSIST",
+    "cat": "order",
+    "weight": 1.4,
+    "summary": "每商户一单，CREATING 占位，地址与商品快照写入。",
+    "tech": "Order · OrderItem",
+    "file": "service/impl/OrderServiceImpl.java:321-373",
+    "talk": "CREATING 占位是为了让异步结算有可追踪的中间状态。",
+    "snippets": [
+      {
+        "label": "persistOrders：按商户落单",
+        "file": "src/main/java/com/tsuk1/itsmygo/service/impl/OrderServiceImpl.java:321-373",
+        "code": "private List<CreatedOrder> persistOrders(Long userId, Address address, CheckoutPlan plan) {\n    List<CreatedOrder> created = new ArrayList<>(plan.groups().size());\n    for (Map.Entry<Long, List<OrderLine>> entry : plan.groups().entrySet()) {\n        Long merchantId = entry.getKey();\n        BigDecimal goodsTotal = plan.groupTotals().get(merchantId);\n        UserCoupon coupon = plan.groupCoupons().get(merchantId);\n        BigDecimal discount = plan.groupDiscounts().getOrDefault(merchantId, BigDecimal.ZERO);\n\n        Order order = new Order();\n        order.setOrderNo(generateOrderNo());\n        order.setUserId(userId);\n        order.setMerchantId(merchantId);\n        order.setMerchantName(plan.merchants().get(merchantId).getName());\n        order.setOriginalAmount(goodsTotal);\n        order.setDiscountAmount(discount);\n        order.setTotalAmount(goodsTotal.subtract(discount));\n        order.setUserCouponId(coupon == null ? null : coupon.getId());\n        order.setCouponName(coupon == null ? \"\" : coupon.getCouponName());\n        // M31：先落占位订单，券占用 / DB 扣库存 / 清购物车在补账阶段完成\n        order.setStatus(OrderStatus.CREATING.name());\n        order.setCreateError(\"\");\n        order.setCreateAttempts(0);\n        // 收货信息也快照：用户以后改地址或删地址，这张订单不受影响\n        order.setReceiver(address.getReceiver());\n        order.setPhone(address.getPhone());\n        order.setAddress(address.getProvince() + address.getCity()\n                + address.getDistrict() + address.getDetail());\n        order.setTrackingNo(\"\");\n        orderMapper.insert(order);\n\n        List<OrderItem> items = new ArrayList<>(entry.getValue().size());\n        for (OrderLine line : entry.getValue()) {\n            Product product = plan.products().get(line.productId());\n            ProductSku sku = plan.skus().get(line.skuId());\n            OrderItem item = new OrderItem();\n            item.setOrderId(order.getId());\n            item.setProductId(product.getId());\n            item.setSkuId(sku.getId());\n            // 以下都是快照：商品改价改名、规格改名甚至被删，都不影响这张订单\n            item.setProductName(product.getName());\n            item.setProductImage(StringUtils.hasText(sku.getImage())\n                    ? sku.getImage() : product.getMainImage());\n            item.setSpecText(sku.getSpecText());\n            item.setUnitPrice(sku.getPrice());\n            item.setQuantity(line.quantity());\n            item.setSubtotal(sku.getPrice().multiply(BigDecimal.valueOf(line.quantity())));\n            orderItemMapper.insert(item);\n            items.add(item);\n        }\n        created.add(new CreatedOrder(order, items));\n    }\n    return created;\n}"
+      }
+    ]
+  },
+  {
+    "id": "finish",
+    "label": "结算",
+    "en": "FINISH",
+    "cat": "order",
+    "weight": 1.35,
+    "summary": "async 时发 MQ，事务提交后置 PENDING_PAYMENT；失败靠补账/扫描兜底。",
+    "tech": "RabbitMQ · afterCommit",
+    "file": "service/impl/OrderServiceImpl.java:375-397",
+    "talk": "下单快慢路径分离：主事务只落 CREATING，结算异步推进。",
+    "snippets": [
+      {
+        "label": "finishCheckout：async/sync 分流",
+        "file": "src/main/java/com/tsuk1/itsmygo/service/impl/OrderServiceImpl.java:375-397",
+        "code": "private CheckoutView finishCheckout(List<CreatedOrder> created, List<Long> cartItemIds) {\n    List<OrderView> views = created.stream()\n            .map(c -> new OrderView(c.order(), OrderStatus.CREATING.label(),\n                    c.items(), c.items().size()))\n            .toList();\n    List<Long> orderIds = created.stream().map(c -> c.order().getId()).toList();\n    if (orderCreateProperties.async()) {\n        // 事务提交后发 MQ；补账失败由消费端收尾（CREATE_FAILED）\n        orderCreatedMqPublisher.publishAfterCommit(orderIds, cartItemIds);\n    } else {\n        // 同步降级：与旧链路等价（测试 / 无 MQ 环境）\n        orderSettlementService.settle(orderIds, cartItemIds);\n        // 结算服务改的是它自己查出来的实体；占位实体的状态要同步，否则响应里还是「创建中」\n        for (CreatedOrder c : created) {\n            c.order().setStatus(OrderStatus.PENDING_PAYMENT.name());\n        }\n        views = created.stream()\n                .map(c -> new OrderView(c.order(), OrderStatus.PENDING_PAYMENT.label(),\n                        c.items(), c.items().size()))\n                .toList();\n    }\n    return CheckoutView.of(views);\n}"
+      }
+    ]
+  },
+  {
+    "id": "pay",
+    "label": "支付",
+    "en": "PAY",
+    "cat": "order",
+    "weight": 1.5,
+    "summary": "状态机 transition PAID，支付流水唯一约束，重复回调不产生第二条。",
+    "tech": "OrderStatus · Unique Index",
+    "file": "service/impl/OrderServiceImpl.java:581-608",
+    "talk": "支付幂等靠状态机 + 唯一索引双保险。",
+    "snippets": [
+      {
+        "label": "pay()：状态机 + 支付流水",
+        "file": "src/main/java/com/tsuk1/itsmygo/service/impl/OrderServiceImpl.java:581-608",
+        "code": "public OrderView pay(Long userId, Long orderId) {\n    Order order = requireOwned(userId, orderId);\n    if (OrderStatus.CREATING.name().equals(order.getStatus())) {\n        throw new BizException(ResultCode.BAD_REQUEST, \"订单创建中，请稍后支付\");\n    }\n    if (OrderStatus.CREATE_FAILED.name().equals(order.getStatus())) {\n        throw new BizException(ResultCode.BAD_REQUEST, \"订单创建失败，请重新下单\");\n    }\n    transition(order, OrderStatus.PAID, order::setPaidAt);\n\n    // 落支付流水。uk_order_id 是数据库层兜底：即使有并发请求绕过了状态机，\n    // 第二条也会撞唯一索引，绝不会出现「一个订单两条成功支付记录」。\n    Payment payment = new Payment();\n    payment.setPaymentNo(generatePaymentNo(\"PAY\"));\n    payment.setOrderId(order.getId());\n    payment.setOrderNo(order.getOrderNo());\n    payment.setUserId(userId);\n    payment.setAmount(order.getTotalAmount());\n    payment.setMethod(\"MOCK\");\n    payment.setStatus(Payment.STATUS_SUCCESS);\n    payment.setPaidAt(order.getPaidAt());\n    paymentMapper.insert(payment);\n\n    // 支付成功后通知商家发货：事务提交后再发（失败不能影响支付结果）\n    notifyMerchantAfterPaid(order);\n\n    return view(order);\n}"
+      }
+    ]
+  },
+  {
+    "id": "cancel",
+    "label": "取消",
+    "en": "CANCEL",
+    "cat": "order",
+    "weight": 1.35,
+    "summary": "已支付禁止取消；未支付取消时回补 Redis/DB 库存与优惠券。",
+    "tech": "OrderStatus.cancellable",
+    "file": "service/impl/OrderServiceImpl.java:857-875",
+    "talk": "取消不是删单，是状态迁移 + 资源反向释放。",
+    "snippets": [
+      {
+        "label": "cancel()：禁止已支付取消",
+        "file": "src/main/java/com/tsuk1/itsmygo/service/impl/OrderServiceImpl.java:857-875",
+        "code": "public OrderView cancel(Long userId, Long orderId) {\n    Order order = requireOwned(userId, orderId);\n    if (OrderStatus.CREATING.name().equals(order.getStatus())) {\n        throw new BizException(ResultCode.BAD_REQUEST, \"订单创建中，请稍候再操作\");\n    }\n    // 已支付订单不能走取消：否则会回滚库存/券但不退钱，形成“已付款又已取消”的坏数据\n    if (order.getPaidAt() != null) {\n        throw new BizException(ResultCode.BAD_REQUEST, \"已支付订单请申请退款/售后\");\n    }\n    OrderStatus current = OrderStatus.valueOf(order.getStatus());\n    if (!current.cancellable()) {\n        throw new BizException(ResultCode.BAD_REQUEST,\n                \"订单当前是「\" + current.label() + \"」，不能取消\");\n    }\n    transition(order, OrderStatus.CANCELLED, order::setCancelledAt);\n    restoreStock(order);\n    restoreCoupon(order);\n    return view(order);\n}"
+      }
+    ]
+  },
+  {
+    "id": "ship",
+    "label": "发货",
+    "en": "SHIP",
+    "cat": "order",
+    "weight": 1.3,
+    "summary": "管理端仅平台自营可发货，第三方店铺由商家发货；发货后通知买家。",
+    "tech": "Shipment · Notification",
+    "file": "service/impl/OrderServiceImpl.java:982-989",
+    "talk": "发货权限按店铺归属收敛，避免平台管理员替第三方发货。",
+    "snippets": [
+      {
+        "label": "doShip：发货 + 买家通知",
+        "file": "src/main/java/com/tsuk1/itsmygo/service/impl/OrderServiceImpl.java:982-989",
+        "code": "private OrderView doShip(Order order, ShipRequest request) {\n    transition(order, OrderStatus.SHIPPED, order::setShippedAt);\n    order.setTrackingNo(request.trackingNo());\n    orderMapper.updateById(order);\n    shipmentService.createForOrder(order);\n    notifyBuyerAfterShipped(order);\n    return view(order);\n}"
+      }
+    ]
+  },
+  {
+    "id": "state",
+    "label": "状态机",
+    "en": "STATE",
+    "cat": "order",
+    "weight": 1.2,
+    "summary": "CREATING / PENDING_PAYMENT / PAID / SHIPPED / COMPLETED / CANCELLED / REFUNDING / REFUNDED。",
+    "tech": "OrderStatus 枚举",
+    "file": "entity/OrderStatus.java",
+    "talk": "状态迁移集中在枚举和 transition，禁止业务代码随手 set。"
+  },
+  {
+    "id": "reserve",
+    "label": "Lua 预扣",
+    "en": "RESERVE",
+    "cat": "stock",
+    "weight": 1.5,
+    "summary": "Redis Lua 原子 GET/比较/DECRBY，库存不足返回 -1。",
+    "tech": "Lua · StringRedisTemplate",
+    "file": "service/impl/StockServiceImpl.java:52-78",
+    "talk": "预扣必须原子，先 GET 再 DECR 会有超卖窗口。",
+    "snippets": [
+      {
+        "label": "RESERVE_SCRIPT：原子预扣",
+        "file": "src/main/java/com/tsuk1/itsmygo/service/impl/StockServiceImpl.java:52-78",
+        "code": "private static final RedisScript<Long> RESERVE_SCRIPT = new DefaultRedisScript<>(\"\"\"\n        local stock = redis.call('GET', KEYS[1])\n        if not stock then\n            return -1\n        end\n        if tonumber(stock) < tonumber(ARGV[1]) then\n            return -1\n        end\n        return redis.call('DECRBY', KEYS[1], ARGV[1])\n        \"\"\", Long.class);\n\nprivate final StringRedisTemplate redisTemplate;\nprivate final ProductSkuMapper skuMapper;\n\npublic StockServiceImpl(StringRedisTemplate redisTemplate, ProductSkuMapper skuMapper) {\n    this.redisTemplate = redisTemplate;\n    this.skuMapper = skuMapper;\n}\n\n@Override\npublic boolean tryReserve(Long skuId, int quantity) {\n    String key = key(skuId);\n    loadIfAbsent(skuId, key);\n\n    Long remain = redisTemplate.execute(RESERVE_SCRIPT, List.of(key), String.valueOf(quantity));\n    return remain != null && remain >= 0;\n}"
+      }
+    ]
+  },
+  {
+    "id": "adjust",
+    "label": "CAS 调库",
+    "en": "ADJUST",
+    "cat": "stock",
+    "weight": 1.3,
+    "summary": "带 expectedStock 的 compareAndSetStock，失败提示刷新；成功后重算商品库存并 reload Redis。",
+    "tech": "CAS · MyBatis-Plus",
+    "file": "service/impl/ProductSkuServiceImpl.java:133-151",
+    "talk": "调库存是并发写，CAS 比行锁更轻，失败让操作者重试。",
+    "snippets": [
+      {
+        "label": "adjustStock：CAS + 缓存失效",
+        "file": "src/main/java/com/tsuk1/itsmygo/service/impl/ProductSkuServiceImpl.java:131-152",
+        "code": "@Override\n@Transactional\npublic ProductSku adjustStock(Long productId, Long skuId, Integer stock, Integer expectedStock,\n                              Long merchantId) {\n    requireOwnedProduct(productId, merchantId);\n    ProductSku sku = skuMapper.selectById(skuId);\n    if (sku == null || !productId.equals(sku.getProductId())) {\n        // 别人商品下的 SKU 一律当「不存在」，不泄露存在性\n        throw new BizException(ResultCode.NOT_FOUND, \"SKU 不存在\");\n    }\n\n    int updated = skuMapper.compareAndSetStock(productId, skuId, stock, expectedStock);\n    if (updated == 0) {\n        throw new BizException(ResultCode.BAD_REQUEST, \"库存已变化，请刷新后重试\");\n    }\n\n    // 库存变了，商品汇总、详情缓存、Redis 计数器三处都要跟着动\n    productMapper.recalcFromSkus(productId);\n    cacheHelper.evict(RedisCacheHelper.key(\"product:\" + productId));\n    stockService.reload(skuId);\n    return skuMapper.selectById(skuId);\n}"
+      }
+    ]
+  },
+  {
+    "id": "rollback",
+    "label": "回补",
+    "en": "ROLLBACK",
+    "cat": "stock",
+    "weight": 1.25,
+    "summary": "下单事务失败时通过 afterCompletion 回补 Redis 预扣。",
+    "tech": "TransactionSynchronization",
+    "file": "service/impl/OrderServiceImpl.java",
+    "talk": "预扣与事务绑定，提交失败必须反向 release。"
+  },
+  {
+    "id": "reconcile",
+    "label": "补账",
+    "en": "RECONCILE",
+    "cat": "stock",
+    "weight": 1.3,
+    "summary": "OrderCreatedConsumer 消费创建事件，重试结算，扫描任务兜底长时间 CREATING。",
+    "tech": "RabbitMQ · 定时扫描",
+    "file": "task/order/OrderCreatedConsumer.java",
+    "talk": "异步链路要有消费重试 + 扫描兜底，不能只靠一次 MQ。"
+  },
+  {
+    "id": "ttl",
+    "label": "TTL",
+    "en": "TTL",
+    "cat": "stock",
+    "weight": 1.05,
+    "summary": "库存缓存 30min + 5min 随机抖动，避免同一秒集中过期。",
+    "tech": "Redis TTL",
+    "file": "service/impl/StockServiceImpl.java:38-40",
+    "talk": "TTL 加抖动是防雪崩的常规手段。"
+  },
+  {
+    "id": "sellable",
+    "label": "可售",
+    "en": "SELLABLE",
+    "cat": "stock",
+    "weight": 1.15,
+    "summary": "可售 = Redis 预扣后的余量；DB 条件扣减作为最终兜底。",
+    "tech": "Redis + DB",
+    "file": "service/impl/StockServiceImpl.java",
+    "talk": "缓存允许短暂偏差，DB 条件更新是最终一致性防线。"
+  },
+  {
+    "id": "aftersale",
+    "label": "售后",
+    "en": "AFTERSALE",
+    "cat": "fulfillment",
+    "weight": 1.45,
+    "summary": "订单行锁 -> 状态/类型/原因校验 -> 计划金额 -> 插入售后单与明细 -> 通知商家。",
+    "tech": "@Transactional · 行锁",
+    "file": "service/impl/AfterSaleServiceImpl.java:158-214",
+    "talk": "售后申请先锁订单，避免同一订单并发申请互相覆盖。",
+    "snippets": [
+      {
+        "label": "apply()：校验、计划、落库",
+        "file": "src/main/java/com/tsuk1/itsmygo/service/impl/AfterSaleServiceImpl.java:158-214",
+        "code": "public AfterSaleView apply(Long userId, AfterSaleApplyRequest request) {\n    String type = normalizeType(request.type());\n    Order order = orderMapper.selectByIdForUpdate(request.orderId());\n    if (order == null || !userId.equals(order.getUserId())) {\n        throw new BizException(ResultCode.NOT_FOUND, \"订单不存在\");\n    }\n    if (!isRefundableStatus(order.getStatus())) {\n        throw new BizException(ResultCode.BAD_REQUEST, \"当前订单状态不能申请售后\");\n    }\n    if (TYPE_RETURN_REFUND.equals(type)\n            && !(OrderStatusValue.SHIPPED.equals(order.getStatus())\n            || OrderStatusValue.COMPLETED.equals(order.getStatus()))) {\n        throw new BizException(ResultCode.BAD_REQUEST, \"未发货订单只能申请仅退款\");\n    }\n\n    AfterSaleReason reason = reasonMapper.selectOne(Wrappers.<AfterSaleReason>lambdaQuery()\n            .eq(AfterSaleReason::getCode, request.reasonCode())\n            .eq(AfterSaleReason::getStatus, 1));\n    if (reason == null) {\n        throw new BizException(ResultCode.BAD_REQUEST, \"售后原因不存在或已停用\");\n    }\n\n    List<OrderItem> orderItems = orderItemMapper.selectList(Wrappers.<OrderItem>lambdaQuery()\n            .eq(OrderItem::getOrderId, order.getId()));\n    if (orderItems.isEmpty()) {\n        throw new BizException(ResultCode.BAD_REQUEST, \"订单没有可售后的商品\");\n    }\n    Plan plan = plan(order, orderItems, request.items());\n\n    AfterSale afterSale = new AfterSale();\n    afterSale.setAfterSaleNo(generateNo());\n    afterSale.setOrderId(order.getId());\n    afterSale.setOrderNo(order.getOrderNo());\n    afterSale.setUserId(userId);\n    afterSale.setMerchantId(order.getMerchantId());\n    afterSale.setType(type);\n    afterSale.setStatus(ST_PENDING_REVIEW);\n    afterSale.setReasonCode(reason.getCode());\n    afterSale.setReasonText(nullToEmpty(request.reasonText()));\n    String imagesJson = writeImages(request.evidenceImages());\n    if (imagesJson.length() > 1000) {\n        throw new BizException(ResultCode.BAD_REQUEST, \"凭证图片过多，请精简后再提交\");\n    }\n    afterSale.setEvidenceImages(imagesJson);\n    afterSale.setApplyAmount(plan.total());\n    afterSale.setRefundAmount(ZERO);\n    afterSale.setReviewDeadline(LocalDateTime.now().plusHours(properties.reviewHours()));\n    afterSaleMapper.insert(afterSale);\n\n    for (AfterSaleItem item : plan.items()) {\n        item.setAfterSaleId(afterSale.getId());\n        afterSaleItemMapper.insert(item);\n    }\n    notificationService.notifyMerchant(afterSale.getMerchantId(), \"AFTER_SALE_APPLIED\", \"新售后申请\",\n            String.format(\"售后单 %s（订单 %s）待处理，申请金额 ¥%s。\",\n                    afterSale.getAfterSaleNo(), afterSale.getOrderNo(), afterSale.getApplyAmount()),\n            \"/merchant/after-sales?afterSaleId=\" + afterSale.getId(),"
+      }
+    ]
+  },
+  {
+    "id": "refund",
+    "label": "退款",
+    "en": "REFUND",
+    "cat": "fulfillment",
+    "weight": 1.4,
+    "summary": "审批通过后执行退款：更新售后状态、退款流水、回滚库存/优惠券、通知买家。",
+    "tech": "Refund · 状态机",
+    "file": "service/impl/AfterSaleServiceImpl.java:569-609",
+    "talk": "退款是资损操作，必须状态机 + 幂等 + 可审计。",
+    "snippets": [
+      {
+        "label": "executeRefund：退款与回滚",
+        "file": "src/main/java/com/tsuk1/itsmygo/service/impl/AfterSaleServiceImpl.java:569-609",
+        "code": "private void executeRefund(AfterSale afterSale, Order order, Plan plan) {\n    for (AfterSaleItem item : plan.items()) {\n        skuMapper.restoreStock(item.getSkuId(), item.getQuantity());\n        stockService.release(item.getSkuId(), item.getQuantity());\n        productMapper.applyRestored(item.getProductId(), item.getQuantity());\n    }\n    orderMapper.addRefundedAmount(order.getId(), plan.total());\n\n    BigDecimal before = nz(order.getRefundedAmount());\n    BigDecimal newRefunded = before.add(plan.total());\n    boolean fullRefund = newRefunded.compareTo(nz(order.getTotalAmount())) >= 0;\n    LocalDateTime now = LocalDateTime.now();\n\n    if (fullRefund) {\n        if (orderMapper.compareAndSetStatus(order.getId(), order.getStatus(), \"REFUNDED\") == 0) {\n            throw new BizException(ResultCode.BAD_REQUEST, \"订单状态已变化，请刷新后重试\");\n        }\n        orderMapper.update(null, Wrappers.<Order>lambdaUpdate()\n                .eq(Order::getId, order.getId())\n                .set(Order::getRefundedAmount, newRefunded)\n                .set(Order::getRefundReason, reasonLabel(afterSale.getReasonCode()))\n                .set(Order::getRefundAppliedAt, afterSale.getCreatedAt())\n                .set(Order::getRefundHandledAt, now)\n                .set(Order::getStatusBeforeRefund, null));\n        paymentMapper.update(null, Wrappers.<Payment>lambdaUpdate()\n                .eq(Payment::getOrderId, order.getId())\n                .eq(Payment::getStatus, Payment.STATUS_SUCCESS)\n                .set(Payment::getStatus, Payment.STATUS_REFUNDED)\n                .set(Payment::getRefundedAt, now));\n        // 券只在整单退完时退回；失败不阻断退款（账务小问题，卡住退款是大问题）\n        try {\n            userCouponMapper.restoreByOrderId(order.getId());\n        } catch (RuntimeException e) {\n            log.warn(\"售后退券失败: orderNo={} err={}\", order.getOrderNo(), e.getMessage());\n        }\n    }\n}\n\n/* ==================== 内部：金额与校验 ==================== */\n\n/** 申请时的金额估算（含「本次退完整单」的尾差补齐）。 */"
+      }
+    ]
+  },
+  {
+    "id": "timeout",
+    "label": "超时关单",
+    "en": "TIMEOUT",
+    "cat": "fulfillment",
+    "weight": 1.4,
+    "summary": "RabbitMQ TTL + DLX 到期消息，消费者取消未支付订单；失败不重回队列。",
+    "tech": "RabbitMQ · DLX",
+    "file": "task/order/OrderTimeoutConsumer.java:33-68",
+    "talk": "超时关单用延迟队列，不靠定时扫全表。",
+    "snippets": [
+      {
+        "label": "onMessage：到期取消 + MDC trace",
+        "file": "src/main/java/com/tsuk1/itsmygo/task/order/OrderTimeoutConsumer.java:33-68",
+        "code": "@RabbitListener(queues = OrderTimeoutRabbitTopology.WORK_QUEUE)\npublic void onMessage(Message message) {\n    String traceId = (String) message.getMessageProperties().getHeaders()\n            .get(RequestIdFilter.TRACE_HEADER);\n    if (traceId == null || traceId.isBlank()) {\n        traceId = \"mq-\" + UUID.randomUUID().toString().replace(\"-\", \"\");\n    }\n    MDC.put(RequestIdFilter.TRACE_ID, traceId);\n    try {\n        handlePayload(new String(message.getBody(), StandardCharsets.UTF_8));\n    } finally {\n        MDC.remove(RequestIdFilter.TRACE_ID);\n    }\n}\n\nvoid handlePayload(String payload) {\n    long orderId;\n    try {\n        orderId = Long.parseLong(payload.trim());\n    } catch (RuntimeException e) {\n        log.warn(\"忽略无法解析的超时关单消息: {}\", payload);\n        return;\n    }\n\n    try {\n        boolean cancelled = orderService.cancelIfExpired(orderId, properties.minutes());\n        if (cancelled) {\n            log.info(\"RabbitMQ 定时关单成功: orderId={}\", orderId);\n        }\n    } catch (Exception e) {\n        log.warn(\"处理超时关单消息失败，交给扫描兜底: orderId={} err={}\",\n                orderId, e.getMessage());\n        throw new AmqpRejectAndDontRequeueException(\n                \"处理超时关单消息失败: orderId=\" + orderId);\n    }\n}"
+      }
+    ]
+  },
+  {
+    "id": "shipment",
+    "label": "物流",
+    "en": "SHIPMENT",
+    "cat": "fulfillment",
+    "weight": 1.2,
+    "summary": "发货写物流单，订单进入 SHIPPED，买家可查看物流。",
+    "tech": "ShipmentService",
+    "file": "service/impl/ShipmentServiceImpl.java",
+    "talk": "物流是发货的副作用，失败不能回滚已支付订单。"
+  },
+  {
+    "id": "review",
+    "label": "评价",
+    "en": "REVIEW",
+    "cat": "fulfillment",
+    "weight": 1.1,
+    "summary": "完成订单后可评价，评价与商品评分聚合。",
+    "tech": "ReviewService",
+    "file": "service/impl/ReviewServiceImpl.java",
+    "talk": "评价只允许已完成订单，防刷。"
+  },
+  {
+    "id": "scan",
+    "label": "扫描",
+    "en": "SCAN",
+    "cat": "fulfillment",
+    "weight": 1.2,
+    "summary": "定时扫描长时间 CREATING / 到期售后，补偿 MQ 丢失。",
+    "tech": "Scheduled · 补偿",
+    "file": "task/order/OrderTimeoutScanJob.java",
+    "talk": "异步系统必须有扫描兜底，MQ 不是 100% 可靠。"
+  },
+  {
+    "id": "chat",
+    "label": "聊天",
+    "en": "CHAT",
+    "cat": "engagement",
+    "weight": 1.4,
+    "summary": "顾客/商家/客服会话，SSE 推消息，未读与历史分页。",
+    "tech": "SseEmitter · ChatService",
+    "file": "service/impl/ChatServiceImpl.java",
+    "talk": "聊天是长连接 + 短轮询兜底，不做全局 SSE。"
+  },
+  {
+    "id": "notify",
+    "label": "通知",
+    "en": "NOTIFY",
+    "cat": "engagement",
+    "weight": 1.4,
+    "summary": "统一 notifications 表，biz_key 幂等，按角色生成不同详情链接。",
+    "tech": "NotificationService · Unique Key",
+    "file": "service/impl/NotificationServiceImpl.java:40-59",
+    "talk": "通知写失败不能影响主业务，biz_key 保证重复事件只落一条。",
+    "snippets": [
+      {
+        "label": "notifyUser：bizKey 幂等",
+        "file": "src/main/java/com/tsuk1/itsmygo/service/impl/NotificationServiceImpl.java:40-59",
+        "code": "@Override\n@Transactional\npublic void notifyUser(Long userId, String type, String title, String content, String link, String bizKey) {\n    if (userId == null) {\n        return;\n    }\n    Notification notification = new Notification();\n    notification.setUserId(userId);\n    notification.setType(type);\n    notification.setTitle(title);\n    notification.setContent(content == null ? \"\" : content);\n    notification.setLink(link == null ? \"\" : link);\n    notification.setBizKey(bizKey);\n    notification.setCreatedAt(LocalDateTime.now());\n    try {\n        notificationMapper.insert(notification);\n    } catch (DuplicateKeyException ignored) {\n        // 同一 user + bizKey 已存在：幂等事件（重复支付回调等），忽略\n    }\n}"
+      }
+    ]
+  },
+  {
+    "id": "actionCard",
+    "label": "动作卡",
+    "en": "ACTION_CARD",
+    "cat": "engagement",
+    "weight": 1.3,
+    "summary": "客服动作以卡片/表单回传，确认后由 Java 执行，前端只展示状态。",
+    "tech": "Vue · AgentActionCard",
+    "file": "frontend/src/components/chat/AgentActionCard.vue",
+    "talk": "动作卡是 HITL 的 UI 载体，确认前不产生副作用。"
+  },
+  {
+    "id": "bell",
+    "label": "铃铛",
+    "en": "BELL",
+    "cat": "engagement",
+    "weight": 1.15,
+    "summary": "顶栏通知铃铛，30s 可见轮询、未读、已读、全部已读。",
+    "tech": "Vue · NotificationBell",
+    "file": "frontend/src/components/NotificationBell.vue",
+    "talk": "通知入口按角色复用同一组件，链接由后端按收件人生成。"
+  },
+  {
+    "id": "unread",
+    "label": "角标",
+    "en": "UNREAD",
+    "cat": "engagement",
+    "weight": 1.1,
+    "summary": "聊天/通知未读数聚合到顶栏角标。",
+    "tech": "Pinia · 轮询",
+    "file": "frontend/src/stores/badge.ts",
+    "talk": "角标只做提醒，不承担消息投递。"
+  },
+  {
+    "id": "clean",
+    "label": "归档",
+    "en": "CLEAN",
+    "cat": "engagement",
+    "weight": 1.05,
+    "summary": "消息/会话历史归档与清理，避免无限增长。",
+    "tech": "MySQL · 定时任务",
+    "file": "task/chat/ChatCleanupJob.java",
+    "talk": "历史消息要可回放，但不能无限占在线库。"
+  },
+  {
+    "id": "grpc",
+    "label": "gRPC",
+    "en": "GRPC",
+    "cat": "agent",
+    "weight": 1.45,
+    "summary": "Java 通过 gRPC 调 Python Agent：Converse 流式、Stop、历史、会话。",
+    "tech": "gRPC · Protobuf",
+    "file": "common/agent/AgentGateway.java:28-39",
+    "talk": "Java 是调用方，Agent 只在内网，不直接暴露给浏览器。",
+    "snippets": [
+      {
+        "label": "AgentGateway：converse/internalEvent",
+        "file": "src/main/java/com/tsuk1/itsmygo/common/agent/AgentGateway.java:20-45",
+        "code": "/**\n * @param formResult     会话内表单回传；null 表示普通文本对话（老客户端）。\n * @param toolTicket     本轮工具调用票据（由 Java 签发，经 metadata 下发给 agent；\n *                       agent 回调 /internal/agent/** 时带回，见 AgentToolTicketService）\n * @param enableWebSearch 顾客的联网搜索偏好（客户设置，默认 true）\n * @param stream          顾客的流式输出偏好（客户设置，默认 false）；\n *                        true 时 agent 会额外推 {@code delta} 事件\n */\nIterator<Event> converse(long userId, String sessionId, String message, FormResult formResult,\n                         Duration deadline, String toolTicket,\n                         boolean enableWebSearch, boolean stream);\n\n/**\n * Java 动作完成后的内部事件（不来自浏览器）。agent 侧不跑主模型，只执行对应完成图。\n *\n * @param event   例如 urge-shipment-confirmed\n * @param payload JSON 字符串（订单号、店铺名等）\n */\nIterator<Event> internalEvent(long userId, String sessionId, String event,\n                              String payload, String toolTicket, Duration deadline);\n\nboolean stop(long userId, String sessionId, String runId);\n\nList<HistoryMessage> history(long userId, String sessionId, int limit);\n\nList<SessionInfo> sessions(long userId, int limit);"
+      }
+    ]
+  },
+  {
+    "id": "stream",
+    "label": "SSE",
+    "en": "STREAM",
+    "cat": "agent",
+    "weight": 1.4,
+    "summary": "gRPC Iterator<Event> -> SSE sink，映射 start/trace/delta/usage/final/error。",
+    "tech": "SseEmitter · AgentEventMapper",
+    "file": "service/impl/AgentChatServiceImpl.java:275-347",
+    "talk": "Agent 的流式事件在 Java 侧转成 SSE，前端只消费稳定协议。",
+    "snippets": [
+      {
+        "label": "stream()：gRPC -> SSE",
+        "file": "src/main/java/com/tsuk1/itsmygo/service/impl/AgentChatServiceImpl.java:275-347",
+        "code": "private void stream(CurrentUser user, String sessionId, String message, FormResult formResult,\n                    String toolTicket, boolean enableWebSearch, boolean streamEnabled,\n                    AgentSseSink sink, Context.CancellableContext context,\n                    AtomicReference<String> runIdRef,\n                    AtomicBoolean finalSeen, AtomicBoolean errorSeen, Runnable cleanup) {\n    try {\n        FormResult forwardedForm = formResult;\n        if (forwardedForm != null) {\n            // 先校验后消费：非法提交不能白白烧掉一张一次性表单\n            forwardedForm = normalizeRefundReason(forwardedForm);\n            if (forwardedForm == null) {\n                errorSeen.set(true);\n                sink.send(\"error\", AgentEventMapper.error(\"FORM_INVALID\",\n                        \"退款原因不在可选范围内，请重新选择后提交\", false));\n                sink.send(\"done\", AgentEventMapper.done(\"error\"));\n                return;\n            }\n            if (!formGuard.tryConsume(user.id(), forwardedForm.getFormId())) {\n                // SETNX 失败：不调 agent，直接告诉前端这张表单已经提交过\n                errorSeen.set(true);\n                sink.send(\"error\", AgentEventMapper.error(\"FORM_ALREADY_SUBMITTED\",\n                        \"这张表单已经提交过了，请重新发起一次\", false));\n                sink.send(\"done\", AgentEventMapper.done(\"error\"));\n                return;\n            }\n        }\n        FormResult effectiveForm = forwardedForm;\n        Iterator<Event> events = context.call(() -> gateway.converse(\n                user.id(), sessionId, message, effectiveForm,\n                Duration.ofSeconds(properties.deadlineSeconds()), toolTicket,\n                enableWebSearch, streamEnabled));\n\n        while (!sink.isClosed() && events.hasNext()) {\n            Event event = events.next();\n            Event.KindCase kind = event.getKindCase();\n            if (kind == Event.KindCase.START) {\n                runIdRef.set(event.getStart().getRunId());\n            } else if (kind == Event.KindCase.FINAL) {\n                finalSeen.set(true);\n                // 退款原因选项由 Java 用售后原因字典补全（agent 只下发空选项）\n                event = fillRefundReasonOptions(event);\n            } else if (kind == Event.KindCase.ERROR) {\n                errorSeen.set(true);\n                log.warn(\"买小购返回错误事件: {}\", event.getError().getMessage());\n            }\n            AgentEventMapper.Mapped mapped = AgentEventMapper.map(event);\n            if (mapped != null) {\n                sink.send(mapped.event(), mapped.data());\n            }\n        }\n\n        if (!sink.isClosed()) {\n            String reason = finalSeen.get() ? \"final\" : errorSeen.get() ? \"error\" : \"stopped\";\n            sink.send(\"done\", AgentEventMapper.done(reason));\n        }\n    } catch (StatusRuntimeException e) {\n        if (!sink.isClosed()) {\n            log.warn(\"买小购 gRPC 流失败: {} {}\", e.getStatus().getCode(),\n                    e.getStatus().getDescription());\n            sink.send(\"error\", grpcError(e));\n            sink.send(\"done\", AgentEventMapper.done(\"error\"));\n        }\n    } catch (Exception e) {\n        if (!sink.isClosed()) {\n            log.error(\"买小购流处理异常\", e);\n            sink.send(\"error\", AgentEventMapper.error(\n                    \"AGENT_ERROR\", \"客服处理失败，请稍后重试\", true));\n            sink.send(\"done\", AgentEventMapper.done(\"error\"));\n        }\n    } finally {\n        cleanup.run();\n    }\n}"
+      }
+    ]
+  },
+  {
+    "id": "action",
+    "label": "下单草稿",
+    "en": "ACTION",
+    "cat": "agent",
+    "weight": 1.5,
+    "summary": "prepareOrder 生成 PENDING_CONFIRM 草稿，同会话幂等并自动取消旧草稿。",
+    "tech": "AgentAction · CAS",
+    "file": "service/impl/AgentActionServiceImpl.java:95-133",
+    "talk": "Agent 只能 prepare，不能直接下单；草稿是待确认意图。",
+    "snippets": [
+      {
+        "label": "prepareOrder：草稿 + 旧卡作废",
+        "file": "src/main/java/com/tsuk1/itsmygo/service/impl/AgentActionServiceImpl.java:95-133",
+        "code": "public AgentActionView prepareOrder(long userId, String sessionId,\n                                    AgentOrderDraftRequest request) {\n    support.requireEnabled();\n    AgentOrderDraftBuilder.OrderDraft draft = orderDraftBuilder.build(userId, request);\n    // 幂等：同一会话里对同一份订单内容重复点「让买小购下单」时，返回已有草稿卡片，\n    // 不再重复生成（否则用户会看到多张一模一样的「订单待确认」）。\n    String payloadJson = support.json(draft.payload());\n    List<AgentAction> pendingOrders = actionMapper.selectList(\n            Wrappers.<AgentAction>lambdaQuery()\n                    .eq(AgentAction::getUserId, userId)\n                    .eq(AgentAction::getSessionId, sessionId)\n                    .eq(AgentAction::getType, AgentActionType.CREATE_ORDER.name())\n                    .eq(AgentAction::getStatus, AgentActionStatus.PENDING_CONFIRM.name())\n                    .gt(AgentAction::getExpiresAt, LocalDateTime.now())\n                    .orderByDesc(AgentAction::getId));\n    for (AgentAction existing : pendingOrders) {\n        if (payloadJson.equals(existing.getPayloadJson())) {\n            log.info(\"重复的订单草稿，返回已有卡片：{}\", existing.getActionNo());\n            return support.toView(existing);\n        }\n    }\n    // 同一会话只保留最新一张待确认下单卡：agent 换规格/换商品重新 prepare 时，\n    // 旧卡若继续 PENDING，前端按 FIFO 会先展示旧卡，用户可能确认错误规格。\n    for (AgentAction existing : pendingOrders) {\n        int cancelled = actionMapper.casStatus(existing.getActionNo(), userId,\n                AgentActionStatus.PENDING_CONFIRM.name(), AgentActionStatus.CANCELLED.name());\n        if (cancelled > 0) {\n            log.info(\"新下单草稿替换旧草稿：{}\", existing.getActionNo());\n        }\n    }\n\n    AgentAction action = support.newAction(userId, sessionId, AgentActionType.CREATE_ORDER,\n            draft.payload(), draft.summary(), null);\n    String token = orderService.issueToken(userId);\n    redis.opsForValue().set(TOKEN_PREFIX + action.getActionNo(), token,\n            Duration.ofSeconds(properties.expirySeconds()));\n    actionMapper.insert(action);\n    return support.toView(action);\n}"
+      }
+    ]
+  },
+  {
+    "id": "confirm",
+    "label": "用户确认",
+    "en": "CONFIRM",
+    "cat": "agent",
+    "weight": 1.4,
+    "summary": "confirm 将 action CAS 到 EXECUTING，按类型执行订单、退款、催办。",
+    "tech": "AgentActionService · 状态机",
+    "file": "service/impl/AgentActionServiceImpl.java:208-250",
+    "talk": "确认是 HITL 边界：用户点确认前，Agent 没有任何写权限。",
+    "snippets": [
+      {
+        "label": "confirm()：CAS 后执行",
+        "file": "src/main/java/com/tsuk1/itsmygo/service/impl/AgentActionServiceImpl.java:208-250",
+        "code": "public AgentActionView confirm(long userId, String actionNo) {\n    support.requireEnabled();\n    AgentAction action = support.requireOwned(userId, actionNo);\n    if (AgentActionStatus.PENDING_CONFIRM.name().equals(action.getStatus())\n            && action.getExpiresAt().isBefore(LocalDateTime.now())) {\n        actionMapper.casStatus(actionNo, userId,\n                AgentActionStatus.PENDING_CONFIRM.name(), AgentActionStatus.EXPIRED.name());\n        action.setStatus(AgentActionStatus.EXPIRED.name());\n        return support.toView(action);\n    }\n    if (AgentActionStatus.EXECUTING.name().equals(action.getStatus())\n            && action.getUpdatedAt() != null\n            && action.getUpdatedAt().isBefore(LocalDateTime.now().minusMinutes(5))) {\n        // 进程在 CAS 之后、执行完成之前崩了：留一个可恢复的失败态，避免永久卡在 EXECUTING\n        action.setStatus(AgentActionStatus.FAILED.name());\n        action.setErrorMessage(\"执行中断，请重新发起\");\n        action.setExecutedAt(LocalDateTime.now());\n        actionMapper.updateById(action);\n        return support.toView(action);\n    }\n    if (!AgentActionStatus.PENDING_CONFIRM.name().equals(action.getStatus())) {\n        // 已确认 / 已失败 / 已取消 / 已过期：幂等返回当前状态，不重复执行\n        return support.toView(action);\n    }\n\n    int started = actionMapper.startExecution(actionNo, userId);\n    if (started == 0) {\n        return support.toView(support.requireOwned(userId, actionNo));\n    }\n    action.setStatus(AgentActionStatus.EXECUTING.name());\n    if (AgentActionType.URGE_SHIPMENT.name().equals(action.getType())) {\n        // 催发货不在这里直接发：触发 agent 图，由 agent 调用发送工具回调 Java\n        return urgeActionService.confirmShipment(userId, action);\n    }\n    if (AgentActionType.URGE_REFUND.name().equals(action.getType())) {\n        // 催退款同理，由 agent 图调用发送工具\n        return urgeActionService.confirmRefund(userId, action);\n    }\n    try {\n        Object result = switch (AgentActionType.valueOf(action.getType())) {\n            case CREATE_ORDER -> executeOrder(userId, action);\n            case APPLY_REFUND -> refundActionService.execute(userId, action);\n            case URGE_SHIPMENT -> throw new BizException("
+      }
+    ]
+  },
+  {
+    "id": "eval",
+    "label": "评测",
+    "en": "EVAL",
+    "cat": "agent",
+    "weight": 1.2,
+    "summary": "智能体评测任务、评分与结果，管理端可触发。",
+    "tech": "LLM-as-Judge · Eval",
+    "file": "controller/AdminAgentEvalController.java",
+    "talk": "评测是回归手段，不是上线后的唯一质量保障。"
+  },
+  {
+    "id": "context",
+    "label": "上下文",
+    "en": "CONTEXT",
+    "cat": "agent",
+    "weight": 1.25,
+    "summary": "工具 schema、短期票据、会话历史分层；票据不进模型上下文。",
+    "tech": "ContextVar · Harness",
+    "file": "common/agent/AgentToolTicketService.java",
+    "talk": "把权限凭证放执行上下文，而不是 prompt。"
+  },
+  {
+    "id": "merchant",
+    "label": "入驻",
+    "en": "MERCHANT",
+    "cat": "ops",
+    "weight": 1.3,
+    "summary": "申请/重提/审核状态机，平台自营与第三方店铺隔离。",
+    "tech": "MerchantService · 状态机",
+    "file": "service/impl/MerchantServiceImpl.java:76-110",
+    "talk": "商家状态变化要通知管理员，审核与经营权限解耦。",
+    "snippets": [
+      {
+        "label": "apply()：入驻状态分支",
+        "file": "src/main/java/com/tsuk1/itsmygo/service/impl/MerchantServiceImpl.java:76-110",
+        "code": "@Override\n@Transactional\npublic MerchantView apply(Long userId, MerchantRequest request) {\n    User user = userMapper.selectById(userId);\n    if (user == null) {\n        throw new BizException(ResultCode.NOT_FOUND, \"用户不存在\");\n    }\n    if (Roles.MERCHANT.equals(user.getRole())) {\n        throw new BizException(ResultCode.BAD_REQUEST, \"该账号已是商家\");\n    }\n\n    Merchant existing = merchantMapper.selectOne(Wrappers.<Merchant>lambdaQuery()\n            .eq(Merchant::getOwnerUserId, userId));\n    if (existing != null) {\n        return switch (existing.getStatus()) {\n            case Merchant.PENDING -> throw new BizException(ResultCode.BAD_REQUEST, \"入驻申请审核中\");\n            case Merchant.ACTIVE -> throw new BizException(ResultCode.BAD_REQUEST, \"该账号已是商家\");\n            case Merchant.DISABLED -> throw new BizException(ResultCode.BAD_REQUEST, \"店铺已被禁用\");\n            default -> resubmit(existing.getId(), request);\n        };\n    }\n\n    Merchant merchant = new Merchant();\n    applyFields(merchant, request);\n    merchant.setStatus(Merchant.PENDING);\n    merchant.setOwnerUserId(userId);\n    merchant.setRejectReason(\"\");\n    try {\n        merchantMapper.insert(merchant);\n    } catch (DuplicateKeyException e) {\n        throw new BizException(ResultCode.BAD_REQUEST, \"店铺名已被占用\");\n    }\n    notifyAdminsMerchantApply(merchant);\n    return toView(merchant);\n}"
+      }
+    ]
+  },
+  {
+    "id": "admin",
+    "label": "管理端",
+    "en": "ADMIN",
+    "cat": "ops",
+    "weight": 1.2,
+    "summary": "管理后台、操作审计、管理员邀请与 RBAC 子角色。",
+    "tech": "Spring Security · AdminAudit",
+    "file": "audit/AdminAuditAspect.java",
+    "talk": "管理操作要审计，权限码控制到按钮/接口。"
+  },
+  {
+    "id": "flyway",
+    "label": "迁移",
+    "en": "FLYWAY",
+    "cat": "ops",
+    "weight": 1.15,
+    "summary": "数据库版本化迁移，V38 历史通知链接回填。",
+    "tech": "Flyway · MySQL",
+    "file": "src/main/resources/db/migration",
+    "talk": "迁移只增不改，历史脚本不可修改。"
+  },
+  {
+    "id": "infra",
+    "label": "中间件",
+    "en": "INFRA",
+    "cat": "ops",
+    "weight": 1.25,
+    "summary": "MySQL/Redis/RabbitMQ/MinIO 复用本机共享容器，命名与 TTL 有约束。",
+    "tech": "Docker · 共享中间件",
+    "file": "dev-infra/docker-compose.yml",
+    "talk": "中间件是共享资源，项目只用自己的库/前缀/卷。"
+  },
+  {
+    "id": "deploy",
+    "label": "部署",
+    "en": "DEPLOY",
+    "cat": "ops",
+    "weight": 1.15,
+    "summary": "开发 dev-infra、演示 Docker、生产离线包；同一时间只起一个环境。",
+    "tech": "Docker Compose · 离线包",
+    "file": "deploy.sh",
+    "talk": "环境隔离不是口号：端口、容器名、数据卷都要分开。"
+  },
+  {
+    "id": "tests",
+    "label": "测试",
+    "en": "TESTS",
+    "cat": "ops",
+    "weight": 1.2,
+    "summary": "后端 357 tests、前端 Vitest、Playwright 巡检；CI 353。",
+    "tech": "JUnit · Vitest · Playwright",
+    "file": "src/test/java",
+    "talk": "质量靠可重复的测试和回归，不靠一次演示。"
+  }
+];
+const EDGES = [
+  [
+    "jwt",
+    "identity",
+    "身份快照"
+  ],
+  [
+    "identity",
+    "rbac",
+    "角色/权限"
+  ],
+  [
+    "rbac",
+    "guard",
+    "权限校验"
+  ],
+  [
+    "jwt",
+    "agentTool",
+    "票据入口"
+  ],
+  [
+    "ticket",
+    "agentTool",
+    "X-Agent-Ticket"
+  ],
+  [
+    "ticket",
+    "action",
+    "工具调用"
+  ],
+  [
+    "product",
+    "sku",
+    "1:N"
+  ],
+  [
+    "product",
+    "search",
+    "检索"
+  ],
+  [
+    "product",
+    "cache",
+    "缓存"
+  ],
+  [
+    "cache",
+    "bloom",
+    "穿透保护"
+  ],
+  [
+    "product",
+    "archive",
+    "下架归档"
+  ],
+  [
+    "product",
+    "cart",
+    "加购"
+  ],
+  [
+    "cart",
+    "checkout",
+    "结算"
+  ],
+  [
+    "checkout",
+    "coupon",
+    "优惠"
+  ],
+  [
+    "checkout",
+    "address",
+    "地址"
+  ],
+  [
+    "checkout",
+    "split",
+    "分组"
+  ],
+  [
+    "cart",
+    "token",
+    "防重"
+  ],
+  [
+    "split",
+    "plan",
+    "计价"
+  ],
+  [
+    "create",
+    "plan",
+    "校验/分组"
+  ],
+  [
+    "plan",
+    "persist",
+    "落单"
+  ],
+  [
+    "persist",
+    "finish",
+    "结算"
+  ],
+  [
+    "finish",
+    "pay",
+    "待支付"
+  ],
+  [
+    "create",
+    "token",
+    "幂等"
+  ],
+  [
+    "pay",
+    "state",
+    "PAID"
+  ],
+  [
+    "cancel",
+    "state",
+    "CANCELLED"
+  ],
+  [
+    "ship",
+    "state",
+    "SHIPPED"
+  ],
+  [
+    "create",
+    "split",
+    "拆单"
+  ],
+  [
+    "create",
+    "reserve",
+    "预扣"
+  ],
+  [
+    "reserve",
+    "rollback",
+    "失败回补"
+  ],
+  [
+    "reserve",
+    "ttl",
+    "缓存 TTL"
+  ],
+  [
+    "reserve",
+    "sellable",
+    "可售"
+  ],
+  [
+    "adjust",
+    "sellable",
+    "CAS"
+  ],
+  [
+    "reconcile",
+    "persist",
+    "补账"
+  ],
+  [
+    "reconcile",
+    "finish",
+    "重试结算"
+  ],
+  [
+    "aftersale",
+    "refund",
+    "审批退款"
+  ],
+  [
+    "aftersale",
+    "shipment",
+    "退货物流"
+  ],
+  [
+    "timeout",
+    "cancel",
+    "超时取消"
+  ],
+  [
+    "scan",
+    "timeout",
+    "扫描兜底"
+  ],
+  [
+    "aftersale",
+    "review",
+    "评价"
+  ],
+  [
+    "chat",
+    "notify",
+    "新消息"
+  ],
+  [
+    "notify",
+    "bell",
+    "通知入口"
+  ],
+  [
+    "bell",
+    "unread",
+    "角标"
+  ],
+  [
+    "chat",
+    "actionCard",
+    "动作卡"
+  ],
+  [
+    "actionCard",
+    "action",
+    "确认动作"
+  ],
+  [
+    "grpc",
+    "stream",
+    "事件流"
+  ],
+  [
+    "stream",
+    "chat",
+    "SSE"
+  ],
+  [
+    "stream",
+    "confirm",
+    "确认结果"
+  ],
+  [
+    "action",
+    "confirm",
+    "待确认"
+  ],
+  [
+    "action",
+    "ticket",
+    "票据"
+  ],
+  [
+    "confirm",
+    "create",
+    "执行下单"
+  ],
+  [
+    "confirm",
+    "refund",
+    "执行退款"
+  ],
+  [
+    "confirm",
+    "cancel",
+    "执行取消"
+  ],
+  [
+    "merchant",
+    "admin",
+    "审核"
+  ],
+  [
+    "admin",
+    "rbac",
+    "权限码"
+  ],
+  [
+    "merchant",
+    "product",
+    "商品归属"
+  ],
+  [
+    "flyway",
+    "infra",
+    "迁移"
+  ],
+  [
+    "infra",
+    "deploy",
+    "部署"
+  ],
+  [
+    "tests",
+    "deploy",
+    "质量门禁"
+  ],
+  [
+    "pay",
+    "notify",
+    "支付通知"
+  ],
+  [
+    "ship",
+    "notify",
+    "发货通知"
+  ],
+  [
+    "refund",
+    "notify",
+    "退款通知"
+  ],
+  [
+    "aftersale",
+    "notify",
+    "售后通知"
+  ],
+  [
+    "eval",
+    "stream",
+    "评测结果"
+  ],
+  [
+    "create",
+    "chat",
+    "状态提醒",
+    "状态提醒"
+  ],
+  [
+    "reserve",
+    "create",
+    "库存事实",
+    "库存事实"
+  ],
+  [
+    "jwt",
+    "grpc",
+    "认证边界",
+    "认证与票据"
+  ],
+  [
+    "deploy",
+    "jwt",
+    "部署边界",
+    "部署边界"
+  ],
+  [
+    "create",
+    "cart",
+    "校验购物车"
+  ],
+  [
+    "create",
+    "coupon",
+    "券预占"
+  ],
+  [
+    "create",
+    "address",
+    "地址快照"
+  ],
+  [
+    "pay",
+    "ship",
+    "待发货"
+  ],
+  [
+    "ship",
+    "aftersale",
+    "售后入口"
+  ],
+  [
+    "aftersale",
+    "pay",
+    "退款回源",
+    "售后归属订单"
+  ],
+  [
+    "agentTool",
+    "ticket",
+    "票据校验"
+  ],
+  [
+    "grpc",
+    "agentTool",
+    "内部回调"
+  ],
+  [
+    "stream",
+    "actionCard",
+    "动作卡"
+  ],
+  [
+    "confirm",
+    "notify",
+    "确认结果"
+  ],
+  [
+    "action",
+    "plan",
+    "草稿转订单"
+  ],
+  [
+    "flyway",
+    "tests",
+    "迁移测试"
+  ],
+  [
+    "deploy",
+    "infra",
+    "运行时"
+  ],
+  [
+    "merchant",
+    "notify",
+    "入驻通知"
+  ]
+];
+/* ═══════════════════════════════════════════════════════════════
+   基础
+   ═══════════════════════════════════════════════════════════════ */
+const $ = (s, r=document) => r.querySelector(s);
+const $$ = (s, r=document) => [...r.querySelectorAll(s)];
+const canvas = $("#space");
+const ctx = canvas.getContext("2d");
+const catMap = new Map(CATS.map(c => [c.id, c]));
+const nodeMap = new Map(NODES.map(n => [n.id, n]));
+const catIndex = new Map(CATS.map((c, i) => [c.id, i]));
+
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const esc = (s) => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+const norm = (v) => { const l = Math.hypot(v[0],v[1],v[2]) || 1; return [v[0]/l,v[1]/l,v[2]/l]; };
+const hash = (s) => { let h = 2166136261; for (let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619); } return (h>>>0); };
+const hash01 = (s) => (hash(s) % 10000) / 10000;
+
+/* 邻接表 */
+const adj = new Map(NODES.map(n => [n.id, new Set()]));
+const edgeList = [];
+for (const [a,b,type] of EDGES) {
+  if (!nodeMap.has(a) || !nodeMap.has(b)) { console.warn("bad edge", a, b); continue; }
+  adj.get(a).add(b); adj.get(b).add(a);
+  edgeList.push({ a, b, type, curve: (hash01(a+b+type) - .5) * 1.8 });
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   布局：每个系统 = 中心星 + 1~2 圈行星
+   ═══════════════════════════════════════════════════════════════ */
+const catNodes = new Map(CATS.map(c => [c.id, []]));
+NODES.forEach(n => catNodes.get(n.cat).push(n));
+NODES.forEach(n => {
+  const c = catMap.get(n.cat);
+  const peers = catNodes.get(n.cat);
+  const i = peers.indexOf(n);
+  const ci = catIndex.get(n.cat);
+  if (i === 0) {
+    n.pos = [...c.center];
+    n.ring = 0;
+    return;
+  }
+  const idx = i - 1;
+  const ring = Math.floor(idx / 6);
+  const within = idx % 6;
+  const inRing = Math.min(6, peers.length - 1 - ring * 6);
+  const angle = (within / Math.max(1, inRing)) * Math.PI * 2 + ring * 0.62 + ci * 0.47;
+  const radius = 2.05 + ring * 1.45;
+  n.pos = [
+    c.center[0] + Math.cos(angle) * radius,
+    c.center[1] + Math.sin(angle) * radius * 0.58 + (ring ? 0.25 : 0),
+    c.center[2] + Math.sin(angle) * radius * 0.82 + (ring ? 0.55 : 0)
+  ];
+  n.ring = ring;
+});
+/* 系统标签位置 */
+CATS.forEach(c => {
+  c.labelPos = [c.center[0], c.center[1] + 4.25, c.center[2]];
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   相机 / 投影
+   ═══════════════════════════════════════════════════════════════ */
+const cam = {
+  yaw: 0.58, pitch: -0.14, dist: 36,
+  distGoal: 36,
+  target: [0, -1, 0],
+  targetGoal: [0, -1, 0]
+};
+let W = 0, H = 0, DPR = 1;
+let view = { f: 1, cx: 0, cy: 0 };
+
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = Math.floor(W * DPR);
+  canvas.height = Math.floor(H * DPR);
+  canvas.style.width = W + "px";
+  canvas.style.height = H + "px";
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  view.f = Math.min(W, H) * 1.16;
+  view.cx = W / 2;
+  view.cy = H / 2;
+}
+window.addEventListener("resize", resize);
+resize();
+
+function project(p) {
+  let x = p[0] - cam.target[0];
+  let y = p[1] - cam.target[1];
+  let z = p[2] - cam.target[2];
+
+  const cy = Math.cos(cam.yaw), sy = Math.sin(cam.yaw);
+  const x1 = x * cy + z * sy;
+  const z1 = -x * sy + z * cy;
+
+  const cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
+  const y1 = y * cp - z1 * sp;
+  const z2 = y * sp + z1 * cp;
+
+  const zc = cam.dist - z2;
+  if (zc < 0.8) return null;
+  const k = view.f / zc;
+  return {
+    x: view.cx + x1 * k,
+    y: view.cy - y1 * k,
+    z: zc,
+    k,
+    p
+  };
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   状态
+   ═══════════════════════════════════════════════════════════════ */
+let autoRotate = true;
+let labelsOn = true;
+let selectedId = null;
+let hoverId = null;
+let searchQuery = "";
+let searchSet = null;
+let filterCat = null;
+let lastFrame = performance.now();
+let dragging = false;
+let dragMoved = 0;
+let lastX = 0, lastY = 0;
+let lastProjected = [];
+let tooltipEl = $("#tooltip");
+let panelEl = $("#panel");
+let tourTimer = null;
+let tourIndex = 0;
+let tourActive = false;
+const TOUR = ["jwt", "identity", "rbac", "product", "cart", "create", "plan", "reserve", "pay", "aftersale", "refund", "grpc", "action", "confirm", "notify", "deploy"];
+
+/* ═══════════════════════════════════════════════════════════════
+   星野 / 星云
+   ═══════════════════════════════════════════════════════════════ */
+const stars = Array.from({length: 560}, (_, i) => ({
+  x: hash01("sx"+i), y: hash01("sy"+i), z: hash01("sz"+i),
+  r: 0.4 + hash01("sr"+i) * 1.5,
+  phase: hash01("sp"+i) * Math.PI * 2,
+  speed: .5 + hash01("ss"+i) * 1.6
+}));
+const nebulas = [
+  { x:.22, y:.26, r:.42, c:"rgba(80,120,255,.09)" },
+  { x:.77, y:.20, r:.34, c:"rgba(180,100,255,.075)" },
+  { x:.58, y:.72, r:.38, c:"rgba(30,200,190,.055)" },
+  { x:.10, y:.76, r:.30, c:"rgba(255,120,180,.045)" }
+];
+
+function drawBackdrop(t) {
+  const g = ctx.createLinearGradient(0, 0, W, H);
+  g.addColorStop(0, "#02040b");
+  g.addColorStop(.46, "#050a18");
+  g.addColorStop(1, "#02040b");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  for (const n of nebulas) {
+    const x = n.x * W + Math.sin(t * .02 + n.x * 9) * 18;
+    const y = n.y * H + Math.cos(t * .018 + n.y * 8) * 14;
+    const r = n.r * Math.min(W, H);
+    const rg = ctx.createRadialGradient(x, y, 0, x, y, r);
+    rg.addColorStop(0, n.c);
+    rg.addColorStop(.5, n.c.replace(/[\d.]+\)$/, ".025)"));
+    rg.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = rg;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  const px = Math.sin(cam.yaw) * 26, py = Math.cos(cam.yaw) * 12;
+  for (const s of stars) {
+    const x = ((s.x * W + px * (s.z + .4)) % W + W) % W;
+    const y = ((s.y * H + py * (s.z + .2)) % H + H) % H;
+    const a = .18 + .55 * Math.abs(Math.sin(t * s.speed + s.phase));
+    ctx.globalAlpha = a;
+    ctx.fillStyle = s.z > .72 ? "#b9e7ff" : "#8aa7c9";
+    ctx.beginPath();
+    ctx.arc(x, y, s.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   绘制
+   ═══════════════════════════════════════════════════════════════ */
+function catColor(id, a=1) {
+  const c = catMap.get(id)?.color || "#8aa7c9";
+  if (a >= 1) return c;
+  const h = c.replace("#","");
+  const r = parseInt(h.slice(0,2),16), g = parseInt(h.slice(2,4),16), b = parseInt(h.slice(4,6),16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+function edgeAlpha(e) {
+  if (selectedId) {
+    return (e.a === selectedId || e.b === selectedId) ? .86 : .09;
+  }
+  if (hoverId) {
+    return (e.a === hoverId || e.b === hoverId) ? .65 : .16;
+  }
+  if (searchSet) {
+    return (searchSet.has(e.a) || searchSet.has(e.b)) ? .32 : .045;
+  }
+  if (filterCat) {
+    return (nodeMap.get(e.a).cat === filterCat || nodeMap.get(e.b).cat === filterCat) ? .32 : .06;
+  }
+  return .22;
+}
+function nodeVisible(n) {
+  if (searchSet) return searchSet.has(n.id);
+  if (filterCat) return n.cat === filterCat;
+  return true;
+}
+function nodeDim(n) {
+  if (selectedId && n.id !== selectedId) return .42;
+  if (hoverId && n.id !== hoverId) return .55;
+  return 1;
+}
+
+function drawOrbits() {
+  for (const c of CATS) {
+    for (let ring = 0; ring < 3; ring++) {
+      const r = 2.05 + ring * 1.45;
+      if (r > 4.9) continue;
+      ctx.beginPath();
+      let started = false;
+      for (let i=0; i<=72; i++) {
+        const a = i / 72 * Math.PI * 2;
+        const p = [c.center[0] + Math.cos(a) * r, c.center[1] + Math.sin(a) * r * .58, c.center[2] + Math.sin(a) * r * .82];
+        const s = project(p);
+        if (!s) { started = false; continue; }
+        if (!started) { ctx.moveTo(s.x, s.y); started = true; }
+        else ctx.lineTo(s.x, s.y);
+      }
+      ctx.strokeStyle = catColor(c.id, ring === 0 ? .085 : .042);
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  }
+}
+
+function drawEdges(t) {
+  const sorted = edgeList.map(e => {
+    const a = project(nodeMap.get(e.a).pos);
+    const b = project(nodeMap.get(e.b).pos);
+    if (!a || !b) return null;
+    return { e, a, b, depth: (a.z + b.z) / 2 };
+  }).filter(Boolean).sort((p,q) => q.depth - p.depth);
+
+  for (const {e,a,b} of sorted) {
+    const alpha = edgeAlpha(e);
+    if (alpha < .02) continue;
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len, ny = dx / len;
+    const off = (e.curve || 0) * Math.min(72, len * .22);
+    const cx = mx + nx * off, cy = my + ny * off;
+
+    const grad = ctx.createLinearGradient(a.x, a.y, b.x, b.y);
+    grad.addColorStop(0, catColor(nodeMap.get(e.a).cat, alpha));
+    grad.addColorStop(1, catColor(nodeMap.get(e.b).cat, alpha));
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = (selectedId && (e.a===selectedId || e.b===selectedId)) ? 1.5 : .9;
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.quadraticCurveTo(cx, cy, b.x, b.y);
+    ctx.stroke();
+
+    /* 流动粒子 */
+    if (alpha > .18 && !dragging) {
+      const speed = .11 + hash01(e.a+e.b) * .08;
+      for (let q = 0; q < 2; q++) {
+        const tt = (t * speed + q * .5 + hash01(e.a+e.b+q) * .3) % 1;
+        const ix = (1-tt)*(1-tt)*a.x + 2*(1-tt)*tt*cx + tt*tt*b.x;
+        const iy = (1-tt)*(1-tt)*a.y + 2*(1-tt)*tt*cy + tt*tt*b.y;
+        const rr = (selectedId && (e.a===selectedId || e.b===selectedId)) ? 1.9 : 1.2;
+        ctx.beginPath();
+        ctx.fillStyle = catColor(nodeMap.get(e.b).cat, alpha * .9);
+        ctx.shadowColor = catColor(nodeMap.get(e.b).cat, .9);
+        ctx.shadowBlur = 8;
+        ctx.arc(ix, iy, rr, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+    }
+  }
+}
+
+function drawNodes(t) {
+  lastProjected = [];
+  const visible = NODES.filter(nodeVisible);
+  const projected = [];
+  for (const n of visible) {
+    const s = project(n.pos);
+    if (!s) continue;
+    projected.push({ n, s });
+  }
+  projected.sort((a,b) => b.s.z - a.s.z);
+
+  for (const {n,s} of projected) {
+    const isSel = n.id === selectedId;
+    const isHover = n.id === hoverId;
+    const dim = nodeDim(n);
+    const base = Math.max(2.2, (0.18 + n.weight * .105) * s.k * .62);
+    const r = base * (isSel ? 1.55 : isHover ? 1.32 : 1);
+    const col = catColor(n.cat);
+    const alpha = dim * clamp(1.22 - s.z / (cam.dist * 1.7), .28, 1);
+
+    /* halo */
+    const halo = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, r * 5.2);
+    halo.addColorStop(0, catColor(n.cat, .42 * alpha));
+    halo.addColorStop(.22, catColor(n.cat, .18 * alpha));
+    halo.addColorStop(1, catColor(n.cat, 0));
+    ctx.fillStyle = halo;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, r * 5.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    /* pulse ring */
+    if (isSel || isHover) {
+      const pulse = 1 + Math.sin(t * 4.2) * .12;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, r * (2.9 + (isSel ? .5 : .15)) * pulse, 0, Math.PI * 2);
+      ctx.strokeStyle = catColor(n.cat, isSel ? .6 : .38);
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    /* core */
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = catColor(n.cat, .92 * alpha);
+    ctx.shadowColor = col;
+    ctx.shadowBlur = isSel ? 28 : 14;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    ctx.beginPath();
+    ctx.arc(s.x - r * .18, s.y - r * .2, r * .42, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255,255,255,${.75 * alpha})`;
+    ctx.fill();
+
+    if (n.ring === 0) {
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, r * 1.65, 0, Math.PI * 2);
+      ctx.strokeStyle = catColor(n.cat, .35 * alpha);
+      ctx.lineWidth = .8;
+      ctx.stroke();
+    }
+
+    lastProjected.push({ id:n.id, x:s.x, y:s.y, r, depth:s.z });
+  }
+
+  /* 标签：按重要性，避免重叠 */
+  if (labelsOn) {
+    const placed = [];
+    const sortedLabels = [...lastProjected].sort((a,b) => {
+      const na = nodeMap.get(a.id), nb = nodeMap.get(b.id);
+      return (nb.weight - na.weight) || (a.depth - b.depth);
+    });
+    for (const p of sortedLabels) {
+      const n = nodeMap.get(p.id);
+      if (!labelsOn) break;
+      if (searchSet && !searchSet.has(n.id) && n.id !== selectedId) continue;
+      if (filterCat && n.cat !== filterCat && n.id !== selectedId) continue;
+      if (n.weight < 2 && !selectedId && !hoverId && lastProjected.length > 45) {
+        if (hash01(n.id) > .55) continue;
+      }
+      const fs = clamp(9.2, p.depth ? (36 / p.depth) * 7.5 : 9, 13);
+      ctx.font = `${n.weight >= 3 ? 600 : 500} ${fs}px "Segoe UI","Microsoft YaHei",sans-serif`;
+      const tw = ctx.measureText(n.label).width;
+      const tx = p.x - tw / 2;
+      const ty = p.y - p.r - 9 - fs * .25;
+      const rect = [tx - 3, ty - fs, tw + 6, fs + 5];
+      if (!(n.id === selectedId || n.id === hoverId)) {
+        let hit = false;
+        for (const q of placed) {
+          if (rect[0] < q[0]+q[2] && rect[0]+rect[2] > q[0] && rect[1] < q[1]+q[3] && rect[1]+rect[3] > q[1]) { hit = true; break; }
+        }
+        if (hit) continue;
+      }
+      placed.push(rect);
+      ctx.textAlign = "center";
+      ctx.textBaseline = "alphabetic";
+      ctx.fillStyle = `rgba(226,244,255,${n.weight >= 3 ? .92 : .68})`;
+      ctx.shadowColor = "rgba(0,0,0,.9)";
+      ctx.shadowBlur = 5;
+      ctx.fillText(n.label, p.x, ty + fs * .82);
+      ctx.shadowBlur = 0;
+    }
+  }
+
+  /* 系统名 */
+  for (const c of CATS) {
+    if (filterCat && c.id !== filterCat) continue;
+    const s = project(c.labelPos);
+    if (!s) continue;
+    const fs = clamp(9, s.k * .28, 11.5);
+    ctx.font = `600 ${fs}px "Segoe UI","Microsoft YaHei",sans-serif`;
+    ctx.textAlign = "center";
+    ctx.fillStyle = catColor(c.id, .32);
+    ctx.fillText(c.en, s.x, s.y);
+    ctx.font = `400 ${Math.max(8, fs*.75)}px "Segoe UI","Microsoft YaHei",sans-serif`;
+    ctx.fillStyle = catColor(c.id, .22);
+    ctx.fillText(c.name, s.x, s.y + fs + 6);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   主循环
+   ═══════════════════════════════════════════════════════════════ */
+function frame(now) {
+  const dt = Math.min(.05, (now - lastFrame) / 1000);
+  lastFrame = now;
+  if (autoRotate && !dragging) cam.yaw += dt * .045;
+  cam.dist = lerp(cam.dist, cam.distGoal, Math.min(1, dt * 5));
+  cam.target = cam.target.map((v,i) => lerp(v, cam.targetGoal[i], Math.min(1, dt * 6)));
+  const t = now / 1000;
+
+  drawBackdrop(t);
+  drawOrbits();
+  drawEdges(t);
+  drawNodes(t);
+
+  const zoom = clamp(36 / cam.dist, .5, 2.2);
+  const zEl = $("#stat-zoom");
+  if (zEl) zEl.textContent = zoom.toFixed(1);
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+/* ═══════════════════════════════════════════════════════════════
+   Hover / 点击 / 拖拽
+   ═══════════════════════════════════════════════════════════════ */
+function pick(x, y) {
+  let best = null, bestD = Infinity;
+  for (const p of lastProjected) {
+    const d = Math.hypot(p.x - x, p.y - y);
+    if (d < Math.max(13, p.r + 9) && d < bestD) { bestD = d; best = p; }
+  }
+  return best;
+}
+function updateTooltip(clientX, clientY) {
+  if (!hoverId) { tooltipEl.classList.remove("show"); return; }
+  const n = nodeMap.get(hoverId);
+  const c = catMap.get(n.cat);
+  tooltipEl.innerHTML = `<div class="tt-cat" style="color:${c.color}">${c.en} / ${esc(c.name)}</div>
+    <div class="tt-name">${esc(n.label)}</div>
+    <div class="tt-tech">${esc(n.tech || n.en)}</div>
+    <div class="tt-hint">点击展开代码实现 →</div>`;
+  const pad = 16;
+  const r = tooltipEl.getBoundingClientRect();
+  let x = clientX + pad, y = clientY + pad;
+  if (x + r.width > window.innerWidth - 12) x = clientX - r.width - pad;
+  if (y + r.height > window.innerHeight - 12) y = clientY - r.height - pad;
+  tooltipEl.style.left = x + "px";
+  tooltipEl.style.top = y + "px";
+  tooltipEl.classList.add("show");
+}
+canvas.addEventListener("pointerdown", e => {
+  if (e.button !== 0) return;
+  dragging = true; dragMoved = 0;
+  lastX = e.clientX; lastY = e.clientY;
+  canvas.setPointerCapture(e.pointerId);
+  tooltipEl.classList.remove("show");
+});
+canvas.addEventListener("pointermove", e => {
+  if (dragging) {
+    const dx = e.clientX - lastX, dy = e.clientY - lastY;
+    lastX = e.clientX; lastY = e.clientY;
+    dragMoved += Math.abs(dx) + Math.abs(dy);
+    cam.yaw += dx * .006;
+    cam.pitch = clamp(cam.pitch + dy * .005, -1.15, 1.15);
+    return;
+  }
+  const p = pick(e.clientX, e.clientY);
+  const id = p ? p.id : null;
+  if (id !== hoverId) {
+    hoverId = id;
+    canvas.style.cursor = id ? "pointer" : "grab";
+    updateTooltip(e.clientX, e.clientY);
+  } else if (id) {
+    updateTooltip(e.clientX, e.clientY);
+  }
+});
+canvas.addEventListener("pointerup", e => {
+  if (!dragging) return;
+  dragging = false;
+  canvas.releasePointerCapture?.(e.pointerId);
+  if (dragMoved < 6) {
+    const p = pick(e.clientX, e.clientY);
+    if (p) openNode(p.id, {focus:true});
+    else closePanel();
+  }
+});
+canvas.addEventListener("pointerleave", () => { if (!dragging) { hoverId = null; tooltipEl.classList.remove("show"); } });
+canvas.addEventListener("wheel", e => {
+  e.preventDefault();
+  cam.distGoal = clamp(cam.distGoal * Math.exp(e.deltaY * .0012), 15, 60);
+}, {passive:false});
+
+/* ═══════════════════════════════════════════════════════════════
+   Panel
+   ═══════════════════════════════════════════════════════════════ */
+function highlight(code) {
+  const src = String(code)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  const re = /(#[^\n]*)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|\b(\d+(?:\.\d+)?)\b|\b(def|class|return|if|else|elif|for|while|try|finally|yield|import|from|as|with|in|not|and|or|None|True|False|async|await|self|lambda|raise|except|pass|continue|break|global|nonlocal|assert|del|is|match|case)\b/g;
+  return src.replace(re, (m, comment, str, num, kw) => {
+    if (comment) return `<span class="cm">${comment}</span>`;
+    if (str) return `<span class="st">${str}</span>`;
+    if (num) return `<span class="num">${num}</span>`;
+    return `<span class="kw">${kw}</span>`;
+  });
+}
+function neighbors(id) {
+  return [...(adj.get(id) || [])];
+}
+function openNode(id, opts={}) {
+  if (!nodeMap.has(id)) return;
+  selectedId = id;
+  if (opts.focus) {
+    const p = nodeMap.get(id).pos;
+    cam.targetGoal = [p[0], p[1], p[2]];
+    cam.distGoal = 29;
+    autoRotate = false;
+    $("#auto").classList.remove("active");
+  }
+  renderPanel();
+  panelEl.classList.add("open");
+  tooltipEl.classList.remove("show");
+}
+function closePanel() {
+  selectedId = null;
+  panelEl.classList.remove("open");
+}
+function renderPanel() {
+  const n = nodeMap.get(selectedId);
+  if (!n) return;
+  const c = catMap.get(n.cat);
+  panelEl.style.setProperty("--accent", c.color);
+  const rel = neighbors(n.id).map(id => nodeMap.get(id)).filter(Boolean).slice(0, 10);
+  const snippets = n.snippets || [];
+  panelEl.innerHTML = `
+    <div class="panel-head">
+      <div class="panel-kicker"><i class="dot"></i>${c.en} / ${esc(c.name)}</div>
+      <button class="panel-close" id="panel-close" title="关闭">✕</button>
+      <div class="panel-title">${esc(n.label)}</div>
+      <div class="panel-sub">${esc(n.en)}${n.tech ? " · " + esc(n.tech) : ""}</div>
+    </div>
+    <div class="panel-body">
+      <p class="panel-desc">${n.summary}</p>
+      <div class="chips">
+        ${n.tech ? `<span class="chip">${esc(n.tech)}</span>` : ""}
+        <span class="chip">${neighbors(n.id).length} 条关联</span>
+      </div>
+      ${n.talk ? `<div class="talk"><b>面试一句话</b>${n.talk}</div>` : ""}
+      ${n.file ? `<div class="sec-label">代码位置</div><div class="file-row">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4h9l7 7v9H4z"/><path d="M13 4v7h7"/></svg>${esc(n.file)}</div>` : ""}
+      ${snippets.length ? `<div class="sec-label">可展开的实现</div>${snippets.map(s => `
+        <details class="code-block" open>
+          <summary><span class="arrow">›</span>${esc(s.label || "关键代码")}<span style="margin-left:auto;color:#5f7595">${esc(s.file || "")}</span></summary>
+          <pre><code>${highlight(s.code || "")}</code></pre>
+        </details>`).join("")}` : ""}
+      ${rel.length ? `<div class="sec-label">相邻节点 · 可跳转</div><div class="chips">
+        ${rel.map(r => `<button class="chip related" data-node="${r.id}" style="border-color:${catColor(r.cat,.3)}">${esc(r.label)}</button>`).join("")}
+      </div>` : ""}
+      <div class="foot-note">节点来自 ItsMyGo 的真实模块与调用链；展开代码为精简摘录，完整实现见文件路径。</div>
+    </div>`;
+  panelEl.querySelector("#panel-close").onclick = closePanel;
+  panelEl.querySelectorAll(".chip.related").forEach(el => {
+    el.onclick = () => openNode(el.dataset.node, {focus:true});
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   搜索 / 图例 / 控件
+   ═══════════════════════════════════════════════════════════════ */
+const searchEl = $("#search");
+  searchEl.addEventListener("input", () => {
+  searchQuery = searchEl.value.trim().toLowerCase();
+  if (!searchQuery) { searchSet = null; return; }
+  filterCat = null;
+  $$(".legend-item").forEach(x => x.classList.remove("muted"));
+  searchSet = new Set(NODES.filter(n =>
+    [n.label,n.en,n.id,n.tech,n.summary,n.file].join(" ").toLowerCase().includes(searchQuery)
+  ).map(n => n.id));
+});
+searchEl.addEventListener("keydown", e => {
+  if (e.key === "Enter" && searchSet && searchSet.size) {
+    const first = [...searchSet][0];
+    openNode(first, {focus:true});
+  }
+  if (e.key === "Escape") { searchEl.value = ""; searchQuery = ""; searchSet = null; searchEl.blur(); }
+});
+
+const legendItems = $("#legend-items");
+CATS.forEach(c => {
+  const count = NODES.filter(n => n.cat === c.id).length;
+  const el = document.createElement("div");
+  el.className = "legend-item";
+  el.dataset.cat = c.id;
+  el.innerHTML = `<span class="legend-dot" style="background:${c.color};color:${c.color}"></span>
+    <span class="legend-name">${c.name}</span><span class="legend-count">${count}</span>`;
+  el.onclick = () => {
+    filterCat = filterCat === c.id ? null : c.id;
+    searchEl.value = ""; searchQuery = ""; searchSet = null;
+    closePanel();
+    $$(".legend-item").forEach(x => x.classList.toggle("muted", filterCat && x.dataset.cat !== filterCat));
+    if (filterCat) {
+      cam.targetGoal = [c.center[0]*.7, c.center[1]*.7, c.center[2]*.7];
+      cam.distGoal = 27;
+    } else {
+      cam.targetGoal = [0,-1,0]; cam.distGoal = 36;
+    }
+  };
+  legendItems.appendChild(el);
+});
+
+function resetView() {
+  cam.yaw = .58; cam.pitch = -.14;
+  cam.distGoal = 36; cam.targetGoal = [0,-1,0]; cam.target = [0,-1,0];
+  filterCat = null; searchSet = null; searchEl.value = ""; searchQuery = "";
+  $$(".legend-item").forEach(x => x.classList.remove("muted"));
+  closePanel();
+}
+$("#reset").onclick = resetView;
+$("#auto").onclick = () => {
+  autoRotate = !autoRotate;
+  $("#auto").classList.toggle("active", autoRotate);
+};
+function stopTour() {
+  tourActive = false; clearTimeout(tourTimer); tourTimer = null;
+  $("#tour").classList.remove("active");
+  $("#tour").querySelector("span").textContent = "主线巡游";
+}
+function startTour() {
+  if (tourActive) { stopTour(); return; }
+  tourActive = true; tourIndex = 0;
+  autoRotate = false; $("#auto").classList.remove("active");
+  $("#tour").classList.add("active");
+  $("#tour").querySelector("span").textContent = "停止巡游";
+  const step = () => {
+    if (!tourActive) return;
+    if (tourIndex >= TOUR.length) { stopTour(); return; }
+    const id = TOUR[tourIndex++];
+    openNode(id, {focus:true});
+    tourTimer = setTimeout(step, 2600);
+  };
+  step();
+}
+$("#tour").onclick = startTour;
+
+/* 键盘 */
+window.addEventListener("keydown", e => {
+  if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
+  if (e.key === "Escape") { closePanel(); stopTour(); }
+  if (e.key === " ") { e.preventDefault(); autoRotate = !autoRotate; $("#auto").classList.toggle("active", autoRotate); }
+  if (e.key.toLowerCase() === "r") resetView();
+  if (e.key === "/") { e.preventDefault(); searchEl.focus(); }
+});
+
+/* 初始化统计 */
+$("#stat-nodes").textContent = NODES.length;
+$("#stat-links").textContent = edgeList.length;
+$("#legend-count").textContent = CATS.length + " STAR SYSTEMS";
+
+/* 默认打开一个节点，让页面不是空的 */
+setTimeout(() => {
+  if (window.innerWidth > 760) openNode("create", {focus:false});
+}, 850);
+</script>
+</body>
+</html>
