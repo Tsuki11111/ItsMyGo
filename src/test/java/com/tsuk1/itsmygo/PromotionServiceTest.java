@@ -3,6 +3,7 @@ package com.tsuk1.itsmygo;
 import agent.v1.Event;
 import com.tsuk1.itsmygo.common.Roles;
 import com.tsuk1.itsmygo.common.agent.AgentGateway;
+import com.tsuk1.itsmygo.dto.profile.UserProfileView;
 import com.tsuk1.itsmygo.entity.AgentPreference;
 import com.tsuk1.itsmygo.entity.Category;
 import com.tsuk1.itsmygo.entity.Merchant;
@@ -19,6 +20,7 @@ import com.tsuk1.itsmygo.mapper.ProductSkuMapper;
 import com.tsuk1.itsmygo.mapper.ReviewMapper;
 import com.tsuk1.itsmygo.mapper.UserMapper;
 import com.tsuk1.itsmygo.service.PromotionService;
+import com.tsuk1.itsmygo.service.UserProfileService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -31,6 +33,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Collections;
 import java.util.Iterator;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -77,6 +80,9 @@ class PromotionServiceTest extends ApiTestBase {
     @MockitoBean
     private AgentGateway agentGateway;
 
+    @MockitoBean
+    private UserProfileService userProfileService;
+
     @BeforeEach
     void stubAgent() {
         when(agentGateway.configured()).thenReturn(true);
@@ -111,17 +117,21 @@ class PromotionServiceTest extends ApiTestBase {
         category.setSort(0);
         category.setStatus(1);
         categoryMapper.insert(category);
+        return createPromotionProduct(category.getId(), "PromoBrand", "10.00", "100.00", 1000);
+    }
 
+    private long createPromotionProduct(long categoryId, String brand, String price,
+                                        String peakPrice, int sales) {
         Product product = new Product();
         product.setMerchantId(Merchant.PLATFORM_MERCHANT_ID);
-        product.setCategoryId(category.getId());
+        product.setCategoryId(categoryId);
         product.setName("Promo " + System.nanoTime());
-        product.setBrand("PromoBrand");
+        product.setBrand(brand);
         product.setSubtitle("");
         product.setMainImage("");
-        product.setPrice(new BigDecimal("10.00"));
+        product.setPrice(new BigDecimal(price));
         product.setStock(100);
-        product.setSales(1000);
+        product.setSales(sales);
         product.setStatus(1);
         productMapper.insert(product);
 
@@ -139,7 +149,7 @@ class PromotionServiceTest extends ApiTestBase {
         ProductPriceHistory peak = new ProductPriceHistory();
         peak.setProductId(product.getId());
         peak.setSkuId(null);
-        peak.setPrice(new BigDecimal("100.00"));
+        peak.setPrice(new BigDecimal(peakPrice));
         peak.setReason(ProductPriceHistory.REASON_BASELINE);
         peak.setChangedAt(LocalDateTime.now().minusDays(10));
         historyMapper.insert(peak);
@@ -198,6 +208,37 @@ class PromotionServiceTest extends ApiTestBase {
         assertThat(promotionService.notifyForUser(userId)).isFalse();
         verify(agentGateway, times(1)).internalEvent(anyLong(), anyString(), eq(EVENT),
                 anyString(), anyString(), any());
+    }
+
+    @Test
+    void profilePreferenceRanksSameCategoryBrandFirst() {
+        long userId = createUser();
+        setPreference(userId, true);
+        Category category = new Category();
+        category.setParentId(0L);
+        category.setName("Profile" + System.nanoTime());
+        category.setSort(0);
+        category.setStatus(1);
+        categoryMapper.insert(category);
+        long generic = createPromotionProduct(category.getId(), "OtherBrand", "100.00", "100.00", 500);
+        long preferred = createPromotionProduct(category.getId(), "H3C", "100.00", "100.00", 500);
+        when(userProfileService.profile(userId)).thenReturn(new UserProfileView(
+                false, 2, new BigDecimal("200.00"), new BigDecimal("100.00"), LocalDate.now(),
+                List.of(new UserProfileView.CategoryPref(category.getId(), "Profile",
+                        2, new BigDecimal("200.00"))),
+                List.of(new UserProfileView.BrandPref("H3C", 2)),
+                new UserProfileView.PriceBand(new BigDecimal("60.00"), new BigDecimal("100.00"),
+                        new BigDecimal("150.00")),
+                List.of(), List.of(), 5.0));
+
+        assertThat(promotionService.notifyForUser(userId)).isTrue();
+
+        String payload = capturePromotionPayload(1);
+        int preferredPos = payload.indexOf("\"productId\":\"" + preferred + "\"");
+        int genericPos = payload.indexOf("\"productId\":\"" + generic + "\"");
+        assertThat(preferredPos).isGreaterThanOrEqualTo(0);
+        assertThat(genericPos).isGreaterThanOrEqualTo(0);
+        assertThat(preferredPos).isLessThan(genericPos);
     }
 
     @Test

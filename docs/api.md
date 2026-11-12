@@ -1355,6 +1355,7 @@ agent 服务在对话过程中需要实时数据时，会反向回调 Java 的�
 | GET | `/internal/agent/catalog/all` | `X-Agent-Ticket` | `limit=100` | `AgentProductView[]` |
 | GET | `/internal/agent/catalog/categories` | `X-Agent-Ticket` | — | `CategoryNode[]` |
 | GET | `/internal/agent/catalog/addresses` | `X-Agent-Ticket` | — | `AgentAddressView[]` |
+| GET | `/internal/agent/profile` | `X-Agent-Ticket` | — | `UserProfileView` |
 | POST | `/internal/agent/actions/order` | `X-Agent-Ticket` | `{addressId?, items:[{productId,skuId,quantity}]}` | `AgentActionView` |
 | POST | `/internal/agent/actions/address` | `X-Agent-Ticket` | `{addressId, receiver, phone, province, city, district, detail}` | `AgentActionView` |
 | POST | `/internal/agent/actions/refund` | `X-Agent-Ticket` | `{orderNo, reason?}` | `AgentActionView` |
@@ -1368,6 +1369,10 @@ agent 服务在对话过程中需要实时数据时，会反向回调 Java 的�
 - `AgentProductView` 带 `price / totalStock / sales / rating / reviewCount /
   merchantName / categoryName / skus`；`/catalog/all` 是语义索引的全量入口（上限 100）。
 - 商品目录**不做 text2sql**：模型只选筛选参数，SQL 由 Java 固定生成。
+- **用户画像**：`GET /internal/agent/profile` 按票据用户实时聚合已支付订单（净额减退款）、
+  Top 品类/品牌、价格带、近期足迹、收藏与平均评分；Redis 缓存 30 分钟，无订单/足迹/收藏
+  时 `coldStart=true`。只返回聚合结论，不返回订单号、地址、聊天原文；导购子智能体与
+  智能推广共用同一份 `UserProfileService`。
 
 - 商品搜索返回商品与 SKU（skuId / specText / price / stock），供 agent 落到具体规格。
 - 地址只返回当前票据用户自己的；动作准备接口只落 `PENDING_CONFIRM` 草稿，**不执行**。

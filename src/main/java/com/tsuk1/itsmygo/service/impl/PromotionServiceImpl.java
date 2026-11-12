@@ -1,6 +1,7 @@
 package com.tsuk1.itsmygo.service.impl;
 
 import com.tsuk1.itsmygo.dto.ProductReviewStat;
+import com.tsuk1.itsmygo.dto.profile.UserProfileView;
 import com.tsuk1.itsmygo.entity.AgentPreference;
 import com.tsuk1.itsmygo.entity.Product;
 import com.tsuk1.itsmygo.entity.User;
@@ -13,6 +14,7 @@ import com.tsuk1.itsmygo.mapper.UserMapper;
 import com.tsuk1.itsmygo.common.promotion.PromotionAgentNotifier;
 import com.tsuk1.itsmygo.service.ProductPriceHistoryService;
 import com.tsuk1.itsmygo.service.PromotionService;
+import com.tsuk1.itsmygo.service.UserProfileService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
@@ -34,11 +36,13 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 智能推广打分：降价 0.45 / 相似 0.25 / 销量 0.20 / 评分 0.10。
+ * 智能推广打分：降价 0.35 / 近期购买相似 0.20 / 用户画像 0.20 / 销量 0.15 / 评分 0.10。
  *
  * <p>所有数字都来自真实数据：降价来自 {@code product_price_history}，
- * 相似来自用户最近 5 笔已支付订单的商品品类/品牌，销量来自 {@code products.sales}，
- * 评分来自可见评价均分。没有数据就是 0 分，不编数字，也不发没有信号的商品。</p>
+ * 相似来自用户最近 5 笔已支付订单的商品品类/品牌，画像来自 {@link UserProfileService}
+ * 的品类/品牌/价格带聚合，销量来自 {@code products.sales}，评分来自可见评价均分。
+ * 冷启动或画像不可用时回落到旧权重（降价 0.45 / 相似 0.25 / 销量 0.20 / 评分 0.10），
+ * 不因画像缺失而少推。没有数据就是 0 分，不编数字。</p>
  */
 @Slf4j
 @Service
@@ -48,11 +52,18 @@ public class PromotionServiceImpl implements PromotionService {
     private static final int PRICE_LOOKBACK_DAYS = 30;
     private static final int PURCHASE_LOOKBACK_DAYS = 30;
     private static final int SIMILAR_ORDER_LIMIT = 5;
+    private static final int MAX_PER_CATEGORY = 2;
 
-    private static final double WEIGHT_PRICE_DROP = 0.45;
-    private static final double WEIGHT_SIMILARITY = 0.25;
-    private static final double WEIGHT_SALES = 0.20;
+    private static final double WEIGHT_PRICE_DROP = 0.35;
+    private static final double WEIGHT_SIMILARITY = 0.20;
+    private static final double WEIGHT_PROFILE = 0.20;
+    private static final double WEIGHT_SALES = 0.15;
     private static final double WEIGHT_RATING = 0.10;
+
+    private static final double COLD_WEIGHT_PRICE_DROP = 0.45;
+    private static final double COLD_WEIGHT_SIMILARITY = 0.25;
+    private static final double COLD_WEIGHT_SALES = 0.20;
+    private static final double COLD_WEIGHT_RATING = 0.10;
 
     /** 一次推送最多带几件商品；①②③ 与前端卡片顺序一一对应 */
     private static final String[] CIRCLED = {"①", "②", "③", "④", "⑤"};
@@ -65,6 +76,7 @@ public class PromotionServiceImpl implements PromotionService {
     private final OrderItemMapper orderItemMapper;
     private final ReviewMapper reviewMapper;
     private final ProductPriceHistoryService priceHistoryService;
+    private final UserProfileService profileService;
     private final PromotionAgentNotifier agentNotifier;
     private final ObjectProvider<PromotionService> selfProvider;
     private final int batchSize;
@@ -77,6 +89,7 @@ public class PromotionServiceImpl implements PromotionService {
                                 OrderItemMapper orderItemMapper,
                                 ReviewMapper reviewMapper,
                                 ProductPriceHistoryService priceHistoryService,
+                                UserProfileService profileService,
                                 PromotionAgentNotifier agentNotifier,
                                 ObjectProvider<PromotionService> selfProvider,
                                 @Value("${itsmygo.promotion.batch-size:200}") int batchSize,
@@ -88,6 +101,7 @@ public class PromotionServiceImpl implements PromotionService {
         this.orderItemMapper = orderItemMapper;
         this.reviewMapper = reviewMapper;
         this.priceHistoryService = priceHistoryService;
+        this.profileService = profileService;
         this.agentNotifier = agentNotifier;
         this.selfProvider = selfProvider;
         this.batchSize = batchSize;
@@ -123,6 +137,16 @@ public class PromotionServiceImpl implements PromotionService {
         }
 
         Similarity similarity = loadSimilarity(userId);
+        UserProfileView profile = loadProfile(userId);
+        boolean cold = profile == null || profile.coldStart();
+        Set<Long> profileCategories = new HashSet<>();
+        Set<String> profileBrands = new HashSet<>();
+        BigDecimal avgPrice = null;
+        if (!cold) {
+            profileCategories.addAll(profileCategoryIds(profile));
+            profile.topBrands().forEach(brand -> profileBrands.add(brand.name()));
+            avgPrice = profile.priceBand() == null ? null : profile.priceBand().avg();
+        }
         List<Long> candidateIds = candidates.stream().map(Product::getId).toList();
         Map<Long, BigDecimal> pricePeaks = priceHistoryService.maxPricesSince(
                 candidateIds, LocalDateTime.now().minusDays(PRICE_LOOKBACK_DAYS));
@@ -140,13 +164,21 @@ public class PromotionServiceImpl implements PromotionService {
             boolean brandHit = StringUtils.hasText(product.getBrand())
                     && similarity.brands().contains(product.getBrand());
             double similarScore = (categoryHit ? 0.5 : 0) + (brandHit ? 0.5 : 0);
+            double profileScore = cold ? 0 : profileScore(profileCategories, profileBrands,
+                    avgPrice, product);
             double salesScore = maxSales > 0 ? (double) salesOf(product) / maxSales : 0;
             double rating = ratings.getOrDefault(product.getId(), 0.0);
             double ratingScore = clamp(rating / 5.0);
-            double score = priceDrop * WEIGHT_PRICE_DROP
-                    + similarScore * WEIGHT_SIMILARITY
-                    + clamp(salesScore) * WEIGHT_SALES
-                    + ratingScore * WEIGHT_RATING;
+            double score = cold
+                    ? priceDrop * COLD_WEIGHT_PRICE_DROP
+                            + similarScore * COLD_WEIGHT_SIMILARITY
+                            + clamp(salesScore) * COLD_WEIGHT_SALES
+                            + ratingScore * COLD_WEIGHT_RATING
+                    : priceDrop * WEIGHT_PRICE_DROP
+                            + similarScore * WEIGHT_SIMILARITY
+                            + profileScore * WEIGHT_PROFILE
+                            + clamp(salesScore) * WEIGHT_SALES
+                            + ratingScore * WEIGHT_RATING;
             if (score <= 0) {
                 continue;
             }
@@ -159,8 +191,25 @@ public class PromotionServiceImpl implements PromotionService {
         ranked.sort(Comparator.comparingDouble(Scored::score)
                 .thenComparingInt(scored -> salesOf(scored.product()))
                 .reversed());
-        List<Scored> picked = new ArrayList<>(
-                ranked.subList(0, Math.min(maxProducts, ranked.size())));
+        List<Scored> picked = new ArrayList<>();
+        Map<Long, Integer> perCategory = new HashMap<>();
+        for (Scored scored : ranked) {
+            Long categoryId = scored.product().getCategoryId();
+            if (categoryId != null
+                    && perCategory.getOrDefault(categoryId, 0) >= MAX_PER_CATEGORY) {
+                continue;
+            }
+            picked.add(scored);
+            if (categoryId != null) {
+                perCategory.merge(categoryId, 1, Integer::sum);
+            }
+            if (picked.size() >= maxProducts) {
+                break;
+            }
+        }
+        if (picked.isEmpty()) {
+            return false;
+        }
         String text = buildPromotionText(picked);
         // 推广写进「客服智能体」会话历史（不是顾客—店铺聊天），一次带多件商品
         List<Product> products = picked.stream().map(Scored::product).toList();
@@ -204,6 +253,55 @@ public class PromotionServiceImpl implements PromotionService {
         }
         double ratio = peak.subtract(latest).doubleValue() / peak.doubleValue();
         return clamp(ratio);
+    }
+
+    private UserProfileView loadProfile(long userId) {
+        try {
+            return profileService.profile(userId);
+        } catch (RuntimeException e) {
+            log.warn("智能推广画像不可用，回落旧权重：userId={}，{}", userId, e.getMessage());
+            return null;
+        }
+    }
+
+    /** 画像关注品类：Top 购买品类 + 近期足迹 + 收藏，去重。 */
+    private Set<Long> profileCategoryIds(UserProfileView profile) {
+        Set<Long> ids = new HashSet<>();
+        profile.topCategories().forEach(category -> ids.add(category.categoryId()));
+        profile.recentViews().forEach(category -> ids.add(category.categoryId()));
+        profile.favoriteCategories().forEach(category -> ids.add(category.categoryId()));
+        ids.remove(null);
+        return ids;
+    }
+
+    /**
+     * 画像匹配分：0.5 品类 + 0.3 品牌 + 0.2 价格带。
+     *
+     * <p>价格带匹配不硬过滤：落在客单价 0.6~1.5 倍得满分，偏离越低分，
+     * 避免大降价的高价商品被直接排除。</p>
+     */
+    private double profileScore(Set<Long> categories, Set<String> brands,
+                                BigDecimal avgPrice, Product product) {
+        double category = product.getCategoryId() != null
+                && categories.contains(product.getCategoryId()) ? 1 : 0;
+        double brand = StringUtils.hasText(product.getBrand())
+                && brands.contains(product.getBrand()) ? 1 : 0;
+        double price = priceFit(avgPrice, product.getPrice());
+        return category * 0.5 + brand * 0.3 + price * 0.2;
+    }
+
+    private double priceFit(BigDecimal avgPrice, BigDecimal price) {
+        if (avgPrice == null || avgPrice.signum() <= 0 || price == null || price.signum() <= 0) {
+            return 0;
+        }
+        double ratio = price.doubleValue() / avgPrice.doubleValue();
+        if (ratio < 0.6) {
+            return clamp(ratio / 0.6);
+        }
+        if (ratio > 1.5) {
+            return clamp(1.5 / ratio);
+        }
+        return 1.0;
     }
 
     private Similarity loadSimilarity(long userId) {

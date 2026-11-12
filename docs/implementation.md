@@ -3247,3 +3247,25 @@ Vitest 13/13、`npm run build` 通过。
 
 **验证**：Java 全量 **361 通过**；后端启动后 `/api/policies` 返回 4 份政策（12/15/13/10 章节）；
 管理端 tab 切换正常，政策上传后 MySQL 章节更新、Milvus 命中测试章节，恢复原文后不再命中。
+
+### 3.57 用户画像辅助导购与智能推广（2026-11-12）
+
+**目标**：从真实订单/足迹/收藏/评价聚合用户偏好，给导购子智能体与智能推广共用；
+不建画像表、不做 LLM 总结，只返回聚合结论。
+
+**后端**：
+- `GET /internal/agent/profile`（`X-Agent-Ticket`）→ `UserProfileView`；`UserProfileMapper`
+  只统计已支付订单（`total_amount - refunded_amount` 净额）、Top 品类/品牌、价格带、
+  足迹/收藏品类、平均评分；不返回订单号、地址、聊天原文。
+- `UserProfileServiceImpl` 用 Redis `its-my-go:agent:profile:{userId}` 缓存 30 分钟；
+  缓存读写异常回退实时聚合；无订单/足迹/收藏为 `coldStart=true`。
+- DTO：`UserProfileView` + `CategoryPref/BrandPref/PriceBand`，行 DTO 供 MyBatis 映射。
+
+**智能推广**：
+- `PromotionServiceImpl` 注入同一个 `UserProfileService`；非冷启动权重：降价 0.35 /
+  近期购买相似 0.20 / 画像 0.20 / 销量 0.15 / 评分 0.10；冷启动回落 0.45/0.25/0.20/0.10。
+- 画像分 `0.5×品类 + 0.3×品牌 + 0.2×价格带`；价格带落在客单价 0.6~1.5 倍得满分，
+  不硬过滤高价商品；同品类最多 2 件；最近已购同款继续排除；画像异常不阻断推送。
+
+**测试**：`UserProfileTest` 3 条（聚合字段、冷启动、无票据/假票据 401）；
+`PromotionServiceTest` 5 条（新增画像同品牌优先排序）；Java 全量 **365 通过 / 0 失败**。

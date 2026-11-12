@@ -1616,6 +1616,24 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 
 ## 6. 历史记录
 
+### 2026-11-12 · 用户画像接入导购与智能推广
+
+**需求（用户）**：智能体缺少用户画像能力（足迹、购买、偏好、平均预算），用于辅助导购推荐；
+画像开发出来后，已有定时智能推广也要采用。
+
+**实现**：
+- 新增 `GET /internal/agent/profile`（`X-Agent-Ticket`）：`UserProfileMapper` 实时聚合已支付
+  订单净额、Top 品类/品牌、价格带、近期足迹/收藏、平均评分；`UserProfileServiceImpl`
+  Redis 缓存 30 分钟（`its-my-go:agent:profile:{userId}`），缓存异常回退实时计算；
+  无订单/足迹/收藏为冷启动；不返回订单号、地址、聊天原文。
+- `PromotionServiceImpl` 注入同一个 `UserProfileService`：非冷启动权重降价 0.35 / 相似 0.20 /
+  画像 0.20 / 销量 0.15 / 评分 0.10；画像分 = 0.5×品类 + 0.3×品牌 + 0.2×价格带；
+  同品类最多 2 件；冷启动/画像异常回落旧权重。
+- rag_helper 新增 `get_user_profile` 工具挂 `product-guide` 子智能体，导购先读画像再搜索；
+  trace 显示「读取用户偏好」；提示词禁止向用户复述累计消费金额/订单明细。
+
+**验证**：`UserProfileTest` 3/3；`PromotionServiceTest` 5/5；Java 全量 365 通过 / 0 失败。
+
 ### 2026-11-10 · 平台政策持久化 + 管理端知识库分库
 
 **需求（用户）**：新增平台政策智能体；先把政策持久化，政策要适合 agent 读取，最终确认接入 Milvus；
