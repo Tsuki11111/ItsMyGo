@@ -66,27 +66,152 @@ Spring Boot 单体 + Vue 3 前后端分离，经 **gRPC 接入 RAG 客服智能�
 
 ## 架构
 
+### 1. 形态：模块化单体 + 外部 Agent
+
 ```
-浏览器 ──HTTPS──> Java 单体（登录、权限、页面、SSE 转发）
-                    │  gRPC（内网，问答链路）
-                    ▼
-              Agent 服务（rag_helper）· 8003
-                    │  HTTP 工具回调（X-Agent-Ticket，内网）
-                    └──────────> Java /internal/agent/**
+浏览器 ──HTTPS──> ItsMyGo Java 单体（REST / SSE / 权限 / 业务）
+                    ├─ Vue 3 SPA（开发 5173，部署由 Nginx 托管）
+                    ├─ MySQL / Redis / MinIO / RabbitMQ
+                    └─ gRPC 8003 ──> rag_helper Agent（买小购）
+                                        └─ HTTP + X-Agent-Ticket
+                                           → Java /internal/agent/**
 ```
 
-需要实时数据时（如查订单），agent 会反向回调 Java 的内部工具接口；
-票据由 Java 每次对话签发，只走 gRPC metadata，不进模型上下文。
+- **单体优先**：单模块 Maven、一个进程、一个数据库；先把交易闭环、并发一致性和 Agent 接好，不拆微服务。
+- **前后端分离**：Vue 3 + Vite + Element Plus + Pinia；Nginx 同源反代 `/api`、商品图和 `/rag-images`。
+- **Agent 外置**：客服智能体在 `rag_helper`（Python/LangGraph），Java 是调用方；浏览器不直连 Agent。
 
-**三条边界**（来自 `rag_helper` 的规划，本项目不能自行更改）：
+**三条边界**（来自 `rag_helper`，本仓库不能自行改）：
 
-1. 浏览器只跟 Java 说话
-2. Agent 服务只在内网、只允许本单体访问
-3. 知识库导入与智能体评测是 agent 服务的管理端行为，由 Java 管理端代理，浏览器不直连 agent
+1. 浏览器只跟 Java 说话；
+2. Agent 只在内网、只允许本单体访问；
+3. 知识库导入与智能体评测由 Java 管理端代理，浏览器不直连 Agent。
 
-**对接契约**：字段以 `rag_helper/proto/agent.proto` 为**唯一权威**；说明性概览见
-`rag_helper/docs/architecture.md` §4，对接前提见 `rag_helper/docs/requirements.md` §4
-（rag_helper 2026-11-05 文档归并后，原 `evolution-plan.md` §5/§6 已迁到这两个位置，旧文件已删除）。
+### 2. 代码分层
+
+```
+controller/  46 个   参数接收、响应包装；不写业务判断
+service/     27 个接口 + impl/   业务规则、事务、越权校验
+mapper/      32 个   MyBatis-Plus BaseMapper + 少量聚合 SQL
+entity/      35 个   表实体 + 状态枚举
+dto/                请求/响应体，按 agent / eval / knowledge 分组
+common/              Result/异常/审计/RateLimit/Agent 客户端/traceId
+security/            JWT、CurrentUser、AuthIdentityService
+config/              Security、MyBatis-Plus、MinIO、RabbitMQ、Agent
+```
+
+约定：Controller 薄、Service 厚；取当前用户统一用 `@AuthenticationPrincipal CurrentUser`；**越权校验只在 Service 做，别人的数据一律返回 404，不用 403**。
+
+### 3. 领域模块
+
+| 模块 | 负责什么 |
+|---|---|
+| 认证与用户 | 注册/登录、JWT、身份快照、地址、头像 |
+| 商品与类目 | 商品/SKU/规格、分类、品牌、搜索、评价、问答、收藏、足迹 |
+| 购物车与优惠券 | 按 SKU 加购、勾选、领券、门槛/有效期/每店券校验 |
+| 订单与支付 | 下单、拆单、支付、取消、发货、收货、完成、CSV 导出 |
+| 库存与并发 | Redis Lua 预扣、DB 条件扣减、SKU 调库、补账/回滚 |
+| 售后与履约 | 仅退款/退货退款、审核、寄回、确认收货、超时自动处理、物流 |
+| 商家与结算 | 入驻审核、商家商品/订单/售后/优惠券/数据看板 |
+| 消息与通知 | 站内通知、未读角标、聊天 SSE、聊天图片 |
+| AI 客服 | gRPC 桥接、事件流转 SSE、订单/商品卡片、动作草稿与确认 |
+| 运营后台 | 用户/商家/商品/订单/售后/评价/优惠券/知识库/评测/审计 |
+
+### 4. 一次下单的主链路
+
+```
+POST /api/orders（带提交令牌）
+  → 身份/地址校验 → 商品、SKU、店铺、优惠券校验 → 按商户拆单
+  → Redis Lua 预扣库存（挡流量）
+  → 写 orders（CREATING + 金额/地址快照）+ order_items（商品快照）
+  → 事务提交后发 MQ「订单已创建」，返回 CheckoutView（创建中）
+
+异步补账（MQ 消费，一个事务）
+  → DB 条件扣库存：UPDATE product_skus SET stock = stock - ? WHERE stock >= ?
+  → 优惠券条件占用 → 按快照清购物车 → orders CAS CREATING → PENDING_PAYMENT
+  → 提交后为每张订单发延迟关单消息（30 分钟）
+  → 任一步失败：回滚库存/券 + orders 置 CREATE_FAILED（写原因）
+```
+
+- 超时未支付：RabbitMQ TTL + 死信 → `cancelIfExpired`（状态 + `NOW()` 幂等）→ 回滚库存和券。
+- MQ 不可用：`OrderTimeoutScanJob` 兜底；`CREATING` 超时：`OrderCreationScanJob` 重投，仍失败转 `CREATE_FAILED`。
+- `itsmygo.order-create.async=false` 时退回同步补账，便于测试/无 MQ 环境；行为与旧链路一致。
+
+### 5. 一致性与高并发
+
+| 问题 | 做法 |
+|---|---|
+| 不超卖 | Redis Lua「先 GET 再 DECRBY」原子预扣；最终以 DB `stock >= ?` 条件更新为准 |
+| 支付/下单幂等 | 提交令牌一次性消费；支付记录按订单唯一；通知 `biz_key` 唯一键 |
+| 超时关单 | RabbitMQ TTL + DLX；DB 扫描兜底；状态与 `NOW()` 条件保证重复消费安全 |
+| 异步失败 | `CREATING` 占位 + MQ 补账 + 扫描重投；失败写 `create_error`，可重试/回滚 |
+| 缓存 | 商品/详情缓存带 TTL + 随机抖动；空值缓存、布隆过滤器、互斥重建防穿透/击穿/雪崩 |
+| 限流 | `@RateLimit` + Redis 固定窗口；登录、下单、聊天等热点接口 |
+| 事务后副作用 | 通知在事务 `afterCommit` 后写库，回滚不推送；发布/消费都带幂等条件 |
+| 越权 | 服务层按 `userId/merchantId` 过滤；跨租户一律 404；管理端审计 `@AdminAudit` |
+
+### 6. 售后与退款
+
+```
+PENDING_REVIEW ──同意(仅退款)──────────────> REFUNDED
+      │   └──同意(退货退款)──> WAITING_RETURN ──买家填单号──> RETURN_SHIPPED
+      │                                                     └──商家确认收货──> REFUNDED
+      ├──驳回(必填理由)──> REJECTED（可再次申请）
+      └──买家撤销──> CANCELLED
+```
+
+- 金额按订单项计算，优惠按整单**等比分摊**，尾差归最后一次退款；券只在整单全部退完时退回。
+- 商家 48h 未审核自动同意；退货寄出 7 天未确认自动确认收货退款；扫描任务 + Redis 锁，不引入 MQ。
+- 旧整单退款接口保留；新旧售后共用同一套库存/优惠券/支付流水补偿。
+
+### 7. 数据与中间件
+
+| 组件 | 用途 | 关键约定 |
+|---|---|---|
+| MySQL 8 | 交易、商品、用户、售后、通知、审计 | Flyway 单脚本只增不改，当前 schema **v38**；测试库 `its_mygo_test` |
+| Redis 7 | 库存预扣、缓存、限流、令牌、票据、权限码 | key 前缀 `its-my-go:`，**必须带 TTL**；共用实例 `volatile-lru` |
+| RabbitMQ 4 | 超时关单、订单创建补账 | 本项目自有 `its-my-go-rabbitmq`；TTL + DLX；消费失败不无限重投 |
+| MinIO | 商品图、头像、聊天图 | bucket `its-my-go-product-images`；不碰 rag_helper 的桶 |
+| rag_helper 存储 | 向量库/会话/知识库 | 在 Agent 仓库，Java 只通过 gRPC / 内部接口访问 |
+
+### 8. 认证与授权
+
+- JWT 里**只放 userId**；role / merchantId 由 `AuthIdentityService` 按数据库实时推导（60 秒缓存 + 变更 evict），旧 token 不会保留旧权限。
+- 粗粒度：`SecurityConfig` 按路径前缀 `hasRole`；细粒度：管理端 `@PreAuthorize("hasAuthority('admin:...')")`。
+- RBAC 已落 V36（4 个内置角色 + 权限码 + 角色映射），但 `itsmygo.rbac.enabled` **默认 false**：关闭时保持 ADMIN 全通；商家/顾客 v1 不迁移。
+- 内部接口 `/internal/agent/**` 凭 `X-Agent-Ticket`（Java 每轮签发、Redis 10 分钟），只允许内网访问。
+
+### 9. Agent 桥接
+
+```
+浏览器 → POST /api/agent/converse（SSE）
+  → Java：登录校验 → 签发工具票据 → gRPC Converse
+  → agent：输入护栏 → 主 Agent 编排 subagent → 必要时回调 Java 工具接口
+  → Java：start/trace/delta/usage/final/error 逐条转 SSE
+  → 前端：执行流 / 正文 / 商品卡；动作卡按 sessionId 从 Java 拉取
+```
+
+- 动作类只 `prepare`：Agent 生成待确认草稿 → Java 落 `agent_actions` → 用户确认 → Java 用服务端快照执行，模型不直接写业务库。
+- 契约字段以 `rag_helper/proto/agent.proto` 为唯一权威；Java 不能自行改契约。
+
+### 10. 部署拓扑
+
+| 环境 | 入口 | 说明 |
+|---|---|---|
+| 开发 | 前端 5173 / 后端 8080 / agent 8001-8003 | 本机进程 + `dev-infra/` 共用中间件 |
+| 演示 | `http://localhost:8088` | `./deploy.sh joint` 全栈 Docker，独立 `its-my-go-*` 卷 |
+| 生产 | `http://10.184.171.106:8088` | 内网 VM 离线镜像包，`start.sh` / `status.sh` / `stop.sh` |
+
+三种环境**只能同时启动一个**（见 HANDOFF §4.0.0）；完整命令、端口和环境变量见 [docs/deployment.md](docs/deployment.md)。
+
+### 11. 已知边界
+
+- 单实例部署；多实例会碰到 SSE 路由、本地任务状态和定时任务重复执行，暂不展开。
+- RBAC 开关默认关闭；商家员工子账号、邀请管理员选角色已确认本期不做。
+- 无集中 metrics/tracing/日志平台；有 `traceId` 和 JSON 日志，但未接 Prometheus/OTel/ELK。
+- 前端只有 Vitest 纯逻辑测试，没有 Playwright/E2E；支付与物流为演示模拟。
+
+完整限制与技术债见 [docs/architecture.md §7](docs/architecture.md#7-已知限制与技术债)。
 
 ## 部署方式（三选一）
 
