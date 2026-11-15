@@ -421,7 +421,7 @@ agent 工具 prepare（只生成草稿）→ Java 落 agent_actions（PENDING_CO
   开发由 Vite、生产由 Nginx 反代到 MinIO。
 - `MINIO_PUBLIC_ENDPOINT` 保持 `/`；配成绝对地址会把主机名固化进库，换 IP 后历史图片全部失效
   （2026-11-05 事故，HANDOFF §5.39）。
-- 客服召回图走 `/rag-images/` → rag_helper 的 MinIO（9002），同样只在展示层转换。
+- 客服召回图走 `/rag-images/` → rag_helper 的 MinIO（9000），同样只在展示层转换。
 
 ### 4.6 售后接口（M30）
 

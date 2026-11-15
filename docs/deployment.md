@@ -184,7 +184,7 @@ agent 通过 `its-my-go-backend:8080` 回调 Java。
   `docker compose up --build` 能跑通，得重新打离线包。
 - 图片必须**同源**：`.env` 保持 `MINIO_PUBLIC_ENDPOINT=/`（默认即 `/`），数据库只存
   `/its-my-go-product-images/...` 相对路径，浏览器请求由前端 Nginx 反代到 `minio:9000`；
-  客服召回图走 `/rag-images/` → `host.docker.internal:9002`。
+  客服召回图走 `/rag-images/` → `host.docker.internal:9000`。
   **一旦配成绝对地址，主机名就会固化进库，换 IP 后历史图片全部失效。**
 - 联合部署的 agent 地址用 `RAG_*` 前缀变量（`RAG_AGENT_GRPC_TARGET=rag-agent:8003`、
   `RAG_AGENT_IMPORT_URL=http://rag-import:8001`、`RAG_AGENT_EVAL_URL=http://rag-chat:8002`），

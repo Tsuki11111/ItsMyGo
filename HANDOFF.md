@@ -2563,14 +2563,14 @@ VM 换 IP 后召回图片全部裂开。RAG 侧已改为输出时按当前配置
 本轮按用户要求把 ItsMyGo 展示层彻底改成同源。
 
 **改动**：
-- `AgentChatPanel.sameOriginImage()` 把 `http://<host>:9002/rag-helper-knowledge-files/...`
+- `AgentChatPanel.sameOriginImage()` 把 `http://<host>:9000/rag-helper-knowledge-files/...`
   转成 `/rag-images/rag-helper-knowledge-files/...`；
-- Nginx 增加 `/rag-images/` → `http://host.docker.internal:9002/`；
+- Nginx 增加 `/rag-images/` → `http://host.docker.internal:9000/`；
   frontend 容器增加 `extra_hosts: host.docker.internal:host-gateway`；
-- Vite 开发代理同步（`RAG_MINIO_TARGET`）；
+- Vite 开发代理同步（`RAG_MINIO_TARGET`，默认 `http://localhost:9000`）；
 - **对接契约不变**：`Image.url` 仍是绝对 URL，转换只发生在展示层。
 
-**验证**：客服聊天 6 张召回图全部走 `/rag-images/...`，加载成功；URL 中不再带 9002 主机名。
+**验证**：客服聊天 6 张召回图全部走 `/rag-images/...`，加载成功；URL 中不再带 9000 主机名。
 
 **注意**：rag_helper 重启后，Java 的 gRPC 长连接要等自动重连（约 30 秒），期间会话列表
 和历史会报「加载失败」，之后自动恢复 —— 不是故障。

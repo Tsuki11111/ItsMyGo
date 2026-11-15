@@ -152,7 +152,7 @@ function renderBlocks(message: UiMessage) {
 }
 
 /**
- * 召回图片来自 RAG 自己的 MinIO（http://<host>:9002/rag-helper-knowledge-files/...）。
+ * 召回图片来自 RAG 自己的 MinIO（http://<host>:9000/rag-helper-knowledge-files/...）。
  * 展示时改成同源 /rag-images/<bucket>/<path>，由 Nginx 反代到 MinIO：
  * 页面与图片同源，部署地址变化或以后上 HTTPS 都不影响历史图片。
  */

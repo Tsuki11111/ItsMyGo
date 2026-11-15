@@ -31,9 +31,9 @@ export default defineConfig({
         target: process.env.MINIO_TARGET || 'http://localhost:9000',
         changeOrigin: true,
       },
-      // 客服召回图片：RAG 的 MinIO（rag_helper 默认映射 9002）
+      // 客服召回图片：RAG 的 MinIO（rag_helper 当前映射 9000）
       '/rag-images': {
-        target: process.env.RAG_MINIO_TARGET || 'http://localhost:9002',
+        target: process.env.RAG_MINIO_TARGET || 'http://localhost:9000',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/rag-images/, ''),
       },
