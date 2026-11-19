@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { AgentProductCard } from '@/api/types'
+import type { AgentImage, AgentProductCard } from '@/api/types'
 import { messageBlocks } from './messageBlocks'
 
 function card(productId: string, name: string): AgentProductCard {
@@ -15,6 +15,10 @@ function card(productId: string, name: string): AgentProductCard {
     specText: '',
     categoryName: '',
   }
+}
+
+function image(url: string, caption = ''): AgentImage {
+  return { url, caption }
 }
 
 const render = (text: string) => text
@@ -122,5 +126,69 @@ describe('messageBlocks', () => {
   it('没有商品卡时保持一整段文字', () => {
     const blocks = messageBlocks({ text: '普通回答', products: [] }, render)
     expect(blocks).toEqual([{ type: 'text', html: '普通回答' }])
+  })
+
+  it('图片跟在引用它的行之后，未被引用的图收尾', () => {
+    const images = [image('1.png'), image('2.png'), image('3.png')]
+    const blocks = messageBlocks(
+      {
+        text: '第一步\n如图 1 所示。\n第二步\n如图 2 所示。',
+        images,
+      },
+      render,
+    )
+    expect(blocks.map((block) => block.type)).toEqual([
+      'text', 'image', 'text', 'image', 'images',
+    ])
+    expect(blocks.flatMap((block) => block.type === 'image' ? [block.index] : []))
+      .toEqual([1, 2])
+    const rest = blocks.find((block) => block.type === 'images')
+    expect(rest?.type === 'images' ? rest.images.map((item) => item.index) : [])
+      .toEqual([3])
+  })
+
+  it('同一张图多次引用只插一次', () => {
+    const blocks = messageBlocks(
+      { text: '如图 1 所示。\n再看图 1。', images: [image('1.png')] },
+      render,
+    )
+    expect(blocks.filter((block) => block.type === 'image')).toHaveLength(1)
+  })
+
+  it('一行引用多张图时按引用顺序插入', () => {
+    const blocks = messageBlocks(
+      { text: '对照图 2 和图 1。', images: [image('1.png'), image('2.png')] },
+      render,
+    )
+    expect(blocks.flatMap((block) => block.type === 'image' ? [block.index] : []))
+      .toEqual([2, 1])
+  })
+
+  it('打字机未写完最后一行时不提前插图', () => {
+    const images = [image('1.png')]
+    const partial = messageBlocks(
+      { text: '第一步\n如图 1', images, typing: true },
+      render,
+    )
+    expect(partial.some((block) => block.type === 'image')).toBe(false)
+
+    const complete = messageBlocks(
+      { text: '第一步\n如图 1 所示。', images, typing: true },
+      render,
+    )
+    expect(complete.flatMap((block) => block.type === 'image' ? [block.index] : []))
+      .toEqual([1])
+  })
+
+  it('打字机未结束时未引用的图先不出现', () => {
+    const images = [image('1.png')]
+    const typing = messageBlocks(
+      { text: '普通文字', images, typing: true },
+      render,
+    )
+    expect(typing.some((block) => block.type === 'images')).toBe(false)
+
+    const done = messageBlocks({ text: '普通文字', images }, render)
+    expect(done.some((block) => block.type === 'images')).toBe(true)
   })
 })

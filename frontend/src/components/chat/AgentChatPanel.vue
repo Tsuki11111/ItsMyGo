@@ -60,6 +60,8 @@ interface UiMessage {
   webOnly: boolean
   error: string
   stopped: boolean
+  /** 打字机进行中：messageBlocks 用它决定未引用图片是否先收尾 */
+  typing: boolean
   /** final 到达的完整回答；打字机期间 text 是逐步填充的，兜底判断用这个 */
   finalAnswer?: string
 }
@@ -93,6 +95,11 @@ function stopTyping() {
     clearInterval(typingTimer)
     typingTimer = null
   }
+  const id = activeAssistantId.value
+  if (id) {
+    const assistant = findMessage(id)
+    if (assistant) assistant.typing = false
+  }
 }
 
 function startTyping(assistantId: string, answer: string) {
@@ -102,12 +109,16 @@ function startTyping(assistantId: string, answer: string) {
   // 最终回答一次性到达（上游只回放最终回答），这里按约 120 帧的节奏逐字展示
   const step = Math.max(1, Math.ceil(answer.length / 120))
   let shown = 0
+  assistant.typing = true
   assistant.text = ''
   typingTimer = setInterval(() => {
     shown = Math.min(answer.length, shown + step)
     assistant.text = answer.slice(0, shown)
     void scrollToBottom()
-    if (shown >= answer.length) stopTyping()
+    if (shown >= answer.length) {
+      assistant.typing = false
+      stopTyping()
+    }
   }, 16)
 }
 
@@ -366,6 +377,7 @@ async function loadHistory(savedSessionId: string) {
       webOnly: false,
       error: '',
       stopped: false,
+      typing: false,
       }
     })
     await loadActions(savedSessionId)
@@ -431,6 +443,7 @@ async function sendMessage(preset?: string, formResult?: AgentFormResult,
     webOnly: false,
     error: '',
     stopped: false,
+    typing: false,
   })
   messages.value.push({
     id: assistantId,
@@ -445,6 +458,7 @@ async function sendMessage(preset?: string, formResult?: AgentFormResult,
     webOnly: false,
     error: '',
     stopped: false,
+    typing: false,
   })
 
   streaming.value = true
@@ -479,6 +493,7 @@ async function sendMessage(preset?: string, formResult?: AgentFormResult,
         if (preferences.value.streamEnabled && event.answer) {
           startTyping(assistantId, event.answer)
         } else {
+          assistant.typing = false
           assistant.text = event.answer || assistant.text
         }
         assistant.images = event.images || []
@@ -498,10 +513,12 @@ async function sendMessage(preset?: string, formResult?: AgentFormResult,
         }
         break
       case 'error':
+        assistant.typing = false
         assistant.error = event.message
         break
       case 'done':
         if (event.reason === 'stopped') assistant.stopped = true
+        assistant.typing = false
         streaming.value = false
         activeAssistantId.value = null
         void refreshSessions()
@@ -531,6 +548,7 @@ async function sendMessage(preset?: string, formResult?: AgentFormResult,
     if ((error as Error).name !== 'AbortError') {
       const assistant = findMessage(assistantId)
       if (assistant && !assistant.stopped) {
+        assistant.typing = false
         assistant.error = (error as Error).message || '客服服务暂时不可用'
       }
     }
@@ -754,7 +772,7 @@ onBeforeUnmount(() => {
               {{ message.text }}
             </p>
             <div
-              v-else-if="message.role === 'assistant' && (message.text || message.products.length)"
+              v-else-if="message.role === 'assistant' && (message.text || message.products.length || message.images.length)"
               class="answer"
             >
               <template v-for="(block, blockIndex) in renderBlocks(message)" :key="blockIndex">
@@ -770,6 +788,42 @@ onBeforeUnmount(() => {
                     @buy="buyProduct"
                   />
                 </div>
+                <div v-else-if="block.type === 'image'" class="image-inline">
+                  <figure class="image-item">
+                    <div class="image-wrap">
+                      <el-image
+                        :src="sameOriginImage(block.image.url)"
+                        :preview-src-list="message.images.map((item) => sameOriginImage(item.url))"
+                        :initial-index="block.index - 1"
+                        preview-teleported
+                        fit="contain"
+                        class="answer-image"
+                      />
+                      <span class="image-index">图 {{ block.index }}</span>
+                    </div>
+                    <figcaption v-if="block.image.caption">{{ block.image.caption }}</figcaption>
+                  </figure>
+                </div>
+                <div v-else-if="block.type === 'images'" class="images">
+                  <figure
+                    v-for="item in block.images"
+                    :key="item.index"
+                    class="image-item"
+                  >
+                    <div class="image-wrap">
+                      <el-image
+                        :src="sameOriginImage(item.image.url)"
+                        :preview-src-list="message.images.map((image) => sameOriginImage(image.url))"
+                        :initial-index="item.index - 1"
+                        preview-teleported
+                        fit="contain"
+                        class="answer-image"
+                      />
+                      <span class="image-index">图 {{ item.index }}</span>
+                    </div>
+                    <figcaption v-if="item.image.caption">{{ item.image.caption }}</figcaption>
+                  </figure>
+                </div>
                 <div v-else class="product-grid">
                   <AgentProductCardView
                     v-for="product in block.products"
@@ -780,23 +834,6 @@ onBeforeUnmount(() => {
                   />
                 </div>
               </template>
-            </div>
-
-            <div v-if="message.images.length" class="images">
-              <figure v-for="(image, index) in message.images" :key="index" class="image-item">
-                <div class="image-wrap">
-                  <el-image
-                    :src="sameOriginImage(image.url)"
-                    :preview-src-list="message.images.map((item) => sameOriginImage(item.url))"
-                    :initial-index="index"
-                    preview-teleported
-                    fit="contain"
-                    class="answer-image"
-                  />
-                  <span class="image-index">图 {{ index + 1 }}</span>
-                </div>
-                <figcaption v-if="image.caption">{{ image.caption }}</figcaption>
-              </figure>
             </div>
 
             <p v-if="message.webOnly" class="web-only">本轮仅联网结果，知识库未命中</p>
@@ -1369,6 +1406,15 @@ onBeforeUnmount(() => {
   gap: 12px;
   align-items: start;
   margin-top: 12px;
+}
+
+.image-inline {
+  max-width: 520px;
+  margin-top: 10px;
+}
+
+.image-inline .answer-image {
+  height: 240px;
 }
 
 .image-item {
