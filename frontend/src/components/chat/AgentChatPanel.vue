@@ -89,17 +89,20 @@ const submittedForms = ref<Record<string, boolean>>({})
 const unpaidOrders = ref<Order[]>([])
 /** 流式输出开启时，最终回答到达后逐字展示（中间轮次文本不回放） */
 let typingTimer: ReturnType<typeof setInterval> | null = null
+/** 当前正在打字的 assistant；done(final) 会先清 activeAssistantId，不能只靠它 */
+let typingAssistantId: string | null = null
 
 function stopTyping() {
   if (typingTimer) {
     clearInterval(typingTimer)
     typingTimer = null
   }
-  const id = activeAssistantId.value
+  const id = typingAssistantId || activeAssistantId.value
   if (id) {
     const assistant = findMessage(id)
     if (assistant) assistant.typing = false
   }
+  typingAssistantId = null
 }
 
 function startTyping(assistantId: string, answer: string) {
@@ -109,6 +112,7 @@ function startTyping(assistantId: string, answer: string) {
   // 最终回答一次性到达（上游只回放最终回答），这里按约 120 帧的节奏逐字展示
   const step = Math.max(1, Math.ceil(answer.length / 120))
   let shown = 0
+  typingAssistantId = assistantId
   assistant.typing = true
   assistant.text = ''
   typingTimer = setInterval(() => {
@@ -517,8 +521,16 @@ async function sendMessage(preset?: string, formResult?: AgentFormResult,
         assistant.error = event.message
         break
       case 'done':
-        if (event.reason === 'stopped') assistant.stopped = true
-        assistant.typing = false
+        if (event.reason === 'stopped') {
+          assistant.stopped = true
+          stopTyping()
+          assistant.typing = false
+        } else if (event.reason === 'error') {
+          stopTyping()
+          assistant.typing = false
+        }
+        // done(final) 紧跟在 final 后面到达：不能在这里清 typing，
+        // 否则打字机还没开始，未引用图片会先整批渲染出来。
         streaming.value = false
         activeAssistantId.value = null
         void refreshSessions()
