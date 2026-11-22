@@ -66,7 +66,7 @@ cd frontend && npm run dev
 
 # rag_helper（本地 venv）
 cd D:\PycharmProjects\rag_helper
-.venv\Scripts\python.exe -m app.import_process.api.file_import_service   # 8001
-.venv\Scripts\python.exe -m app.agent.api.query_service                  # 8002
-.venv\Scripts\python.exe -m app.agent.api.grpc_service                   # 8003
+.venv\Scripts\python.exe -m app.entrypoints.import_http   # 8001
+.venv\Scripts\python.exe -m app.entrypoints.agent_http    # 8002
+.venv\Scripts\python.exe -m app.entrypoints.agent_grpc    # 8003
 ```
