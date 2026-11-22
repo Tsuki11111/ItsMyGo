@@ -70,6 +70,10 @@ ensure_env() {
   [ -n "$(env_get RABBITMQ_PASSWORD)" ] || env_set RABBITMQ_PASSWORD "$(rand_hex 24)"
   [ -n "$(env_get MINIO_ACCESS_KEY)" ] || env_set MINIO_ACCESS_KEY "itsmygo$(rand_hex 4)"
   [ -n "$(env_get MINIO_SECRET_KEY)" ] || env_set MINIO_SECRET_KEY "$(rand_hex 24)"
+  case "$(env_get MINIO_ACCESS_KEY)" in
+    minioadmin|change-me-minio)
+      echo "警告：ItsMyGo/.env 的 MinIO 凭据仍是示例值，建议改成随机值后重启。" >&2 ;;
+  esac
 
   # 图片与前端同源反代，URL 不带主机名；旧部署若残留绝对地址，
   # 升级时手工改成 "/" 并迁移数据库中的历史 URL（见 docs/deployment.md）
@@ -160,6 +164,16 @@ ensure_rag_env() {
     rag_env_set "$dir" AGENT_GRPC_KEY "$(rand_hex 32)"
     echo "已为 rag_helper 生成 AGENT_GRPC_KEY。"
   fi
+
+  # MinIO 凭据：与 ItsMyGo 各自独立；留空时自动生成，避免沿用示例口令
+  [ -n "$(rag_env_get "$dir" MINIO_ACCESS_KEY)" ] || \
+    rag_env_set "$dir" MINIO_ACCESS_KEY "raghelper$(rand_hex 4)"
+  [ -n "$(rag_env_get "$dir" MINIO_SECRET_KEY)" ] || \
+    rag_env_set "$dir" MINIO_SECRET_KEY "$(rand_hex 24)"
+  case "$(rag_env_get "$dir" MINIO_ACCESS_KEY)" in
+    minioadmin|change-me-minio)
+      echo "警告：rag_helper/.env 的 MinIO 凭据仍是示例值，建议改成随机值后重启。" >&2 ;;
+  esac
 }
 
 sync_agent_keys() {
