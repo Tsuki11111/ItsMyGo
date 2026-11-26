@@ -6,7 +6,10 @@ import agent.v1.FormOption;
 import agent.v1.FormRequest;
 import agent.v1.FormResult;
 import agent.v1.HistoryMessage;
+import agent.v1.Image;
+import agent.v1.ProductCard;
 import agent.v1.SessionInfo;
+import agent.v1.Trace;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.tsuk1.itsmygo.common.ResultCode;
 import com.tsuk1.itsmygo.common.agent.AgentEventMapper;
@@ -40,6 +43,7 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -52,7 +56,6 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -72,6 +75,7 @@ public class AgentChatServiceImpl implements AgentChatService {
     private final ExecutorService agentExecutor;
     private final ScheduledExecutorService auxExecutor;
     private final ObjectMapper objectMapper;
+    // 当前正在回复的会话集合；ConcurrentHashMap 保证多个请求同时读写时线程安全
     private final Map<String, Boolean> activeStreams = new ConcurrentHashMap<>();
 
     public AgentChatServiceImpl(AgentGateway gateway, AgentProperties properties,
@@ -149,6 +153,8 @@ public class AgentChatServiceImpl implements AgentChatService {
             }
         };
 
+        // 无论是正常结束、超时还是出错，都会触发 cleanup；
+        // cleanup 里的 AtomicBoolean 保证同一轮只清理一次。
         emitter.onCompletion(cleanup);
         emitter.onTimeout(cleanup);
         emitter.onError(error -> cleanup.run());
@@ -156,6 +162,8 @@ public class AgentChatServiceImpl implements AgentChatService {
         sink.start();
         try {
             FormResult formResult = toFormResult(request.formResult());
+            // 阻塞的 gRPC 流交给有界线程池执行，避免占住 Tomcat 请求线程；
+            // 池满时 AbortPolicy 抛 RejectedExecutionException，下面转成 429。
             agentExecutor.execute(() -> stream(user, fixedSessionId, message, formResult, toolTicket,
                     preference.webSearchEnabled(), preference.streamEnabled(),
                     sink, context, runIdRef, finalSeen, errorSeen, cleanup));
@@ -206,10 +214,14 @@ public class AgentChatServiceImpl implements AgentChatService {
 
     /** 售后原因字典（启用中的）展示名集合：表单选项与提交校验共用这一份口径。 */
     private Set<String> refundReasonLabels() {
-        return afterSaleService.reasons().stream()
-                .map(AfterSaleReasonView::label)
-                .filter(StringUtils::hasText)
-                .collect(Collectors.toSet());
+        List<AfterSaleReasonView> reasons = afterSaleService.reasons();
+        Set<String> labels = new HashSet<>();
+        for (AfterSaleReasonView reason : reasons) {
+            if (StringUtils.hasText(reason.label())) {
+                labels.add(reason.label());
+            }
+        }
+        return labels;
     }
 
     /**
@@ -250,13 +262,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                 continue;
             }
             if (options == null) {
-                options = afterSaleService.reasons().stream()
-                        .filter(reason -> StringUtils.hasText(reason.label()))
-                        .map(reason -> FormOption.newBuilder()
-                                .setValue(reason.label())
-                                .setLabel(reason.label())
-                                .build())
-                        .toList();
+                options = buildRefundReasonOptions();
             }
             if (options.isEmpty()) {
                 log.warn("售后原因字典为空，退款原因表单保持空选项: formId={}", form.getFormId());
@@ -270,6 +276,22 @@ public class AgentChatServiceImpl implements AgentChatService {
             return form;
         }
         return form.toBuilder().clearFields().addAllFields(fields).build();
+    }
+
+    /** 用售后原因字典生成 refund_reason 表单的选项，value/label 都用中文展示名。 */
+    private List<FormOption> buildRefundReasonOptions() {
+        List<AfterSaleReasonView> reasons = afterSaleService.reasons();
+        List<FormOption> options = new ArrayList<>(reasons.size());
+        for (AfterSaleReasonView reason : reasons) {
+            if (!StringUtils.hasText(reason.label())) {
+                continue;
+            }
+            options.add(FormOption.newBuilder()
+                    .setValue(reason.label())
+                    .setLabel(reason.label())
+                    .build());
+        }
+        return options;
     }
 
     private void stream(CurrentUser user, String sessionId, String message, FormResult formResult,
@@ -367,51 +389,10 @@ public class AgentChatServiceImpl implements AgentChatService {
         int safeLimit = Math.min(Math.max(limit, 1), MAX_HISTORY);
         try {
             List<HistoryMessage> raw = gateway.history(user.id(), sessionId, safeLimit);
-            List<AgentHistoryMessage> messages = raw.stream()
-                    .map(item -> new AgentHistoryMessage(
-                            item.getRole(),
-                            item.getText(),
-                            item.getImagesList().stream()
-                                    .map(image -> new AgentHistoryMessage.AgentImage(
-                                            image.getUrl(), image.getCaption()))
-                                    .toList(),
-                            item.getTs(),
-                            item.getTraceList().stream()
-                                    .map(trace -> new AgentHistoryMessage.AgentTrace(
-                                            trace.getKind(), trace.getAgent(), trace.getDetail()))
-                                    .toList(),
-                            item.getProductsList().stream()
-                                    .map(product -> new AgentHistoryMessage.AgentProductCard(
-                                            product.getProductId(), product.getName(),
-                                            product.getImage(), product.getPrice(),
-                                            product.getStock(), product.getSales(),
-                                            product.getRating(), product.getMerchantName(),
-                                            product.getSpecText(), product.getCategoryName()))
-                                    .toList(),
-                            item.getFormsList().stream()
-                                    // 与实时流一致：rag_helper 存的 options 是空的，
-                                    // 退款原因字典由 Java 补全，历史回放同样要补
-                                    .map(this::fillRefundReasonOptions)
-                                    .map(form -> new AgentHistoryMessage.AgentFormRequest(
-                                            form.getFormId(), form.getFormType(), form.getTitle(),
-                                            form.getDescription(),
-                                            form.getFieldsList().stream()
-                                                    .map(field -> new AgentHistoryMessage.AgentFormField(
-                                                            field.getName(), field.getLabel(),
-                                                            field.getType(), field.getRequired(),
-                                                            field.getPlaceholder(),
-                                                            field.getDefaultValue(),
-                                                            field.getOptionsList().stream()
-                                                                    .map(option ->
-                                                                            new AgentHistoryMessage.AgentFormOption(
-                                                                                    option.getValue(),
-                                                                                    option.getLabel()))
-                                                                    .toList()))
-                                                    .toList(),
-                                            form.getSubmitLabel(), form.getExpiresInSeconds(),
-                                            new LinkedHashMap<>(form.getMetaMap())))
-                                    .toList()))
-                    .toList();
+            List<AgentHistoryMessage> messages = new ArrayList<>(raw.size());
+            for (HistoryMessage item : raw) {
+                messages.add(toHistoryMessage(item));
+            }
             sessionMapper.touch(sessionId, user.id());
             return new AgentHistoryView(messages);
         } catch (StatusRuntimeException e) {
@@ -421,20 +402,103 @@ public class AgentChatServiceImpl implements AgentChatService {
         }
     }
 
+    /** 把一条 gRPC 历史消息逐层转成前端 DTO；拆成小方法，避免一整段深层嵌套。 */
+    private AgentHistoryMessage toHistoryMessage(HistoryMessage item) {
+        return new AgentHistoryMessage(
+                item.getRole(),
+                item.getText(),
+                toHistoryImages(item),
+                item.getTs(),
+                toHistoryTraces(item),
+                toHistoryProducts(item),
+                toHistoryForms(item));
+    }
+
+    private List<AgentHistoryMessage.AgentImage> toHistoryImages(HistoryMessage item) {
+        List<AgentHistoryMessage.AgentImage> images = new ArrayList<>(item.getImagesCount());
+        for (Image image : item.getImagesList()) {
+            images.add(new AgentHistoryMessage.AgentImage(image.getUrl(), image.getCaption()));
+        }
+        return images;
+    }
+
+    private List<AgentHistoryMessage.AgentTrace> toHistoryTraces(HistoryMessage item) {
+        List<AgentHistoryMessage.AgentTrace> traces = new ArrayList<>(item.getTraceCount());
+        for (Trace trace : item.getTraceList()) {
+            traces.add(new AgentHistoryMessage.AgentTrace(
+                    trace.getKind(), trace.getAgent(), trace.getDetail()));
+        }
+        return traces;
+    }
+
+    private List<AgentHistoryMessage.AgentProductCard> toHistoryProducts(HistoryMessage item) {
+        List<AgentHistoryMessage.AgentProductCard> products =
+                new ArrayList<>(item.getProductsCount());
+        for (ProductCard product : item.getProductsList()) {
+            products.add(new AgentHistoryMessage.AgentProductCard(
+                    product.getProductId(), product.getName(), product.getImage(),
+                    product.getPrice(), product.getStock(), product.getSales(),
+                    product.getRating(), product.getMerchantName(),
+                    product.getSpecText(), product.getCategoryName()));
+        }
+        return products;
+    }
+
+    private List<AgentHistoryMessage.AgentFormRequest> toHistoryForms(HistoryMessage item) {
+        List<AgentHistoryMessage.AgentFormRequest> forms =
+                new ArrayList<>(item.getFormsCount());
+        for (FormRequest rawForm : item.getFormsList()) {
+            // 与实时流一致：rag_helper 存的 options 是空的，退款原因字典由 Java 补全
+            FormRequest form = fillRefundReasonOptions(rawForm);
+            forms.add(toHistoryForm(form));
+        }
+        return forms;
+    }
+
+    private AgentHistoryMessage.AgentFormRequest toHistoryForm(FormRequest form) {
+        List<AgentHistoryMessage.AgentFormField> fields =
+                new ArrayList<>(form.getFieldsCount());
+        for (FormField field : form.getFieldsList()) {
+            fields.add(toHistoryFormField(field));
+        }
+        return new AgentHistoryMessage.AgentFormRequest(
+                form.getFormId(), form.getFormType(), form.getTitle(), form.getDescription(),
+                fields, form.getSubmitLabel(), form.getExpiresInSeconds(),
+                new LinkedHashMap<>(form.getMetaMap()));
+    }
+
+    private AgentHistoryMessage.AgentFormField toHistoryFormField(FormField field) {
+        List<AgentHistoryMessage.AgentFormOption> options =
+                new ArrayList<>(field.getOptionsCount());
+        for (FormOption option : field.getOptionsList()) {
+            options.add(new AgentHistoryMessage.AgentFormOption(
+                    option.getValue(), option.getLabel()));
+        }
+        return new AgentHistoryMessage.AgentFormField(
+                field.getName(), field.getLabel(), field.getType(), field.getRequired(),
+                field.getPlaceholder(), field.getDefaultValue(), options);
+    }
+
     @Override
     public List<AgentSessionView> sessions(CurrentUser user, int limit) {
         requireConfigured();
         int safeLimit = Math.min(Math.max(limit, 1), MAX_HISTORY);
         try {
             // agent 已按 x-user-id 过滤；这里再按 Java 的归属表过滤一次，双保险
-            Set<String> owned = sessionMapper.selectList(
-                            Wrappers.<AgentSession>lambdaQuery()
-                                    .eq(AgentSession::getUserId, user.id()))
-                    .stream().map(AgentSession::getSessionId).collect(Collectors.toSet());
-            return gateway.sessions(user.id(), safeLimit).stream()
-                    .filter(item -> owned.contains(item.getSessionId()))
-                    .map(this::toSessionView)
-                    .toList();
+            Set<String> owned = new HashSet<>();
+            List<AgentSession> ownedSessions = sessionMapper.selectList(
+                    Wrappers.<AgentSession>lambdaQuery()
+                            .eq(AgentSession::getUserId, user.id()));
+            for (AgentSession session : ownedSessions) {
+                owned.add(session.getSessionId());
+            }
+            List<AgentSessionView> views = new ArrayList<>();
+            for (SessionInfo item : gateway.sessions(user.id(), safeLimit)) {
+                if (owned.contains(item.getSessionId())) {
+                    views.add(toSessionView(item));
+                }
+            }
+            return views;
         } catch (StatusRuntimeException e) {
             log.warn("加载买小购会话列表失败: {} {}", e.getStatus().getCode(),
                     e.getStatus().getDescription());
@@ -461,17 +525,23 @@ public class AgentChatServiceImpl implements AgentChatService {
     }
 
     private Map<String, Object> grpcError(StatusRuntimeException e) {
-        return switch (e.getStatus().getCode()) {
-            case UNAVAILABLE -> AgentEventMapper.error(
-                    "AGENT_UNAVAILABLE", "客服智能体暂时不可用，请稍后再试", true);
-            case DEADLINE_EXCEEDED -> AgentEventMapper.error(
-                    "AGENT_TIMEOUT", "客服响应超时，请重试", true);
-            case UNAUTHENTICATED, PERMISSION_DENIED -> AgentEventMapper.error(
-                    "AGENT_AUTH_FAILED", "客服服务鉴权失败，请联系管理员", false);
-            case RESOURCE_EXHAUSTED -> AgentEventMapper.error(
-                    "AGENT_BUSY", "客服繁忙，请稍后再试", true);
-            default -> AgentEventMapper.error(
-                    "AGENT_ERROR", "客服服务异常，请稍后再试", true);
-        };
+        switch (e.getStatus().getCode()) {
+            case UNAVAILABLE:
+                return AgentEventMapper.error(
+                        "AGENT_UNAVAILABLE", "客服智能体暂时不可用，请稍后再试", true);
+            case DEADLINE_EXCEEDED:
+                return AgentEventMapper.error(
+                        "AGENT_TIMEOUT", "客服响应超时，请重试", true);
+            case UNAUTHENTICATED:
+            case PERMISSION_DENIED:
+                return AgentEventMapper.error(
+                        "AGENT_AUTH_FAILED", "客服服务鉴权失败，请联系管理员", false);
+            case RESOURCE_EXHAUSTED:
+                return AgentEventMapper.error(
+                        "AGENT_BUSY", "客服繁忙，请稍后再试", true);
+            default:
+                return AgentEventMapper.error(
+                        "AGENT_ERROR", "客服服务异常，请稍后再试", true);
+        }
     }
 }

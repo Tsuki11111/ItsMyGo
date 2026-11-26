@@ -1,5 +1,6 @@
 package com.tsuk1.itsmygo.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.tsuk1.itsmygo.common.ResultCode;
@@ -146,11 +147,15 @@ public class AfterSaleServiceImpl implements AfterSaleService {
 
     @Override
     public List<AfterSaleReasonView> reasons() {
-        return reasonMapper.selectList(Wrappers.<AfterSaleReason>lambdaQuery()
-                        .eq(AfterSaleReason::getStatus, 1)
-                        .orderByAsc(AfterSaleReason::getSort)
-                        .orderByAsc(AfterSaleReason::getId))
-                .stream().map(this::reasonView).toList();
+        List<AfterSaleReason> reasons = reasonMapper.selectList(Wrappers.<AfterSaleReason>lambdaQuery()
+                .eq(AfterSaleReason::getStatus, 1)
+                .orderByAsc(AfterSaleReason::getSort)
+                .orderByAsc(AfterSaleReason::getId));
+        List<AfterSaleReasonView> views = new ArrayList<>(reasons.size());
+        for (AfterSaleReason reason : reasons) {
+            views.add(reasonView(reason));
+        }
+        return views;
     }
 
     @Override
@@ -325,7 +330,7 @@ public class AfterSaleServiceImpl implements AfterSaleService {
 
     @Override
     public PageResponse<AfterSaleView> pageForAdmin(int page, int size, String status, String keyword) {
-        var wrapper = Wrappers.<AfterSale>lambdaQuery()
+        LambdaQueryWrapper<AfterSale> wrapper = Wrappers.<AfterSale>lambdaQuery()
                 .eq(status != null && !status.isBlank(), AfterSale::getStatus, status);
         if (keyword != null && !keyword.isBlank()) {
             String kw = keyword.trim();
@@ -373,10 +378,14 @@ public class AfterSaleServiceImpl implements AfterSaleService {
 
     @Override
     public List<AfterSaleReasonView> adminReasons() {
-        return reasonMapper.selectList(Wrappers.<AfterSaleReason>lambdaQuery()
-                        .orderByAsc(AfterSaleReason::getSort)
-                        .orderByAsc(AfterSaleReason::getId))
-                .stream().map(this::reasonView).toList();
+        List<AfterSaleReason> reasons = reasonMapper.selectList(Wrappers.<AfterSaleReason>lambdaQuery()
+                .orderByAsc(AfterSaleReason::getSort)
+                .orderByAsc(AfterSaleReason::getId));
+        List<AfterSaleReasonView> views = new ArrayList<>(reasons.size());
+        for (AfterSaleReason reason : reasons) {
+            views.add(reasonView(reason));
+        }
+        return views;
     }
 
     @Override
@@ -423,7 +432,9 @@ public class AfterSaleServiceImpl implements AfterSaleService {
         int done = 0;
         for (AfterSale afterSale : expired) {
             try {
-                Boolean ok = transactionTemplate.execute(s -> {
+                // TransactionTemplate.execute 会把 lambda 里的逻辑放在一个独立事务里执行：
+                // 每笔售后单独提交，一笔失败只回滚这一笔。
+                Boolean ok = transactionTemplate.execute(status -> {
                     approve(afterSale, "商家超时未处理，系统自动同意");
                     return true;
                 });
@@ -446,7 +457,8 @@ public class AfterSaleServiceImpl implements AfterSaleService {
         int done = 0;
         for (AfterSale afterSale : expired) {
             try {
-                Boolean ok = transactionTemplate.execute(s -> {
+                // 同上：每笔退货确认单独开一个事务
+                Boolean ok = transactionTemplate.execute(status -> {
                     confirmReceived(requireExists(afterSale.getId()));
                     return true;
                 });
@@ -749,12 +761,14 @@ public class AfterSaleServiceImpl implements AfterSaleService {
         return item;
     }
 
+    /** 申请/执行时的一行售后商品：订单项 + 本次退的数量 */
     private record Line(OrderItem item, int quantity) {
         BigDecimal price() {
             return item.getUnitPrice() == null ? ZERO : item.getUnitPrice();
         }
     }
 
+    /** 一次退款计算的汇总：明细、总额、是否把整单退完（record 会自动生成构造器和字段读取方法） */
     private record Plan(List<AfterSaleItem> items, BigDecimal total, boolean fullRefund) {
     }
 
@@ -920,6 +934,8 @@ public class AfterSaleServiceImpl implements AfterSaleService {
             return List.of();
         }
         try {
+            // Jackson 反序列化泛型 List<String> 时需要保留泛型信息，
+            // 这里用匿名子类 new TypeReference<List<String>>() {} 把类型交给 Jackson。
             return objectMapper.readValue(json, new TypeReference<List<String>>() {
             });
         } catch (RuntimeException e) {

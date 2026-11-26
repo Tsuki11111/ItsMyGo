@@ -43,11 +43,13 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.function.Function;
-import java.util.stream.Collectors;
+import java.util.Set;
 
 @Slf4j
 @Service
@@ -431,6 +433,8 @@ public class ChatServiceImpl implements ChatService {
         String type = request.type() == null ? "" : request.type().trim().toUpperCase();
         String content;
         String cardData = null;
+        // Java 14+ 的 switch 表达式：每个 case 用箭头写法，直接给 content/cardData 赋值，
+        // 不需要写 break；default 直接抛异常。
         switch (type) {
             case ChatMessage.TYPE_TEXT -> {
                 if (!StringUtils.hasText(request.text())) {
@@ -577,9 +581,10 @@ public class ChatServiceImpl implements ChatService {
         if (hasMore) {
             rows = rows.subList(0, limit);
         }
-        List<ChatMessageView> records = rows.stream()
-                .map(this::toMessageView)
-                .collect(Collectors.toList());
+        List<ChatMessageView> records = new ArrayList<>(rows.size());
+        for (ChatMessage row : rows) {
+            records.add(toMessageView(row));
+        }
         java.util.Collections.reverse(records);
         Long peerLastRead = Conversation.SIDE_CUSTOMER.equals(side)
                 ? conversation.getMerchantLastReadMessageId()
@@ -589,17 +594,25 @@ public class ChatServiceImpl implements ChatService {
 
     private PageResponse<ConversationView> toConversationPage(Page<Conversation> result, String side) {
         List<Conversation> records = result.getRecords();
-        Map<Long, Merchant> merchants = loadMerchants(records.stream()
-                .map(Conversation::getMerchantId).toList());
-        Map<Long, User> customers = loadUsers(records.stream()
-                .map(Conversation::getCustomerUserId).toList());
-        List<ConversationView> views = records.stream()
-                .map(conversation -> toConversationView(conversation, side,
-                        Conversation.SIDE_CUSTOMER.equals(side)
-                                && registry.isMerchantOnline(conversation.getMerchantId()),
-                        merchants.get(conversation.getMerchantId()),
-                        customers.get(conversation.getCustomerUserId())))
-                .toList();
+        // 这一页涉及的店铺 / 顾客各查一次，再按 id 组装，避免每行查库（N+1）
+        List<Long> merchantIds = new ArrayList<>(records.size());
+        List<Long> customerIds = new ArrayList<>(records.size());
+        for (Conversation conversation : records) {
+            merchantIds.add(conversation.getMerchantId());
+            customerIds.add(conversation.getCustomerUserId());
+        }
+        Map<Long, Merchant> merchants = loadMerchants(merchantIds);
+        Map<Long, User> customers = loadUsers(customerIds);
+
+        boolean customerSide = Conversation.SIDE_CUSTOMER.equals(side);
+        List<ConversationView> views = new ArrayList<>(records.size());
+        for (Conversation conversation : records) {
+            boolean peerOnline = customerSide
+                    && registry.isMerchantOnline(conversation.getMerchantId());
+            views.add(toConversationView(conversation, side, peerOnline,
+                    merchants.get(conversation.getMerchantId()),
+                    customers.get(conversation.getCustomerUserId())));
+        }
         return new PageResponse<>(views, result.getTotal(), result.getCurrent(), result.getSize());
     }
 
@@ -730,26 +743,46 @@ public class ChatServiceImpl implements ChatService {
             return List.of(merchant.getOwnerUserId());
         }
         if (Objects.equals(merchant.getId(), Merchant.PLATFORM_MERCHANT_ID)) {
-            return userMapper.selectList(Wrappers.<User>lambdaQuery()
-                            .eq(User::getRole, Roles.ADMIN)
-                            .eq(User::getStatus, 1))
-                    .stream().map(User::getId).toList();
+            List<User> admins = userMapper.selectList(Wrappers.<User>lambdaQuery()
+                    .eq(User::getRole, Roles.ADMIN)
+                    .eq(User::getStatus, 1));
+            List<Long> ids = new ArrayList<>(admins.size());
+            for (User admin : admins) {
+                ids.add(admin.getId());
+            }
+            return ids;
         }
         return List.of();
     }
 
     private Map<Long, Merchant> loadMerchants(List<Long> ids) {
-        List<Long> distinct = ids.stream().filter(Objects::nonNull).distinct().toList();
+        Set<Long> distinct = new HashSet<>();
+        for (Long id : ids) {
+            if (id != null) {
+                distinct.add(id);
+            }
+        }
         if (distinct.isEmpty()) return Map.of();
-        return merchantMapper.selectBatchIds(distinct).stream()
-                .collect(Collectors.toMap(Merchant::getId, Function.identity()));
+        Map<Long, Merchant> result = new HashMap<>();
+        for (Merchant merchant : merchantMapper.selectBatchIds(distinct)) {
+            result.put(merchant.getId(), merchant);
+        }
+        return result;
     }
 
     private Map<Long, User> loadUsers(List<Long> ids) {
-        List<Long> distinct = ids.stream().filter(Objects::nonNull).distinct().toList();
+        Set<Long> distinct = new HashSet<>();
+        for (Long id : ids) {
+            if (id != null) {
+                distinct.add(id);
+            }
+        }
         if (distinct.isEmpty()) return Map.of();
-        return userMapper.selectBatchIds(distinct).stream()
-                .collect(Collectors.toMap(User::getId, Function.identity()));
+        Map<Long, User> result = new HashMap<>();
+        for (User user : userMapper.selectBatchIds(distinct)) {
+            result.put(user.getId(), user);
+        }
+        return result;
     }
 
     private String customerName(User user) {
@@ -758,14 +791,23 @@ public class ChatServiceImpl implements ChatService {
     }
 
     private String preview(String type, String content) {
-        return switch (type) {
-            case ChatMessage.TYPE_IMAGE -> "[图片]";
-            case ChatMessage.TYPE_PRODUCT -> "[商品] " + content;
-            case ChatMessage.TYPE_ORDER -> "[订单] " + content;
-            case ChatMessage.TYPE_PROMOTION -> "[推荐] " + content;
-            default -> content.length() <= PREVIEW_LENGTH
-                    ? content : content.substring(0, PREVIEW_LENGTH) + "…";
-        };
+        if (ChatMessage.TYPE_IMAGE.equals(type)) {
+            return "[图片]";
+        }
+        if (ChatMessage.TYPE_PRODUCT.equals(type)) {
+            return "[商品] " + content;
+        }
+        if (ChatMessage.TYPE_ORDER.equals(type)) {
+            return "[订单] " + content;
+        }
+        if (ChatMessage.TYPE_PROMOTION.equals(type)) {
+            return "[推荐] " + content;
+        }
+        // 普通文本：太长就截断，避免会话列表撑爆
+        if (content.length() <= PREVIEW_LENGTH) {
+            return content;
+        }
+        return content.substring(0, PREVIEW_LENGTH) + "…";
     }
 
     private Page<Conversation> page(int page, int size) {

@@ -66,8 +66,6 @@ import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -568,20 +566,36 @@ public class OrderServiceImpl implements OrderService {
         }
         fillMerchantNames(orders);
 
-        List<Long> orderIds = orders.stream().map(Order::getId).toList();
-        Map<Long, List<OrderItem>> itemsByOrder = orderItemMapper.selectList(
-                        Wrappers.<OrderItem>lambdaQuery().in(OrderItem::getOrderId, orderIds))
-                .stream()
-                .collect(Collectors.groupingBy(OrderItem::getOrderId));
+        List<Long> orderIds = new ArrayList<>(orders.size());
+        for (Order order : orders) {
+            orderIds.add(order.getId());
+        }
+        // 这一页的所有明细一次查回来，再按 orderId 分组，避免每个订单查一次（N+1）
+        List<OrderItem> allItems = orderItemMapper.selectList(
+                Wrappers.<OrderItem>lambdaQuery().in(OrderItem::getOrderId, orderIds));
+        Map<Long, List<OrderItem>> itemsByOrder = new HashMap<>();
+        for (OrderItem item : allItems) {
+            List<OrderItem> list = itemsByOrder.get(item.getOrderId());
+            if (list == null) {
+                list = new ArrayList<>();
+                itemsByOrder.put(item.getOrderId(), list);
+            }
+            list.add(item);
+        }
 
         // 已评价标记：只对已完成订单回填，整页一次查询（不能按订单 N+1）
-        List<OrderItem> completedItems = orders.stream()
-                .filter(order -> OrderStatus.COMPLETED.name().equals(order.getStatus()))
-                .flatMap(order -> itemsByOrder.getOrDefault(order.getId(), List.of()).stream())
-                .toList();
+        List<OrderItem> completedItems = new ArrayList<>();
+        for (Order order : orders) {
+            if (OrderStatus.COMPLETED.name().equals(order.getStatus())) {
+                completedItems.addAll(itemsByOrder.getOrDefault(order.getId(), List.of()));
+            }
+        }
         fillReviewed(completedItems);
-        fillMissingProductImages(itemsByOrder.values().stream()
-                .flatMap(List::stream).toList());
+        List<OrderItem> itemsToFill = new ArrayList<>();
+        for (List<OrderItem> items : itemsByOrder.values()) {
+            itemsToFill.addAll(items);
+        }
+        fillMissingProductImages(itemsToFill);
 
         List<OrderView> views = new ArrayList<>(orders.size());
         for (Order order : orders) {
@@ -700,11 +714,16 @@ public class OrderServiceImpl implements OrderService {
     public OrderView updateShippingAddress(Long userId, Long orderId, Long addressId) {
         Order order = requireOwned(userId, orderId);
         if (!OrderStatus.PAID.name().equals(order.getStatus())) {
-            throw new BizException(ResultCode.BAD_REQUEST,
-                    OrderStatus.SHIPPED.name().equals(order.getStatus())
-                            || OrderStatus.COMPLETED.name().equals(order.getStatus())
-                            ? "订单已发货，不能再修改收货地址"
-                            : "当前订单状态不允许修改收货地址");
+            // 已发货 / 已完成单独提示；其他状态统一提示
+            boolean shippedOrCompleted = OrderStatus.SHIPPED.name().equals(order.getStatus())
+                    || OrderStatus.COMPLETED.name().equals(order.getStatus());
+            String message;
+            if (shippedOrCompleted) {
+                message = "订单已发货，不能再修改收货地址";
+            } else {
+                message = "当前订单状态不允许修改收货地址";
+            }
+            throw new BizException(ResultCode.BAD_REQUEST, message);
         }
         Address address = addressMapper.selectOne(Wrappers.<Address>lambdaQuery()
                 .eq(Address::getId, addressId)
@@ -1151,11 +1170,18 @@ public class OrderServiceImpl implements OrderService {
 
     private void fillMerchantNames(List<Order> orders) {
         if (orders.isEmpty()) return;
-        List<Long> ids = orders.stream().map(Order::getMerchantId)
-                .filter(java.util.Objects::nonNull).distinct().toList();
-        if (ids.isEmpty()) return;
-        Map<Long, Merchant> merchants = merchantMapper.selectByIds(ids).stream()
-                .collect(Collectors.toMap(Merchant::getId, Function.identity()));
+        // 去重后一次查回所有店铺，避免每个订单查一次
+        Set<Long> merchantIds = new HashSet<>();
+        for (Order order : orders) {
+            if (order.getMerchantId() != null) {
+                merchantIds.add(order.getMerchantId());
+            }
+        }
+        if (merchantIds.isEmpty()) return;
+        Map<Long, Merchant> merchants = new HashMap<>();
+        for (Merchant merchant : merchantMapper.selectByIds(merchantIds)) {
+            merchants.put(merchant.getId(), merchant);
+        }
         for (Order order : orders) {
             Merchant merchant = merchants.get(order.getMerchantId());
             order.setMerchantName(merchant == null ? "" : merchant.getName());
@@ -1181,8 +1207,11 @@ public class OrderServiceImpl implements OrderService {
     /** 已评价标记批量回填；空列表直接返回，避免拼出 IN () */
     private void fillReviewed(List<OrderItem> items) {
         if (items.isEmpty()) return;
-        Set<Long> reviewedIds = new HashSet<>(reviewMapper.findReviewedOrderItemIds(
-                items.stream().map(OrderItem::getId).toList()));
+        List<Long> itemIds = new ArrayList<>(items.size());
+        for (OrderItem item : items) {
+            itemIds.add(item.getId());
+        }
+        Set<Long> reviewedIds = new HashSet<>(reviewMapper.findReviewedOrderItemIds(itemIds));
         for (OrderItem item : items) {
             item.setReviewed(reviewedIds.contains(item.getId()));
         }
@@ -1194,28 +1223,49 @@ public class OrderServiceImpl implements OrderService {
      * 商品和 SKU 各一次批量查询，不按行 N+1。
      */
     private void fillMissingProductImages(List<OrderItem> items) {
-        List<OrderItem> missing = items.stream()
-                .filter(item -> !StringUtils.hasText(item.getProductImage()))
-                .toList();
+        // 先挑出没有图片快照的明细
+        List<OrderItem> missing = new ArrayList<>();
+        for (OrderItem item : items) {
+            if (!StringUtils.hasText(item.getProductImage())) {
+                missing.add(item);
+            }
+        }
         if (missing.isEmpty()) {
             return;
         }
-        Set<Long> productIds = missing.stream().map(OrderItem::getProductId)
-                .filter(java.util.Objects::nonNull).collect(Collectors.toSet());
-        Set<Long> skuIds = missing.stream().map(OrderItem::getSkuId)
-                .filter(java.util.Objects::nonNull).collect(Collectors.toSet());
-        Map<Long, Product> products = productIds.isEmpty() ? Map.of()
-                : productMapper.selectByIds(productIds).stream()
-                        .collect(Collectors.toMap(Product::getId, Function.identity()));
-        Map<Long, ProductSku> skus = skuIds.isEmpty() ? Map.of()
-                : skuMapper.selectByIds(skuIds).stream()
-                        .collect(Collectors.toMap(ProductSku::getId, Function.identity()));
+        // 涉及的商品 / SKU 各查一次，不按行 N+1
+        Set<Long> productIds = new HashSet<>();
+        Set<Long> skuIds = new HashSet<>();
+        for (OrderItem item : missing) {
+            if (item.getProductId() != null) {
+                productIds.add(item.getProductId());
+            }
+            if (item.getSkuId() != null) {
+                skuIds.add(item.getSkuId());
+            }
+        }
+        Map<Long, Product> products = new HashMap<>();
+        if (!productIds.isEmpty()) {
+            for (Product product : productMapper.selectByIds(productIds)) {
+                products.put(product.getId(), product);
+            }
+        }
+        Map<Long, ProductSku> skus = new HashMap<>();
+        if (!skuIds.isEmpty()) {
+            for (ProductSku sku : skuMapper.selectByIds(skuIds)) {
+                skus.put(sku.getId(), sku);
+            }
+        }
         for (OrderItem item : missing) {
             ProductSku sku = skus.get(item.getSkuId());
             Product product = products.get(item.getProductId());
-            String image = sku != null && StringUtils.hasText(sku.getImage())
-                    ? sku.getImage()
-                    : product == null ? "" : product.getMainImage();
+            // 优先用 SKU 图，其次商品主图；都没有就保持空
+            String image = "";
+            if (sku != null && StringUtils.hasText(sku.getImage())) {
+                image = sku.getImage();
+            } else if (product != null) {
+                image = product.getMainImage();
+            }
             if (StringUtils.hasText(image)) {
                 item.setProductImage(image);
             }

@@ -7,6 +7,7 @@ import com.tsuk1.itsmygo.common.exception.BizException;
 import com.tsuk1.itsmygo.dto.AdminReviewView;
 import com.tsuk1.itsmygo.dto.MyReviewView;
 import com.tsuk1.itsmygo.dto.PageResponse;
+import com.tsuk1.itsmygo.dto.ReviewRatingCount;
 import com.tsuk1.itsmygo.dto.ReviewRequest;
 import com.tsuk1.itsmygo.dto.ReviewSummary;
 import com.tsuk1.itsmygo.dto.ReviewView;
@@ -29,10 +30,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
-import java.util.stream.Collectors;
+import java.util.Set;
 
 @Service
 public class ReviewServiceImpl implements ReviewService {
@@ -107,18 +110,26 @@ public class ReviewServiceImpl implements ReviewService {
                         .orderByDesc(Review::getId));
 
         List<Review> reviews = result.getRecords();
-        Map<Long, Product> products = loadProducts(reviews.stream().map(Review::getProductId).toList());
-        Map<Long, Merchant> merchants = loadMerchants(reviews.stream().map(Review::getMerchantId).toList());
+        // 这一页涉及的商品 / 店铺各查一次，避免每行查库（N+1）
+        List<Long> productIds = new ArrayList<>(reviews.size());
+        List<Long> merchantIds = new ArrayList<>(reviews.size());
+        for (Review review : reviews) {
+            productIds.add(review.getProductId());
+            merchantIds.add(review.getMerchantId());
+        }
+        Map<Long, Product> products = loadProducts(productIds);
+        Map<Long, Merchant> merchants = loadMerchants(merchantIds);
 
-        List<MyReviewView> views = reviews.stream().map(review -> {
+        List<MyReviewView> views = new ArrayList<>(reviews.size());
+        for (Review review : reviews) {
             Product product = products.get(review.getProductId());
             Merchant merchant = merchants.get(review.getMerchantId());
-            return new MyReviewView(review.getId(), review.getOrderItemId(), review.getProductId(),
+            views.add(new MyReviewView(review.getId(), review.getOrderItemId(), review.getProductId(),
                     product == null ? "商品已不存在" : product.getName(),
                     product == null ? "" : product.getMainImage(),
                     review.getMerchantId(), merchant == null ? "" : merchant.getName(),
-                    review.getRating(), review.getContent(), review.getStatus(), review.getCreatedAt());
-        }).toList();
+                    review.getRating(), review.getContent(), review.getStatus(), review.getCreatedAt()));
+        }
 
         return new PageResponse<>(views, result.getTotal(), result.getCurrent(), result.getSize());
     }
@@ -136,16 +147,21 @@ public class ReviewServiceImpl implements ReviewService {
                         .orderByDesc(Review::getId));
 
         List<Review> reviews = result.getRecords();
-        Map<Long, User> users = loadUsers(reviews.stream().map(Review::getUserId).toList());
+        List<Long> userIds = new ArrayList<>(reviews.size());
+        for (Review review : reviews) {
+            userIds.add(review.getUserId());
+        }
+        Map<Long, User> users = loadUsers(userIds);
 
-        List<ReviewView> views = reviews.stream().map(review -> {
+        List<ReviewView> views = new ArrayList<>(reviews.size());
+        for (Review review : reviews) {
             User user = users.get(review.getUserId());
-            return new ReviewView(review.getId(), review.getRating(), review.getContent(),
-                    user == null || !StringUtils.hasText(user.getNickname())
-                            ? "匿名用户" : user.getNickname(),
-                    user == null || user.getAvatar() == null ? "" : user.getAvatar(),
-                    review.getCreatedAt());
-        }).toList();
+            String nickname = user == null || !StringUtils.hasText(user.getNickname())
+                    ? "匿名用户" : user.getNickname();
+            String avatar = user == null || user.getAvatar() == null ? "" : user.getAvatar();
+            views.add(new ReviewView(review.getId(), review.getRating(), review.getContent(),
+                    nickname, avatar, review.getCreatedAt()));
+        }
 
         return new PageResponse<>(views, result.getTotal(), result.getCurrent(), result.getSize());
     }
@@ -160,8 +176,10 @@ public class ReviewServiceImpl implements ReviewService {
         for (int star = 5; star >= 1; star--) {
             distribution.put(star, 0L);
         }
-        reviewMapper.countVisibleByRating(productId)
-                .forEach(row -> distribution.put(row.getRating(), row.getCount()));
+        List<ReviewRatingCount> ratingRows = reviewMapper.countVisibleByRating(productId);
+        for (ReviewRatingCount row : ratingRows) {
+            distribution.put(row.getRating(), row.getCount());
+        }
         return new ReviewSummary(average, count, distribution);
     }
 
@@ -198,21 +216,30 @@ public class ReviewServiceImpl implements ReviewService {
 
     private PageResponse<AdminReviewView> toAdminPage(Page<Review> result) {
         List<Review> reviews = result.getRecords();
-        Map<Long, Product> products = loadProducts(reviews.stream().map(Review::getProductId).toList());
-        Map<Long, User> users = loadUsers(reviews.stream().map(Review::getUserId).toList());
-        Map<Long, Merchant> merchants = loadMerchants(reviews.stream().map(Review::getMerchantId).toList());
+        List<Long> productIds = new ArrayList<>(reviews.size());
+        List<Long> userIds = new ArrayList<>(reviews.size());
+        List<Long> merchantIds = new ArrayList<>(reviews.size());
+        for (Review review : reviews) {
+            productIds.add(review.getProductId());
+            userIds.add(review.getUserId());
+            merchantIds.add(review.getMerchantId());
+        }
+        Map<Long, Product> products = loadProducts(productIds);
+        Map<Long, User> users = loadUsers(userIds);
+        Map<Long, Merchant> merchants = loadMerchants(merchantIds);
 
-        List<AdminReviewView> views = reviews.stream().map(review -> {
+        List<AdminReviewView> views = new ArrayList<>(reviews.size());
+        for (Review review : reviews) {
             Product product = products.get(review.getProductId());
             User user = users.get(review.getUserId());
             Merchant merchant = merchants.get(review.getMerchantId());
-            return new AdminReviewView(review.getId(), review.getUserId(),
+            views.add(new AdminReviewView(review.getId(), review.getUserId(),
                     user == null ? "未知用户" : user.getNickname(),
                     review.getMerchantId(), merchant == null ? "" : merchant.getName(),
                     review.getProductId(),
                     product == null ? "商品已不存在" : product.getName(),
-                    review.getRating(), review.getContent(), review.getStatus(), review.getCreatedAt());
-        }).toList();
+                    review.getRating(), review.getContent(), review.getStatus(), review.getCreatedAt()));
+        }
 
         return new PageResponse<>(views, result.getTotal(), result.getCurrent(), result.getSize());
     }
@@ -242,24 +269,42 @@ public class ReviewServiceImpl implements ReviewService {
     }
 
     private Map<Long, Product> loadProducts(List<Long> productIds) {
-        List<Long> ids = productIds.stream().distinct().toList();
+        Set<Long> ids = new HashSet<>();
+        for (Long id : productIds) {
+            if (id != null) ids.add(id);
+        }
         if (ids.isEmpty()) return Map.of();
-        return productMapper.selectByIds(ids).stream()
-                .collect(Collectors.toMap(Product::getId, Function.identity()));
+        Map<Long, Product> result = new HashMap<>();
+        for (Product product : productMapper.selectByIds(ids)) {
+            result.put(product.getId(), product);
+        }
+        return result;
     }
 
     private Map<Long, User> loadUsers(List<Long> userIds) {
-        List<Long> ids = userIds.stream().distinct().toList();
+        Set<Long> ids = new HashSet<>();
+        for (Long id : userIds) {
+            if (id != null) ids.add(id);
+        }
         if (ids.isEmpty()) return Map.of();
-        return userMapper.selectByIds(ids).stream()
-                .collect(Collectors.toMap(User::getId, Function.identity()));
+        Map<Long, User> result = new HashMap<>();
+        for (User user : userMapper.selectByIds(ids)) {
+            result.put(user.getId(), user);
+        }
+        return result;
     }
 
     private Map<Long, Merchant> loadMerchants(List<Long> merchantIds) {
-        List<Long> ids = merchantIds.stream().filter(java.util.Objects::nonNull).distinct().toList();
+        Set<Long> ids = new HashSet<>();
+        for (Long id : merchantIds) {
+            if (id != null) ids.add(id);
+        }
         if (ids.isEmpty()) return Map.of();
-        return merchantMapper.selectByIds(ids).stream()
-                .collect(Collectors.toMap(Merchant::getId, Function.identity()));
+        Map<Long, Merchant> result = new HashMap<>();
+        for (Merchant merchant : merchantMapper.selectByIds(ids)) {
+            result.put(merchant.getId(), merchant);
+        }
+        return result;
     }
 
     private void requireProduct(Long productId) {
