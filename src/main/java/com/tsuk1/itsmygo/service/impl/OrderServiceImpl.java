@@ -54,7 +54,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -169,6 +169,15 @@ public class OrderServiceImpl implements OrderService {
         return TOKEN_PREFIX + userId + ":" + token;
     }
 
+    /**
+     * 下单入口，整体分三步：
+     * 1. 先消费「提交令牌」，挡住重复提交；
+     * 2. 执行业务逻辑 doCreate（校验、算钱、Redis 预扣、落占位订单）；
+     * 3. 注册事务回调：事务最终回滚时，把令牌和预扣的库存还回去。
+     *
+     * 为什么用事务回调而不是只靠 try/catch：
+     * 方法正常返回后，Spring 提交事务时仍可能失败，那种异常不会进入这里的 catch。
+     */
     @Override
     @Transactional
     public CheckoutView create(Long userId, CreateOrderRequest request) {
@@ -211,13 +220,19 @@ public class OrderServiceImpl implements OrderService {
 
         // 已成功扣减的 **SKU** → 数量；出错或事务回滚时按它回补 Redis
         Map<Long, Integer> reserved = new LinkedHashMap<>();
+        // AtomicBoolean 相当于「可以在 lambda 里修改的 boolean」：
+        // 普通 boolean 在 lambda 中必须是 final，不能改。
+        // 下面的 catch 和事务回调都可能触发回补，用 CAS 保证库存只回补一次。
         AtomicBoolean released = new AtomicBoolean(false);
         Runnable releaseReserved = () -> {
             if (released.compareAndSet(false, true)) {
-                reserved.forEach(stockService::release);
+                for (Map.Entry<Long, Integer> entry : reserved.entrySet()) {
+                    stockService.release(entry.getKey(), entry.getValue());
+                }
             }
         };
-        // 业务 catch 只能覆盖方法内抛出的异常；提交阶段失败要靠事务回调
+        // 事务最终回滚时，把上面预扣的库存还回去。
+        // 为什么不能只靠下面的 catch：方法返回后的提交阶段失败不会进入 catch。
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
@@ -254,12 +269,22 @@ public class OrderServiceImpl implements OrderService {
                                            List<OrderLine> lines,
                                            boolean fromCart,
                                            List<CreateOrderRequest.CouponSelection> coupons) {
-        Map<Long, Product> products = productMapper.selectByIds(
-                        lines.stream().map(OrderLine::productId).distinct().toList())
-                .stream().collect(Collectors.toMap(Product::getId, Function.identity()));
-        Map<Long, ProductSku> skus = skuMapper.selectByIds(
-                        lines.stream().map(OrderLine::skuId).distinct().toList())
-                .stream().collect(Collectors.toMap(ProductSku::getId, Function.identity()));
+        // 先把这一单涉及的 productId / skuId 去重，再各查一次库；
+        // 查询结果转成 Map 后，循环里按 id 取商品/规格就是 O(1)，不会每行都查库。
+        Set<Long> productIds = new HashSet<>();
+        Set<Long> skuIds = new HashSet<>();
+        for (OrderLine line : lines) {
+            productIds.add(line.productId());
+            skuIds.add(line.skuId());
+        }
+        Map<Long, Product> products = new HashMap<>();
+        for (Product product : productMapper.selectByIds(productIds)) {
+            products.put(product.getId(), product);
+        }
+        Map<Long, ProductSku> skus = new HashMap<>();
+        for (ProductSku sku : skuMapper.selectByIds(skuIds)) {
+            skus.put(sku.getId(), sku);
+        }
 
         // 先按商户分组，并校验商品/规格/店铺
         Map<Long, List<OrderLine>> groups = new LinkedHashMap<>();
@@ -284,8 +309,10 @@ public class OrderServiceImpl implements OrderService {
                     sku.getPrice().multiply(BigDecimal.valueOf(line.quantity())), BigDecimal::add);
         }
 
-        Map<Long, Merchant> merchants = merchantMapper.selectByIds(merchantIds.stream().toList())
-                .stream().collect(Collectors.toMap(Merchant::getId, Function.identity()));
+        Map<Long, Merchant> merchants = new HashMap<>();
+        for (Merchant merchant : merchantMapper.selectByIds(merchantIds)) {
+            merchants.put(merchant.getId(), merchant);
+        }
         for (Long merchantId : groups.keySet()) {
             Merchant merchant = merchants.get(merchantId);
             if (merchant == null || !Merchant.ACTIVE.equals(merchant.getStatus())) {
@@ -304,18 +331,28 @@ public class OrderServiceImpl implements OrderService {
     }
 
     private void reserveStock(CheckoutPlan plan, Map<Long, Integer> reserved) {
-        // 按 skuId 排序预扣，降低多 SKU 并发下的死锁概率
-        plan.groups().values().stream()
-                .flatMap(List::stream)
-                .sorted(Comparator.comparing(OrderLine::skuId))
-                .forEach(line -> reserveStock(plan.skus().get(line.skuId()), line.quantity(), reserved));
+        // 把所有店铺的商品行摊平成一个列表
+        List<OrderLine> allLines = new ArrayList<>();
+        for (List<OrderLine> group : plan.groups().values()) {
+            allLines.addAll(group);
+        }
+        // 按 skuId 升序预扣：多个订单同时抢多个 SKU 时，
+        // 大家加锁顺序一致才不会互相等待（降低死锁概率）。
+        allLines.sort((a, b) -> Long.compare(a.skuId(), b.skuId()));
+        for (OrderLine line : allLines) {
+            reserveStock(plan.skus().get(line.skuId()), line.quantity(), reserved);
+        }
     }
 
     private List<Long> selectedCartItemIds(Long userId) {
-        return cartItemMapper.selectList(Wrappers.<CartItem>lambdaQuery()
-                        .eq(CartItem::getUserId, userId)
-                        .eq(CartItem::getSelected, 1))
-                .stream().map(CartItem::getId).toList();
+        List<CartItem> selected = cartItemMapper.selectList(Wrappers.<CartItem>lambdaQuery()
+                .eq(CartItem::getUserId, userId)
+                .eq(CartItem::getSelected, 1));
+        List<Long> ids = new ArrayList<>(selected.size());
+        for (CartItem item : selected) {
+            ids.add(item.getId());
+        }
+        return ids;
     }
 
     private List<CreatedOrder> persistOrders(Long userId, Address address, CheckoutPlan plan) {
@@ -373,11 +410,14 @@ public class OrderServiceImpl implements OrderService {
     }
 
     private CheckoutView finishCheckout(List<CreatedOrder> created, List<Long> cartItemIds) {
-        List<OrderView> views = created.stream()
-                .map(c -> new OrderView(c.order(), OrderStatus.CREATING.label(),
-                        c.items(), c.items().size()))
-                .toList();
-        List<Long> orderIds = created.stream().map(c -> c.order().getId()).toList();
+        // 先把「创建中」的订单转成前端视图；orderIds 留给下面的 MQ / 同步结算
+        List<OrderView> views = new ArrayList<>(created.size());
+        List<Long> orderIds = new ArrayList<>(created.size());
+        for (CreatedOrder c : created) {
+            views.add(new OrderView(c.order(), OrderStatus.CREATING.label(),
+                    c.items(), c.items().size()));
+            orderIds.add(c.order().getId());
+        }
         if (orderCreateProperties.async()) {
             // 事务提交后发 MQ；补账失败由消费端收尾（CREATE_FAILED）
             orderCreatedMqPublisher.publishAfterCommit(orderIds, cartItemIds);
@@ -388,14 +428,20 @@ public class OrderServiceImpl implements OrderService {
             for (CreatedOrder c : created) {
                 c.order().setStatus(OrderStatus.PENDING_PAYMENT.name());
             }
-            views = created.stream()
-                    .map(c -> new OrderView(c.order(), OrderStatus.PENDING_PAYMENT.label(),
-                            c.items(), c.items().size()))
-                    .toList();
+            views = new ArrayList<>(created.size());
+            for (CreatedOrder c : created) {
+                views.add(new OrderView(c.order(), OrderStatus.PENDING_PAYMENT.label(),
+                        c.items(), c.items().size()));
+            }
         }
         return CheckoutView.of(views);
     }
 
+    /**
+     * 一次下单的「结算计划」：按店铺分好组、算好金额和优惠。
+     * record 是 Java 16+ 的不可变数据载体：编译后自动生成构造器、
+     * 读取字段的方法（字段名()）以及 equals/hashCode，等价于一个只有 getter 的类。
+     */
     private record CheckoutPlan(
             Map<Long, List<OrderLine>> groups,
             Map<Long, BigDecimal> groupTotals,
@@ -406,6 +452,7 @@ public class OrderServiceImpl implements OrderService {
             Map<Long, BigDecimal> groupDiscounts) {
     }
 
+    /** 刚创建的一张订单 + 它的明细，用来组装返回给前端的视图 */
     private record CreatedOrder(Order order, List<OrderItem> items) {
     }
 
@@ -451,25 +498,27 @@ public class OrderServiceImpl implements OrderService {
 
     /** 下单的商品行 —— 购物车来的和「立即购买」来的，后面走同一套流程 */
     private record OrderLine(Long productId, Long skuId, int quantity) {
-    }
-
-    private List<OrderLine> selectedCartLines(Long userId) {
+    }    private List<OrderLine> selectedCartLines(Long userId) {
         List<CartItem> cartItems = cartItemMapper.selectList(Wrappers.<CartItem>lambdaQuery()
                 .eq(CartItem::getUserId, userId)
                 .eq(CartItem::getSelected, 1));
         if (cartItems.isEmpty()) {
             throw new BizException(ResultCode.BAD_REQUEST, "请先勾选要购买的商品");
         }
-        return cartItems.stream()
-                .map(cartItem -> new OrderLine(cartItem.getProductId(), cartItem.getSkuId(),
-                        cartItem.getQuantity()))
-                .toList();
+        List<OrderLine> lines = new ArrayList<>(cartItems.size());
+        for (CartItem cartItem : cartItems) {
+            lines.add(new OrderLine(cartItem.getProductId(), cartItem.getSkuId(),
+                    cartItem.getQuantity()));
+        }
+        return lines;
     }
 
     private List<OrderLine> buyNowLines(List<CreateOrderRequest.BuyNowItem> items) {
-        return items.stream()
-                .map(item -> new OrderLine(item.productId(), item.skuId(), item.quantity()))
-                .toList();
+        List<OrderLine> lines = new ArrayList<>(items.size());
+        for (CreateOrderRequest.BuyNowItem item : items) {
+            lines.add(new OrderLine(item.productId(), item.skuId(), item.quantity()));
+        }
+        return lines;
     }
 
     /**

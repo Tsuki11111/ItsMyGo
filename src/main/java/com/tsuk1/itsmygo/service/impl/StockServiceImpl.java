@@ -117,8 +117,13 @@ public class StockServiceImpl implements StockService {
         List<Long> ids = new ArrayList<>(skuIds);
         Map<Long, Integer> result = new HashMap<>(ids.size());
 
-        // ① 一次 multiGet 拿全部，别逐个读 —— 详情页一屏就是好几个 SKU
-        List<String> keys = ids.stream().map(this::key).toList();
+        // ① 一次 multiGet 拿全部，别逐个读 —— 详情页一屏就是好几个 SKU。
+        // 这里用显式循环而不是 Stream：把「SKU id → Redis key」的转换一步步写出来，
+        // 不熟悉 Stream 也能直接看懂。
+        List<String> keys = new ArrayList<>(ids.size());
+        for (Long skuId : ids) {
+            keys.add(key(skuId));
+        }
         List<String> values = redisTemplate.opsForValue().multiGet(keys);
 
         List<Long> missing = new ArrayList<>();
@@ -155,7 +160,9 @@ public class StockServiceImpl implements StockService {
         }
 
         String lockKey = key + ":loading";
-        // SETNX + TTL 一条命令完成，别拆成 SETNX 再 EXPIRE（两步之间崩掉就是死锁）
+        // SETNX + TTL 一条命令完成，别拆成 SETNX 再 EXPIRE（两步之间崩掉就是死锁）。
+        // 返回值是包装类型 Boolean：Redis 连接异常时可能是 null，
+        // 所以下面用 Boolean.TRUE.equals(...) 判断，避免自动拆箱抛空指针。
         Boolean gotLock = redisTemplate.opsForValue()
                 .setIfAbsent(lockKey, "1", LOAD_LOCK_TTL);
 
@@ -217,6 +224,8 @@ public class StockServiceImpl implements StockService {
      * 那一瞬间大量请求同时回源 —— 这就是**缓存雪崩**。
      */
     private Duration stockTtl() {
+        // ThreadLocalRandom 是「每个线程独立」的随机数生成器：
+        // 多线程同时调用不会像共享一个 Random 那样互相竞争。
         long jitter = ThreadLocalRandom.current()
                 .nextLong(-STOCK_TTL_JITTER_SECONDS, STOCK_TTL_JITTER_SECONDS + 1);
         return STOCK_TTL_BASE.plusSeconds(jitter);
