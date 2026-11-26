@@ -21,10 +21,11 @@ import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
-import java.util.stream.Collectors;
+import java.util.Set;
 
 @Service
 public class CartServiceImpl implements CartService {
@@ -105,19 +106,34 @@ public class CartServiceImpl implements CartService {
             return new CartView(List.of(), BigDecimal.ZERO);
         }
 
-        Map<Long, Product> products = productMapper.selectByIds(
-                        items.stream().map(CartItem::getProductId).distinct().toList())
-                .stream().collect(Collectors.toMap(Product::getId, Function.identity()));
+        // 商品 / SKU / 店铺各批量查一次，避免逐行查库（N+1）
+        Set<Long> productIds = new HashSet<>();
+        Set<Long> skuIds = new HashSet<>();
+        for (CartItem item : items) {
+            productIds.add(item.getProductId());
+            skuIds.add(item.getSkuId());
+        }
+        Map<Long, Product> products = new HashMap<>();
+        for (Product product : productMapper.selectByIds(productIds)) {
+            products.put(product.getId(), product);
+        }
+        Map<Long, ProductSku> skus = new HashMap<>();
+        for (ProductSku sku : skuMapper.selectByIds(skuIds)) {
+            skus.put(sku.getId(), sku);
+        }
 
-        Map<Long, ProductSku> skus = skuMapper.selectByIds(
-                        items.stream().map(CartItem::getSkuId).distinct().toList())
-                .stream().collect(Collectors.toMap(ProductSku::getId, Function.identity()));
-
-        List<Long> merchantIds = products.values().stream()
-                .map(Product::getMerchantId).filter(java.util.Objects::nonNull).distinct().toList();
-        Map<Long, Merchant> merchants = merchantIds.isEmpty() ? Map.of()
-                : merchantMapper.selectByIds(merchantIds).stream()
-                .collect(Collectors.toMap(Merchant::getId, Function.identity()));
+        Set<Long> merchantIds = new HashSet<>();
+        for (Product product : products.values()) {
+            if (product.getMerchantId() != null) {
+                merchantIds.add(product.getMerchantId());
+            }
+        }
+        Map<Long, Merchant> merchants = new HashMap<>();
+        if (!merchantIds.isEmpty()) {
+            for (Merchant merchant : merchantMapper.selectByIds(merchantIds)) {
+                merchants.put(merchant.getId(), merchant);
+            }
+        }
 
         BigDecimal selectedTotal = BigDecimal.ZERO;
         List<CartItemView> views = new ArrayList<>(items.size());

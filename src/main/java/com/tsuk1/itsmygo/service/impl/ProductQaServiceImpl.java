@@ -1,5 +1,6 @@
 package com.tsuk1.itsmygo.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.tsuk1.itsmygo.common.ResultCode;
@@ -24,10 +25,11 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
-import java.util.stream.Collectors;
+import java.util.Set;
 
 @Service
 public class ProductQaServiceImpl implements ProductQaService {
@@ -70,7 +72,7 @@ public class ProductQaServiceImpl implements ProductQaService {
     public PageResponse<ProductQuestionView> questions(Long productId, int page, int size,
                                                        String filter) {
         requireProduct(productId);
-        var query = Wrappers.<ProductQuestion>lambdaQuery()
+        LambdaQueryWrapper<ProductQuestion> query = Wrappers.<ProductQuestion>lambdaQuery()
                 .eq(ProductQuestion::getProductId, productId)
                 .eq(ProductQuestion::getStatus, VISIBLE);
         if ("unanswered".equals(filter)) {
@@ -87,27 +89,44 @@ public class ProductQaServiceImpl implements ProductQaService {
             return new PageResponse<>(List.of(), result.getTotal(), result.getCurrent(), result.getSize());
         }
 
-        List<Long> questionIds = rows.stream().map(ProductQuestion::getId).toList();
+        List<Long> questionIds = new ArrayList<>(rows.size());
+        for (ProductQuestion row : rows) {
+            questionIds.add(row.getId());
+        }
         List<ProductAnswer> previews = answerMapper.selectPreviewAnswers(questionIds, PREVIEW_ANSWERS);
-        Map<Long, List<ProductAnswer>> answersByQuestion = previews.stream()
-                .collect(Collectors.groupingBy(ProductAnswer::getQuestionId));
+        // 按 questionId 分组，后面每个问题只取自己的前几条回答
+        Map<Long, List<ProductAnswer>> answersByQuestion = new HashMap<>();
+        for (ProductAnswer answer : previews) {
+            List<ProductAnswer> list = answersByQuestion.get(answer.getQuestionId());
+            if (list == null) {
+                list = new ArrayList<>();
+                answersByQuestion.put(answer.getQuestionId(), list);
+            }
+            list.add(answer);
+        }
 
-        List<Long> userIds = new ArrayList<>();
-        rows.forEach(row -> userIds.add(row.getUserId()));
-        previews.forEach(answer -> userIds.add(answer.getUserId()));
+        // 提问人 + 回答人一次性查回
+        Set<Long> userIds = new HashSet<>();
+        for (ProductQuestion row : rows) {
+            userIds.add(row.getUserId());
+        }
+        for (ProductAnswer answer : previews) {
+            userIds.add(answer.getUserId());
+        }
         Map<Long, User> users = loadUsers(userIds);
 
-        List<ProductQuestionView> views = rows.stream().map(row -> {
+        List<ProductQuestionView> views = new ArrayList<>(rows.size());
+        for (ProductQuestion row : rows) {
             User asker = users.get(row.getUserId());
-            List<ProductAnswerView> answers = answersByQuestion
-                    .getOrDefault(row.getId(), List.of()).stream()
-                    .map(answer -> answerView(answer, users.get(answer.getUserId())))
-                    .toList();
-            return new ProductQuestionView(
+            List<ProductAnswerView> answers = new ArrayList<>();
+            for (ProductAnswer answer : answersByQuestion.getOrDefault(row.getId(), List.of())) {
+                answers.add(answerView(answer, users.get(answer.getUserId())));
+            }
+            views.add(new ProductQuestionView(
                     row.getId(), row.getContent(), nickname(asker), avatar(asker),
                     row.getAnswerCount() == null ? 0 : row.getAnswerCount(),
-                    row.getCreatedAt(), answers);
-        }).toList();
+                    row.getCreatedAt(), answers));
+        }
         return new PageResponse<>(views, result.getTotal(), result.getCurrent(), result.getSize());
     }
 
@@ -124,11 +143,15 @@ public class ProductQaServiceImpl implements ProductQaService {
                         .eq(ProductAnswer::getQuestionId, questionId)
                         .eq(ProductAnswer::getStatus, VISIBLE)
                         .orderByDesc(ProductAnswer::getId));
-        Map<Long, User> users = loadUsers(
-                result.getRecords().stream().map(ProductAnswer::getUserId).toList());
-        List<ProductAnswerView> views = result.getRecords().stream()
-                .map(answer -> answerView(answer, users.get(answer.getUserId())))
-                .toList();
+        List<Long> userIds = new ArrayList<>(result.getRecords().size());
+        for (ProductAnswer answer : result.getRecords()) {
+            userIds.add(answer.getUserId());
+        }
+        Map<Long, User> users = loadUsers(userIds);
+        List<ProductAnswerView> views = new ArrayList<>(result.getRecords().size());
+        for (ProductAnswer answer : result.getRecords()) {
+            views.add(answerView(answer, users.get(answer.getUserId())));
+        }
         return new PageResponse<>(views, result.getTotal(), result.getCurrent(), result.getSize());
     }
 
@@ -175,11 +198,17 @@ public class ProductQaServiceImpl implements ProductQaService {
         }
     }
 
-    private Map<Long, User> loadUsers(List<Long> userIds) {
-        List<Long> ids = userIds.stream().filter(java.util.Objects::nonNull).distinct().toList();
+    private Map<Long, User> loadUsers(Iterable<Long> userIds) {
+        Set<Long> ids = new HashSet<>();
+        for (Long id : userIds) {
+            if (id != null) ids.add(id);
+        }
         if (ids.isEmpty()) return Map.of();
-        return userMapper.selectByIds(ids).stream()
-                .collect(Collectors.toMap(User::getId, Function.identity()));
+        Map<Long, User> result = new HashMap<>();
+        for (User user : userMapper.selectByIds(ids)) {
+            result.put(user.getId(), user);
+        }
+        return result;
     }
 
     private String nickname(User user) {
