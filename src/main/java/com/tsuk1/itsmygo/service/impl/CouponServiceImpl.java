@@ -21,12 +21,13 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 @Service
 public class CouponServiceImpl implements CouponService {
@@ -54,28 +55,43 @@ public class CouponServiceImpl implements CouponService {
                 .orderByDesc(Coupon::getId));
         if (coupons.isEmpty()) return List.of();
 
-        Map<Long, Merchant> merchants = loadMerchants(coupons.stream()
-                .map(Coupon::getMerchantId).filter(Objects::nonNull).toList());
+        List<Long> merchantIds = new ArrayList<>();
+        List<Long> couponIds = new ArrayList<>(coupons.size());
+        for (Coupon coupon : coupons) {
+            if (coupon.getMerchantId() != null) {
+                merchantIds.add(coupon.getMerchantId());
+            }
+            couponIds.add(coupon.getId());
+        }
+        Map<Long, Merchant> merchants = loadMerchants(merchantIds);
 
-        Set<Long> claimedIds = userId == null ? Set.of()
-                : userCouponMapper.selectList(Wrappers.<UserCoupon>lambdaQuery()
-                        .eq(UserCoupon::getUserId, userId)
-                        .in(UserCoupon::getCouponId, coupons.stream().map(Coupon::getId).toList()))
-                .stream().map(UserCoupon::getCouponId).collect(Collectors.toSet());
+        // 当前用户已经领过的券 id；未登录时为空集合
+        Set<Long> claimedIds = new HashSet<>();
+        if (userId != null) {
+            List<UserCoupon> claimed = userCouponMapper.selectList(Wrappers.<UserCoupon>lambdaQuery()
+                    .eq(UserCoupon::getUserId, userId)
+                    .in(UserCoupon::getCouponId, couponIds));
+            for (UserCoupon userCoupon : claimed) {
+                claimedIds.add(userCoupon.getCouponId());
+            }
+        }
 
-        return coupons.stream()
-                // 店铺券只在店铺营业中时可领；平台券不受影响
-                .filter(coupon -> coupon.getMerchantId() == null
-                        || isActive(merchants.get(coupon.getMerchantId())))
-                .map(coupon -> new CouponView(
-                        coupon.getId(), coupon.getMerchantId(),
-                        merchantName(merchants, coupon.getMerchantId()),
-                        coupon.getName(), coupon.getThresholdAmount(),
-                        coupon.getDiscountAmount(), coupon.getTotalCount(), coupon.getClaimedCount(),
-                        coupon.getTotalCount() - coupon.getClaimedCount(),
-                        coupon.getValidFrom(), coupon.getValidTo(),
-                        claimedIds.contains(coupon.getId())))
-                .toList();
+        List<CouponView> views = new ArrayList<>(coupons.size());
+        for (Coupon coupon : coupons) {
+            // 店铺券只在店铺营业中时可领；平台券不受影响
+            if (coupon.getMerchantId() != null && !isActive(merchants.get(coupon.getMerchantId()))) {
+                continue;
+            }
+            views.add(new CouponView(
+                    coupon.getId(), coupon.getMerchantId(),
+                    merchantName(merchants, coupon.getMerchantId()),
+                    coupon.getName(), coupon.getThresholdAmount(),
+                    coupon.getDiscountAmount(), coupon.getTotalCount(), coupon.getClaimedCount(),
+                    coupon.getTotalCount() - coupon.getClaimedCount(),
+                    coupon.getValidFrom(), coupon.getValidTo(),
+                    claimedIds.contains(coupon.getId())));
+        }
+        return views;
     }
 
     @Override
@@ -128,11 +144,17 @@ public class CouponServiceImpl implements CouponService {
         Page<UserCoupon> result = userCouponMapper.selectMinePage(
                 new Page<>(normalizePage(page), normalizeSize(size)), userId,
                 StringUtils.hasText(status) ? status : null);
-        Map<Long, Merchant> merchants = loadMerchants(result.getRecords().stream()
-                .map(UserCoupon::getMerchantId).filter(Objects::nonNull).toList());
-        List<UserCouponView> views = result.getRecords().stream()
-                .map(coupon -> toView(coupon, merchantName(merchants, coupon.getMerchantId())))
-                .toList();
+        List<Long> merchantIds = new ArrayList<>(result.getRecords().size());
+        for (UserCoupon coupon : result.getRecords()) {
+            if (coupon.getMerchantId() != null) {
+                merchantIds.add(coupon.getMerchantId());
+            }
+        }
+        Map<Long, Merchant> merchants = loadMerchants(merchantIds);
+        List<UserCouponView> views = new ArrayList<>(result.getRecords().size());
+        for (UserCoupon coupon : result.getRecords()) {
+            views.add(toView(coupon, merchantName(merchants, coupon.getMerchantId())));
+        }
         return new PageResponse<>(views, result.getTotal(), result.getCurrent(), result.getSize());
     }
 
@@ -145,11 +167,18 @@ public class CouponServiceImpl implements CouponService {
     public List<UserCouponView> available(Long userId, BigDecimal amount, Long merchantId) {
         BigDecimal threshold = amount == null ? BigDecimal.ZERO : amount;
         List<UserCoupon> coupons = userCouponMapper.selectAvailable(userId, threshold, merchantId);
-        Map<Long, Merchant> merchants = loadMerchants(coupons.stream()
-                .map(UserCoupon::getMerchantId).filter(Objects::nonNull).toList());
-        return coupons.stream()
-                .map(coupon -> toView(coupon, merchantName(merchants, coupon.getMerchantId())))
-                .toList();
+        List<Long> merchantIds = new ArrayList<>(coupons.size());
+        for (UserCoupon coupon : coupons) {
+            if (coupon.getMerchantId() != null) {
+                merchantIds.add(coupon.getMerchantId());
+            }
+        }
+        Map<Long, Merchant> merchants = loadMerchants(merchantIds);
+        List<UserCouponView> views = new ArrayList<>(coupons.size());
+        for (UserCoupon coupon : coupons) {
+            views.add(toView(coupon, merchantName(merchants, coupon.getMerchantId())));
+        }
+        return views;
     }
 
     @Override
@@ -244,10 +273,16 @@ public class CouponServiceImpl implements CouponService {
     }
 
     private Map<Long, Merchant> loadMerchants(List<Long> merchantIds) {
-        List<Long> ids = merchantIds.stream().distinct().toList();
+        Set<Long> ids = new HashSet<>();
+        for (Long id : merchantIds) {
+            if (id != null) ids.add(id);
+        }
         if (ids.isEmpty()) return Map.of();
-        return merchantMapper.selectByIds(ids).stream()
-                .collect(Collectors.toMap(Merchant::getId, Function.identity()));
+        Map<Long, Merchant> result = new HashMap<>();
+        for (Merchant merchant : merchantMapper.selectByIds(ids)) {
+            result.put(merchant.getId(), merchant);
+        }
+        return result;
     }
 
     private String merchantName(Map<Long, Merchant> merchants, Long merchantId) {

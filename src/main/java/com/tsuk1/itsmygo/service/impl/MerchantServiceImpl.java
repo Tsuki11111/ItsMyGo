@@ -38,11 +38,12 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
+import java.util.Set;
 
 @Slf4j
 @Service
@@ -87,12 +88,16 @@ public class MerchantServiceImpl implements MerchantService {
         Merchant existing = merchantMapper.selectOne(Wrappers.<Merchant>lambdaQuery()
                 .eq(Merchant::getOwnerUserId, userId));
         if (existing != null) {
-            return switch (existing.getStatus()) {
-                case Merchant.PENDING -> throw new BizException(ResultCode.BAD_REQUEST, "入驻申请审核中");
-                case Merchant.ACTIVE -> throw new BizException(ResultCode.BAD_REQUEST, "该账号已是商家");
-                case Merchant.DISABLED -> throw new BizException(ResultCode.BAD_REQUEST, "店铺已被禁用");
-                default -> resubmit(existing.getId(), request);
-            };
+            if (Merchant.PENDING.equals(existing.getStatus())) {
+                throw new BizException(ResultCode.BAD_REQUEST, "入驻申请审核中");
+            }
+            if (Merchant.ACTIVE.equals(existing.getStatus())) {
+                throw new BizException(ResultCode.BAD_REQUEST, "该账号已是商家");
+            }
+            if (Merchant.DISABLED.equals(existing.getStatus())) {
+                throw new BizException(ResultCode.BAD_REQUEST, "店铺已被禁用");
+            }
+            return resubmit(existing.getId(), request);
         }
 
         Merchant merchant = new Merchant();
@@ -208,42 +213,57 @@ public class MerchantServiceImpl implements MerchantService {
                         .orderByDesc(Merchant::getId));
 
         List<Merchant> merchants = result.getRecords();
-        List<Long> ownerIds = merchants.stream().map(Merchant::getOwnerUserId)
-                .filter(java.util.Objects::nonNull).distinct().toList();
-        Map<Long, User> users = ownerIds.isEmpty() ? Map.of()
-                : userMapper.selectByIds(ownerIds).stream()
-                .collect(Collectors.toMap(User::getId, Function.identity()));
+        Set<Long> ownerIds = new HashSet<>();
+        List<Long> merchantIds = new ArrayList<>(merchants.size());
+        for (Merchant merchant : merchants) {
+            if (merchant.getOwnerUserId() != null) {
+                ownerIds.add(merchant.getOwnerUserId());
+            }
+            merchantIds.add(merchant.getId());
+        }
+        Map<Long, User> users = new HashMap<>();
+        if (!ownerIds.isEmpty()) {
+            for (User user : userMapper.selectByIds(ownerIds)) {
+                users.put(user.getId(), user);
+            }
+        }
 
-        List<AdminMerchantView> views = merchants.stream()
-                .map(merchant -> toAdminView(merchant,
-                        merchant.getOwnerUserId() == null ? null
-                                : users.get(merchant.getOwnerUserId())))
-                .toList();
+        List<AdminMerchantView> views = new ArrayList<>(merchants.size());
+        for (Merchant merchant : merchants) {
+            User owner = merchant.getOwnerUserId() == null
+                    ? null : users.get(merchant.getOwnerUserId());
+            views.add(toAdminView(merchant, owner));
+        }
 
         if (!merchants.isEmpty()) {
             LocalDate today = LocalDate.now();
             LocalDateTime start = today.minusDays(29).atStartOfDay();
             LocalDateTime end = today.plusDays(1).atStartOfDay();
-            List<Long> merchantIds = merchants.stream().map(Merchant::getId).toList();
-            Map<Long, AdminMerchantSalesRow> sales = operationsMapper
-                    .merchantSales(merchantIds, start, end).stream()
-                    .collect(Collectors.toMap(AdminMerchantSalesRow::getMerchantId, Function.identity()));
-            Map<Long, AdminMerchantInventoryRow> inventory = operationsMapper
-                    .merchantInventory(merchantIds, LOW_STOCK_THRESHOLD).stream()
-                    .collect(Collectors.toMap(AdminMerchantInventoryRow::getMerchantId,
-                            Function.identity()));
-            views = views.stream().map(view -> {
+            // 30 天销售 / 库存统计各查一次，再按 merchantId 回填到视图
+            Map<Long, AdminMerchantSalesRow> sales = new HashMap<>();
+            for (AdminMerchantSalesRow row
+                    : operationsMapper.merchantSales(merchantIds, start, end)) {
+                sales.put(row.getMerchantId(), row);
+            }
+            Map<Long, AdminMerchantInventoryRow> inventory = new HashMap<>();
+            for (AdminMerchantInventoryRow row
+                    : operationsMapper.merchantInventory(merchantIds, LOW_STOCK_THRESHOLD)) {
+                inventory.put(row.getMerchantId(), row);
+            }
+            List<AdminMerchantView> enrichedViews = new ArrayList<>(views.size());
+            for (AdminMerchantView view : views) {
                 AdminMerchantSalesRow sale = sales.get(view.id());
                 AdminMerchantInventoryRow stock = inventory.get(view.id());
-                return view.withStats(
+                enrichedViews.add(view.withStats(
                         money(sale == null ? null : sale.getGmv30()),
                         sale == null || sale.getOrders30() == null ? 0 : sale.getOrders30(),
                         sale == null || sale.getRefunding30() == null ? 0 : sale.getRefunding30(),
                         stock == null || stock.getOnSaleProducts() == null
                                 ? 0 : stock.getOnSaleProducts(),
                         stock == null || stock.getLowStockSkus() == null
-                                ? 0 : stock.getLowStockSkus());
-            }).toList();
+                                ? 0 : stock.getLowStockSkus()));
+            }
+            views = enrichedViews;
         }
         return new PageResponse<>(views, result.getTotal(), result.getCurrent(), result.getSize());
     }
@@ -258,11 +278,10 @@ public class MerchantServiceImpl implements MerchantService {
         LocalDate today = LocalDate.now();
         LocalDateTime start = today.minusDays(29).atStartOfDay();
         LocalDateTime end = today.plusDays(1).atStartOfDay();
-        AdminMerchantSalesRow sale = operationsMapper
-                .merchantSales(List.of(merchantId), start, end).stream().findFirst().orElse(null);
-        AdminMerchantInventoryRow stock = operationsMapper
-                .merchantInventory(List.of(merchantId), LOW_STOCK_THRESHOLD)
-                .stream().findFirst().orElse(null);
+        AdminMerchantSalesRow sale = first(operationsMapper
+                .merchantSales(List.of(merchantId), start, end));
+        AdminMerchantInventoryRow stock = first(operationsMapper
+                .merchantInventory(List.of(merchantId), LOW_STOCK_THRESHOLD));
         AdminMerchantView enriched = base.withStats(
                 money(sale == null ? null : sale.getGmv30()),
                 sale == null || sale.getOrders30() == null ? 0 : sale.getOrders30(),
@@ -283,39 +302,53 @@ public class MerchantServiceImpl implements MerchantService {
 
     private List<AdminDashboardView.TrendPoint> trend(Long merchantId, LocalDate today) {
         LocalDate first = today.minusDays(6);
-        Map<LocalDate, AdminDailySales> byDay = operationsMapper
-                .merchantDailySales(merchantId, first.atStartOfDay(), today.plusDays(1).atStartOfDay())
-                .stream().collect(Collectors.toMap(AdminDailySales::getDay, Function.identity()));
-        return IntStream.rangeClosed(0, 6).mapToObj(i -> {
+        // 数据库只会返回有销量的日期，这里补齐 7 天，没有数据的补 0
+        Map<LocalDate, AdminDailySales> byDay = new HashMap<>();
+        for (AdminDailySales row : operationsMapper.merchantDailySales(
+                merchantId, first.atStartOfDay(), today.plusDays(1).atStartOfDay())) {
+            byDay.put(row.getDay(), row);
+        }
+        List<AdminDashboardView.TrendPoint> points = new ArrayList<>(7);
+        for (int i = 0; i <= 6; i++) {
             LocalDate day = first.plusDays(i);
             AdminDailySales row = byDay.get(day);
-            return new AdminDashboardView.TrendPoint(
+            points.add(new AdminDashboardView.TrendPoint(
                     day.toString(),
                     money(row == null ? null : row.getAmount()),
-                    row == null || row.getOrderCount() == null ? 0 : row.getOrderCount());
-        }).toList();
+                    row == null || row.getOrderCount() == null ? 0 : row.getOrderCount()));
+        }
+        return points;
     }
 
     private List<AdminMerchantOperationsView.TopProduct> topProducts(Long merchantId) {
-        return operationsMapper.topProducts(merchantId, TOP_PRODUCT_LIMIT).stream()
-                .map(row -> new AdminMerchantOperationsView.TopProduct(
-                        row.getProductId(), nullToEmpty(row.getName()),
-                        nullToEmpty(row.getImage()), money(row.getPrice()),
-                        row.getStock() == null ? 0 : row.getStock(),
-                        row.getSales() == null ? 0 : row.getSales()))
-                .toList();
+        List<AdminMerchantOperationsView.TopProduct> products = new ArrayList<>();
+        for (AdminTopProductRow row : operationsMapper.topProducts(merchantId, TOP_PRODUCT_LIMIT)) {
+            products.add(new AdminMerchantOperationsView.TopProduct(
+                    row.getProductId(), nullToEmpty(row.getName()),
+                    nullToEmpty(row.getImage()), money(row.getPrice()),
+                    row.getStock() == null ? 0 : row.getStock(),
+                    row.getSales() == null ? 0 : row.getSales()));
+        }
+        return products;
     }
 
     private List<AdminMerchantOperationsView.RecentOrder> recentOrders(Long merchantId) {
-        return orderMapper.selectList(Wrappers.<Order>lambdaQuery()
-                        .eq(Order::getMerchantId, merchantId)
-                        .orderByDesc(Order::getId)
-                        .last("LIMIT " + RECENT_ORDER_LIMIT)).stream()
-                .map(order -> new AdminMerchantOperationsView.RecentOrder(
-                        order.getId(), nullToEmpty(order.getOrderNo()),
-                        money(order.getTotalAmount()), nullToEmpty(order.getStatus()),
-                        statusLabel(order.getStatus()), format(order.getCreatedAt())))
-                .toList();
+        List<Order> orders = orderMapper.selectList(Wrappers.<Order>lambdaQuery()
+                .eq(Order::getMerchantId, merchantId)
+                .orderByDesc(Order::getId)
+                .last("LIMIT " + RECENT_ORDER_LIMIT));
+        List<AdminMerchantOperationsView.RecentOrder> views = new ArrayList<>(orders.size());
+        for (Order order : orders) {
+            views.add(new AdminMerchantOperationsView.RecentOrder(
+                    order.getId(), nullToEmpty(order.getOrderNo()),
+                    money(order.getTotalAmount()), nullToEmpty(order.getStatus()),
+                    statusLabel(order.getStatus()), format(order.getCreatedAt())));
+        }
+        return views;
+    }
+
+    private <T> T first(List<T> list) {
+        return list == null || list.isEmpty() ? null : list.get(0);
     }
 
     private String statusLabel(String status) {

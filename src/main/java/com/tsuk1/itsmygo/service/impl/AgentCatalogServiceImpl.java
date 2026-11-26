@@ -28,14 +28,15 @@ import org.springframework.util.StringUtils;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
-import java.util.function.Function;
-import java.util.stream.Collectors;
+import java.util.Set;
 
 /**
  * agent 的只读数据入口：商品目录（筛选 / 排序 / 评分 / 库存）与当前用户的收货地址。
@@ -82,14 +83,23 @@ public class AgentCatalogServiceImpl implements AgentCatalogService {
         if (products.isEmpty()) {
             return List.of();
         }
-        return enrich(products).stream()
-                .filter(view -> priceMin == null
-                        || moneyValue(view.price()).compareTo(priceMin) >= 0)
-                .filter(view -> priceMax == null
-                        || moneyValue(view.price()).compareTo(priceMax) <= 0)
-                .sorted(comparator(sort))
-                .limit(limit)
-                .toList();
+        List<AgentProductView> views = enrich(products);
+        // 价格区间在内存里过滤（演示目录只有几十条，不必写进 SQL）
+        List<AgentProductView> filtered = new ArrayList<>();
+        for (AgentProductView view : views) {
+            if (priceMin != null && moneyValue(view.price()).compareTo(priceMin) < 0) {
+                continue;
+            }
+            if (priceMax != null && moneyValue(view.price()).compareTo(priceMax) > 0) {
+                continue;
+            }
+            filtered.add(view);
+        }
+        filtered.sort(comparator(sort));
+        if (filtered.size() > limit) {
+            return new ArrayList<>(filtered.subList(0, limit));
+        }
+        return filtered;
     }
 
     @Override
@@ -107,14 +117,17 @@ public class AgentCatalogServiceImpl implements AgentCatalogService {
 
     @Override
     public List<AgentAddressView> addresses(Long userId) {
-        return addressService.list(userId).stream()
-                .map(address -> new AgentAddressView(
-                        address.getId(),
-                        nullToEmpty(address.getReceiver()),
-                        nullToEmpty(address.getPhone()),
-                        fullAddress(address),
-                        address.getIsDefault() != null && address.getIsDefault() == 1))
-                .toList();
+        List<Address> addresses = addressService.list(userId);
+        List<AgentAddressView> views = new ArrayList<>(addresses.size());
+        for (Address address : addresses) {
+            views.add(new AgentAddressView(
+                    address.getId(),
+                    nullToEmpty(address.getReceiver()),
+                    nullToEmpty(address.getPhone()),
+                    fullAddress(address),
+                    address.getIsDefault() != null && address.getIsDefault() == 1));
+        }
+        return views;
     }
 
     @Override
@@ -148,26 +161,45 @@ public class AgentCatalogServiceImpl implements AgentCatalogService {
         if (products.isEmpty()) {
             return List.of();
         }
-        List<Long> ids = products.stream().map(Product::getId).toList();
-        Map<Long, ProductReviewStat> stats = reviewMapper.statsByProductIds(ids).stream()
-                .collect(Collectors.toMap(ProductReviewStat::getProductId, Function.identity()));
+        List<Long> ids = new ArrayList<>(products.size());
+        Set<Long> merchantIds = new HashSet<>();
+        Set<Long> categoryIds = new HashSet<>();
+        for (Product product : products) {
+            ids.add(product.getId());
+            if (product.getMerchantId() != null) {
+                merchantIds.add(product.getMerchantId());
+            }
+            if (product.getCategoryId() != null) {
+                categoryIds.add(product.getCategoryId());
+            }
+        }
 
-        List<Long> merchantIds = products.stream().map(Product::getMerchantId)
-                .filter(Objects::nonNull).distinct().toList();
-        Map<Long, Merchant> merchants = merchantIds.isEmpty() ? Map.of()
-                : merchantMapper.selectByIds(merchantIds).stream()
-                .collect(Collectors.toMap(Merchant::getId, Function.identity()));
+        // 评价统计：一次查回这一批商品
+        Map<Long, ProductReviewStat> stats = new HashMap<>();
+        for (ProductReviewStat stat : reviewMapper.statsByProductIds(ids)) {
+            stats.put(stat.getProductId(), stat);
+        }
+        Map<Long, Merchant> merchants = new HashMap<>();
+        if (!merchantIds.isEmpty()) {
+            for (Merchant merchant : merchantMapper.selectByIds(merchantIds)) {
+                merchants.put(merchant.getId(), merchant);
+            }
+        }
+        Map<Long, Category> categories = new HashMap<>();
+        if (!categoryIds.isEmpty()) {
+            for (Category category : categoryMapper.selectByIds(categoryIds)) {
+                categories.put(category.getId(), category);
+            }
+        }
 
-        List<Long> categoryIds = products.stream().map(Product::getCategoryId)
-                .filter(Objects::nonNull).distinct().toList();
-        Map<Long, Category> categories = categoryIds.isEmpty() ? Map.of()
-                : categoryMapper.selectByIds(categoryIds).stream()
-                .collect(Collectors.toMap(Category::getId, Function.identity()));
-
-        return products.stream()
-                .map(product -> toProductView(product, merchants, categories, stats))
-                .filter(Objects::nonNull)
-                .toList();
+        List<AgentProductView> views = new ArrayList<>(products.size());
+        for (Product product : products) {
+            AgentProductView view = toProductView(product, merchants, categories, stats);
+            if (view != null) {
+                views.add(view);
+            }
+        }
+        return views;
     }
 
     private AgentProductView toProductView(Product product,
@@ -176,22 +208,34 @@ public class AgentCatalogServiceImpl implements AgentCatalogService {
                                            Map<Long, ProductReviewStat> stats) {
         try {
             Product detail = productService.detailForCustomer(product.getId());
-            List<ProductSku> rawSkus = detail.getSkus() == null ? List.of()
-                    : detail.getSkus().stream()
-                    .filter(sku -> sku.getStatus() == null || sku.getStatus() == 1)
-                    .toList();
-            List<AgentProductView.Sku> skus = rawSkus.stream()
-                    .map(sku -> new AgentProductView.Sku(
-                            sku.getId(),
-                            nullToEmpty(sku.getSpecText()),
-                            money(sku.getPrice()),
-                            sku.getStock()))
-                    .toList();
-            int totalStock = rawSkus.stream()
-                    .mapToInt(sku -> sku.getStock() == null ? 0 : sku.getStock()).sum();
-            BigDecimal minPrice = rawSkus.stream().map(ProductSku::getPrice)
-                    .filter(Objects::nonNull).min(BigDecimal::compareTo)
-                    .orElse(detail.getPrice());
+            // 只保留在售 SKU
+            List<ProductSku> rawSkus = new ArrayList<>();
+            if (detail.getSkus() != null) {
+                for (ProductSku sku : detail.getSkus()) {
+                    if (sku.getStatus() == null || sku.getStatus() == 1) {
+                        rawSkus.add(sku);
+                    }
+                }
+            }
+            // 转成 agent 用的精简 SKU 视图，同时累计总库存、找最低价
+            List<AgentProductView.Sku> skus = new ArrayList<>(rawSkus.size());
+            int totalStock = 0;
+            BigDecimal minPrice = null;
+            for (ProductSku sku : rawSkus) {
+                skus.add(new AgentProductView.Sku(
+                        sku.getId(),
+                        nullToEmpty(sku.getSpecText()),
+                        money(sku.getPrice()),
+                        sku.getStock()));
+                totalStock += sku.getStock() == null ? 0 : sku.getStock();
+                if (sku.getPrice() != null
+                        && (minPrice == null || sku.getPrice().compareTo(minPrice) < 0)) {
+                    minPrice = sku.getPrice();
+                }
+            }
+            if (minPrice == null) {
+                minPrice = detail.getPrice();
+            }
 
             ProductReviewStat stat = stats.get(detail.getId());
             long reviewCount = stat == null || stat.getReviewCount() == null
@@ -222,26 +266,40 @@ public class AgentCatalogServiceImpl implements AgentCatalogService {
         }
     }
 
+    /**
+     * 返回「按什么排序」的比较器。
+     * Comparator 是 Java 里表示「两个对象谁排在前面」的接口：
+     * comparing(...) 指定排序字段，reversed() 表示倒序，
+     * thenComparing(...) 是前一个字段相等时的次级排序规则。
+     */
     private Comparator<AgentProductView> comparator(String sort) {
         String key = sort == null ? "" : sort.trim().toLowerCase(Locale.ROOT);
-        return switch (key) {
-            case "price_asc" -> Comparator.comparing(
-                    (AgentProductView view) -> moneyValue(view.price()));
-            case "price_desc" -> Comparator.comparing(
-                    (AgentProductView view) -> moneyValue(view.price())).reversed();
-            case "newest" -> Comparator.comparing(AgentProductView::productId).reversed();
-            case "sales" -> Comparator.comparingInt(
-                            (AgentProductView view) -> sales(view)).reversed()
-                    .thenComparing(Comparator.comparing(AgentProductView::productId).reversed());
-            default -> Comparator
-                    .comparingInt((AgentProductView view) ->
-                            view.totalStock() != null && view.totalStock() > 0 ? 0 : 1)
-                    .thenComparing(Comparator.comparingInt(
-                            (AgentProductView view) -> sales(view)).reversed())
-                    .thenComparing(Comparator.comparingDouble(
-                            (AgentProductView view) -> rating(view)).reversed())
-                    .thenComparing(Comparator.comparing(AgentProductView::productId).reversed());
-        };
+        Comparator<AgentProductView> byPrice = Comparator.comparing(
+                (AgentProductView view) -> moneyValue(view.price()));
+        Comparator<AgentProductView> byNewest = Comparator.comparing(
+                (AgentProductView view) -> view.productId()).reversed();
+        Comparator<AgentProductView> bySales = Comparator.comparingInt(
+                (AgentProductView view) -> sales(view)).reversed();
+
+        switch (key) {
+            case "price_asc":
+                return byPrice;
+            case "price_desc":
+                return byPrice.reversed();
+            case "newest":
+                return byNewest;
+            case "sales":
+                return bySales.thenComparing(byNewest);
+            default:
+                // 推荐排序：有库存的排前面，其次销量高，其次评分高，最后新的商品优先
+                Comparator<AgentProductView> inStockFirst = Comparator.comparingInt(
+                        (AgentProductView view) ->
+                                view.totalStock() != null && view.totalStock() > 0 ? 0 : 1);
+                Comparator<AgentProductView> byRating = Comparator.comparingDouble(
+                        (AgentProductView view) -> rating(view)).reversed();
+                return inStockFirst.thenComparing(bySales).thenComparing(byRating)
+                        .thenComparing(byNewest);
+        }
     }
 
     private int sales(AgentProductView view) {

@@ -26,13 +26,12 @@ import org.springframework.util.StringUtils;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 /**
  * 规格与 SKU。
@@ -108,7 +107,9 @@ public class ProductSkuServiceImpl implements ProductSkuService {
             stockService.reload(sku.getId());
         }
         // 被删掉的 SKU 把键也清掉 —— 留着就是一条再也读不到的脏数据
-        removedSkuIds.forEach(stockService::drop);
+        for (Long removedSkuId : removedSkuIds) {
+            stockService.drop(removedSkuId);
+        }
 
         return get(productId);
     }
@@ -180,17 +181,32 @@ public class ProductSkuServiceImpl implements ProductSkuService {
 
         List<ProductSpec> existing = specMapper.selectList(
                 Wrappers.<ProductSpec>lambdaQuery().eq(ProductSpec::getProductId, productId));
-        Map<Long, Set<Long>> valueIdsBySpec = existing.isEmpty() ? Map.of()
-                : valueMapper.selectList(Wrappers.<ProductSpecValue>lambdaQuery()
-                        .in(ProductSpecValue::getSpecId, existing.stream().map(ProductSpec::getId).toList()))
-                .stream()
-                .collect(Collectors.groupingBy(ProductSpecValue::getSpecId,
-                        Collectors.mapping(ProductSpecValue::getId, Collectors.toSet())));
+        // 每个规格下已有的值 id 集合，后面判断「哪些值被删了」
+        Map<Long, Set<Long>> valueIdsBySpec = new HashMap<>();
+        if (!existing.isEmpty()) {
+            List<Long> existingSpecIds = new ArrayList<>(existing.size());
+            for (ProductSpec spec : existing) {
+                existingSpecIds.add(spec.getId());
+            }
+            List<ProductSpecValue> existingValues = valueMapper.selectList(
+                    Wrappers.<ProductSpecValue>lambdaQuery()
+                            .in(ProductSpecValue::getSpecId, existingSpecIds));
+            for (ProductSpecValue value : existingValues) {
+                Set<Long> ids = valueIdsBySpec.get(value.getSpecId());
+                if (ids == null) {
+                    ids = new HashSet<>();
+                    valueIdsBySpec.put(value.getSpecId(), ids);
+                }
+                ids.add(value.getId());
+            }
+        }
 
-        Set<Long> keepSpecIds = payloads.stream()
-                .map(SkuSaveRequest.SpecPayload::id)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toSet());
+        Set<Long> keepSpecIds = new HashSet<>();
+        for (SkuSaveRequest.SpecPayload payload : payloads) {
+            if (payload.id() != null) {
+                keepSpecIds.add(payload.id());
+            }
+        }
 
         for (ProductSpec old : existing) {
             if (!keepSpecIds.contains(old.getId())) {
@@ -220,10 +236,13 @@ public class ProductSkuServiceImpl implements ProductSkuService {
                 knownValueIds = Set.of();
             }
 
-            Set<Long> keepValueIds = payload.values().stream()
-                    .map(SkuSaveRequest.ValuePayload::id)
-                    .filter(id -> id != null && id > 0)
-                    .collect(Collectors.toSet());
+            Set<Long> keepValueIds = new HashSet<>();
+            for (SkuSaveRequest.ValuePayload valuePayload : payload.values()) {
+                Long id = valuePayload.id();
+                if (id != null && id > 0) {
+                    keepValueIds.add(id);
+                }
+            }
             for (Long oldValueId : knownValueIds) {
                 if (!keepValueIds.contains(oldValueId)) {
                     valueMapper.deleteById(oldValueId);
@@ -276,7 +295,8 @@ public class ProductSkuServiceImpl implements ProductSkuService {
             if (ids.size() != meta.specs().size()) {
                 throw new BizException(ResultCode.BAD_REQUEST, "每个 SKU 要为每组规格各选一个值");
             }
-            if (ids.stream().distinct().count() != ids.size()) {
+            Set<Long> distinctIds = new HashSet<>(ids);
+            if (distinctIds.size() != ids.size()) {
                 throw new BizException(ResultCode.BAD_REQUEST, "同一个 SKU 里出现了重复的规格值");
             }
             for (Long id : ids) {
@@ -292,8 +312,10 @@ public class ProductSkuServiceImpl implements ProductSkuService {
             idsByKey.put(key, ids);
         }
 
-        Map<String, ProductSku> existingByKey = listSkus(productId).stream()
-                .collect(Collectors.toMap(ProductSku::getSpecValueIds, Function.identity()));
+        Map<String, ProductSku> existingByKey = new HashMap<>();
+        for (ProductSku sku : listSkus(productId)) {
+            existingByKey.put(sku.getSpecValueIds(), sku);
+        }
 
         List<Long> removed = new ArrayList<>();
         for (ProductSku old : existingByKey.values()) {
@@ -389,13 +411,25 @@ public class ProductSkuServiceImpl implements ProductSkuService {
             return specs;
         }
 
-        Map<Long, List<ProductSpecValue>> valuesBySpec = valueMapper.selectList(
-                        Wrappers.<ProductSpecValue>lambdaQuery()
-                                .in(ProductSpecValue::getSpecId, specs.stream().map(ProductSpec::getId).toList())
-                                .orderByAsc(ProductSpecValue::getSort))
-                .stream()
-                .collect(Collectors.groupingBy(ProductSpecValue::getSpecId));
+        List<Long> specIds = new ArrayList<>(specs.size());
+        for (ProductSpec spec : specs) {
+            specIds.add(spec.getId());
+        }
+        List<ProductSpecValue> values = valueMapper.selectList(
+                Wrappers.<ProductSpecValue>lambdaQuery()
+                        .in(ProductSpecValue::getSpecId, specIds)
+                        .orderByAsc(ProductSpecValue::getSort));
 
+        // 按规格 id 分组，再挂回每个规格
+        Map<Long, List<ProductSpecValue>> valuesBySpec = new HashMap<>();
+        for (ProductSpecValue value : values) {
+            List<ProductSpecValue> list = valuesBySpec.get(value.getSpecId());
+            if (list == null) {
+                list = new ArrayList<>();
+                valuesBySpec.put(value.getSpecId(), list);
+            }
+            list.add(value);
+        }
         for (ProductSpec spec : specs) {
             spec.setValues(valuesBySpec.getOrDefault(spec.getId(), List.of()));
         }
@@ -410,30 +444,42 @@ public class ProductSkuServiceImpl implements ProductSkuService {
         if (meta.specs().isEmpty()) {
             return "";
         }
-        Map<Long, String> labelByValueId = new HashMap<>();
-        for (Long valueId : valueIds) {
-            ProductSpecValue value = meta.valueById().get(valueId);
-            ProductSpec spec = meta.specs().stream()
-                    .filter(s -> s.getId().equals(meta.specIdByValueId().get(valueId)))
-                    .findFirst()
-                    .orElse(null);
-            if (value != null && spec != null) {
-                labelByValueId.put(valueId, spec.getName() + ":" + value.getValue());
+        // 规格值 id → 它所属的规格；用来按规格顺序拼文本
+        Map<Long, ProductSpec> specByValueId = new HashMap<>();
+        for (ProductSpec spec : meta.specs()) {
+            for (ProductSpecValue value : spec.getValues()) {
+                specByValueId.put(value.getId(), spec);
             }
         }
-        return meta.specs().stream()
-                .map(spec -> valueIds.stream()
-                        .filter(id -> spec.getId().equals(meta.specIdByValueId().get(id)))
-                        .findFirst()
-                        .map(labelByValueId::get)
-                        .orElse(null))
-                .filter(Objects::nonNull)
-                .collect(Collectors.joining(";"));
+        // 按规格顺序拼「规格名:值」，而不是按 id 顺序
+        List<String> parts = new ArrayList<>();
+        for (ProductSpec spec : meta.specs()) {
+            for (Long valueId : valueIds) {
+                ProductSpec valueSpec = specByValueId.get(valueId);
+                if (valueSpec == null || !valueSpec.getId().equals(spec.getId())) {
+                    continue;
+                }
+                ProductSpecValue value = meta.valueById().get(valueId);
+                if (value != null) {
+                    parts.add(spec.getName() + ":" + value.getValue());
+                }
+                // 一个规格只需要一个值，找到就处理下一组规格
+                break;
+            }
+        }
+        return String.join(";", parts);
     }
 
     /** 升序 + 去重后的规格值 id 串 —— 规格组合的规范键，唯一索引和 SKU 匹配都靠它 */
     private String normalize(List<Long> ids) {
-        return ids.stream().distinct().sorted().map(String::valueOf).collect(Collectors.joining(","));
+        Set<Long> distinct = new HashSet<>(ids);
+        List<Long> sorted = new ArrayList<>(distinct);
+        sorted.sort(Long::compareTo);
+        List<String> parts = new ArrayList<>(sorted.size());
+        for (Long id : sorted) {
+            parts.add(String.valueOf(id));
+        }
+        return String.join(",", parts);
     }
 
     // ── 小工具 ──
