@@ -2,7 +2,8 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Present, Trophy } from '@element-plus/icons-vue'
+import { Present, Ticket, Trophy } from '@element-plus/icons-vue'
+import LotteryWheel from '@/components/lottery/LotteryWheel.vue'
 import {
   drawLottery,
   fetchActiveLottery,
@@ -16,7 +17,7 @@ import type {
   LotteryMyRecordView,
   LotteryPrizePublicView,
 } from '@/api/types'
-import { formatCountdown, resolveLotteryState } from '@/utils/lotteryState'
+import { computeSpinRotation, formatCountdown, resolveLotteryState } from '@/utils/lotteryState'
 
 const route = useRoute()
 const router = useRouter()
@@ -30,7 +31,12 @@ const drawing = ref(false)
 const now = ref(Date.now())
 const result = ref<LotteryDrawResponse | null>(null)
 const resultVisible = ref(false)
+
+const rotation = ref(0)
+const spinning = ref(false)
+const pendingResult = ref<LotteryDrawResponse | null>(null)
 let ticker: number | undefined
+let spinTimer: number | undefined
 
 const state = computed(() => resolveLotteryState(
   activity.value,
@@ -61,30 +67,36 @@ const countdownText = computed(() => {
   return ''
 })
 
-const drawDisabled = computed(() =>
-  state.value === 'NOT_STARTED'
-  || state.value === 'ENDED'
-  || state.value === 'DRAWING',
-)
-
-const buttonText = computed(() => {
-  if (state.value === 'NOT_STARTED') return '活动未开始'
-  if (state.value === 'ENDED') return '活动已结束'
-  if (state.value === 'DRAWING') return '抽奖中...'
-  if (state.value === 'CAN_DRAW' && !userStore.isLoggedIn) return '登录后抽奖'
-  return '立即抽奖'
+const hubLabel = computed(() => {
+  if (state.value === 'DRAWN') return '已抽奖'
+  if (state.value === 'NOT_STARTED') return '未开始'
+  if (state.value === 'ENDED') return '已结束'
+  if (state.value === 'DRAWING') return '抽奖中'
+  return userStore.isLoggedIn ? '抽奖' : '登录抽奖'
 })
 
-function prizeLabel(level: number): string {
-  if (level === 1) return '一等奖'
-  if (level === 2) return '二等奖'
-  if (level === 3) return '三等奖'
-  return `${level} 等奖`
-}
+const hubDisabled = computed(() => state.value !== 'CAN_DRAW')
 
-function isSoldOut(prize: LotteryPrizePublicView): boolean {
-  return prize.remainingStock <= 0
-}
+/** 奖盘最后固定有一个「谢谢参与」扇区；后端返回 THANKS 时转到这里 */
+const wheelItems = computed(() => {
+  const items = prizes.value.map((prize) => ({
+    key: String(prize.id),
+    name: prize.name,
+    image: prize.image || '',
+    soldOut: prize.remainingStock <= 0,
+    thanks: false,
+    remainingStock: prize.remainingStock,
+  }))
+  items.push({
+    key: 'thanks',
+    name: '谢谢参与',
+    image: '',
+    soldOut: false,
+    thanks: true,
+    remainingStock: 0,
+  })
+  return items
+})
 
 async function load() {
   loading.value = true
@@ -131,6 +143,52 @@ async function refreshRecord() {
   }
 }
 
+function spinTo(response: LotteryDrawResponse) {
+  const items = wheelItems.value
+  const index = response.prizeId === null
+    ? items.length - 1
+    : items.findIndex((item) => item.key === String(response.prizeId))
+  const targetIndex = index >= 0 ? index : items.length - 1
+
+  rotation.value = computeSpinRotation(rotation.value, targetIndex, items.length)
+  spinning.value = true
+  if (spinTimer !== undefined) {
+    window.clearTimeout(spinTimer)
+  }
+  // transitionend 在正常情况下触发；这里兜底避免极少数环境不触发导致按钮永久禁用
+  spinTimer = window.setTimeout(finishSpin, 5200)
+}
+
+function finishSpin() {
+  if (!spinning.value) return
+  spinning.value = false
+  drawing.value = false
+  if (spinTimer !== undefined) {
+    window.clearTimeout(spinTimer)
+    spinTimer = undefined
+  }
+
+  const response = pendingResult.value
+  if (!response) return
+  record.value = {
+    drawn: true,
+    result: response.result,
+    prizeId: response.prizeId,
+    prizeName: response.prizeName,
+    prizeCode: response.prizeCode,
+    drawnAt: new Date().toISOString(),
+  }
+  result.value = response
+  resultVisible.value = true
+  pendingResult.value = null
+  void refreshPrizes()
+}
+
+function onSpinEnd(event: TransitionEvent) {
+  if (event.propertyName !== 'transform') return
+  finishSpin()
+}
+
 async function onDraw() {
   if (!activity.value) return
   if (!userStore.isLoggedIn) {
@@ -143,23 +201,13 @@ async function onDraw() {
   drawing.value = true
   try {
     const response = await drawLottery(activity.value.id)
-    record.value = {
-      drawn: true,
-      result: response.result,
-      prizeId: response.prizeId,
-      prizeName: response.prizeName,
-      prizeCode: response.prizeCode,
-      drawnAt: new Date().toISOString(),
-    }
-    result.value = response
-    resultVisible.value = true
-    await refreshPrizes()
+    pendingResult.value = response
+    spinTo(response)
   } catch {
     // 响应可能在中途丢失：后端是幂等的，重新拉一次记录确认真实结果
+    drawing.value = false
     await refreshRecord()
     await refreshPrizes()
-  } finally {
-    drawing.value = false
   }
 }
 
@@ -173,6 +221,9 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   if (ticker !== undefined) {
     window.clearInterval(ticker)
+  }
+  if (spinTimer !== undefined) {
+    window.clearTimeout(spinTimer)
   }
 })
 </script>
@@ -190,60 +241,58 @@ onBeforeUnmount(() => {
               {{ countdownLabel }} {{ countdownText }}
             </span>
           </div>
-          <p class="rules">每人限抽 1 次 · 多奖项等概率 · 奖品抽完即止</p>
+          <p class="rules">每人限抽 1 次 · 小额奖品权重更高 · 奖品抽完即止</p>
         </div>
         <el-icon class="hero-icon"><Present /></el-icon>
       </section>
 
-      <section class="prize-section">
-        <h2 class="section-title">奖池</h2>
-        <div class="prize-grid">
-          <el-empty v-if="!loading && prizes.length === 0" description="奖池准备中" />
-          <article
-            v-for="prize in prizes"
-            :key="prize.id"
-            class="prize-card"
-            :class="{ soldOut: isSoldOut(prize) }"
+      <section class="wheel-section">
+        <LotteryWheel
+          :items="wheelItems"
+          :rotation="rotation"
+          :spinning="spinning"
+          :hub-label="hubLabel"
+          :hub-disabled="hubDisabled"
+          @draw="onDraw"
+          @spin-end="onSpinEnd"
+        />
+
+        <div class="wheel-legend">
+          <div
+            v-for="item in wheelItems"
+            :key="item.key"
+            class="legend-item"
+            :class="{ soldOut: item.soldOut, thanks: item.thanks }"
           >
-            <span class="prize-level">{{ prizeLabel(prize.level) }}</span>
-            <el-icon class="prize-icon"><Trophy /></el-icon>
-            <p class="prize-name">{{ prize.name }}</p>
-            <p class="prize-stock">
-              {{ isSoldOut(prize) ? '已抽完' : `剩余 ${prize.remainingStock} 份` }}
-            </p>
-          </article>
+            <span class="legend-thumb">
+              <img v-if="item.image && !item.thanks" :src="item.image" :alt="item.name" />
+              <el-icon v-else-if="item.thanks"><Present /></el-icon>
+              <el-icon v-else><Ticket /></el-icon>
+            </span>
+            <span class="legend-name">{{ item.name }}</span>
+            <span v-if="!item.thanks" class="legend-stock">
+              {{ item.soldOut ? '已抽完' : `剩 ${item.remainingStock}` }}
+            </span>
+          </div>
         </div>
       </section>
 
-      <section class="draw-section">
-        <template v-if="state === 'DRAWN'">
-          <div class="record-card" :class="{ win: record?.result === 'WIN' }">
-            <el-icon class="record-icon">
-              <Trophy v-if="record?.result === 'WIN'" />
-              <Present v-else />
-            </el-icon>
-            <div class="record-main">
-              <p class="record-title">
-                {{ record?.result === 'WIN' ? '恭喜中奖' : '谢谢参与' }}
-              </p>
-              <p v-if="record?.result === 'WIN'" class="record-detail">
-                {{ record?.prizeName }} · <code>{{ record?.prizeCode }}</code>
-              </p>
-              <p v-else class="record-detail">这次没有抽中，机会已使用</p>
-            </div>
+      <section v-if="state === 'DRAWN'" class="record-section">
+        <div class="record-card" :class="{ win: record?.result === 'WIN' }">
+          <el-icon class="record-icon">
+            <Trophy v-if="record?.result === 'WIN'" />
+            <Present v-else />
+          </el-icon>
+          <div class="record-main">
+            <p class="record-title">
+              {{ record?.result === 'WIN' ? '恭喜中奖' : '谢谢参与' }}
+            </p>
+            <p v-if="record?.result === 'WIN'" class="record-detail">
+              {{ record?.prizeName }} · <code>{{ record?.prizeCode }}</code>
+            </p>
+            <p v-else class="record-detail">这次没有抽中，机会已使用</p>
           </div>
-        </template>
-        <template v-else>
-          <button
-            type="button"
-            class="draw-btn"
-            :disabled="drawDisabled"
-            @click="onDraw"
-          >
-            {{ buttonText }}
-          </button>
-          <p class="draw-hint">抽奖结果会写入记录，同一活动每人只可抽一次</p>
-        </template>
+        </div>
       </section>
     </template>
 
@@ -345,103 +394,74 @@ onBeforeUnmount(() => {
   opacity: 0.8;
 }
 
-.prize-section {
+.wheel-section {
   margin-top: 20px;
-}
-
-.section-title {
-  margin: 0 0 12px;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--c-text);
-}
-
-.prize-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-  min-height: 100px;
-}
-
-.prize-grid :deep(.el-empty) {
-  grid-column: 1 / -1;
-}
-
-.prize-card {
-  position: relative;
-  padding: 22px 16px 18px;
-  text-align: center;
+  padding: 28px 20px 22px;
   background: var(--c-card);
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-card);
 }
 
-.prize-card.soldOut {
-  opacity: 0.55;
+.wheel-legend {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px 14px;
+  margin-top: 26px;
 }
 
-.prize-level {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  padding: 2px 8px;
-  font-size: 11px;
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--c-text-2);
+}
+
+.legend-item.soldOut {
+  opacity: 0.5;
+}
+
+.legend-thumb {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
   color: var(--c-pink);
   background: var(--c-pink-tint);
-  border-radius: 999px;
+  border-radius: 50%;
 }
 
-.prize-icon {
-  margin-bottom: 6px;
-  font-size: 28px;
-  color: var(--c-pink);
+.legend-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
-.prize-name {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
+.legend-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
   color: var(--c-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.prize-stock {
-  margin: 6px 0 0;
-  font-size: 12px;
+.legend-item.thanks .legend-name {
   color: var(--c-text-3);
 }
 
-.draw-section {
-  margin-top: 22px;
+.legend-stock {
+  flex: none;
+  color: var(--c-text-3);
+}
+
+.record-section {
+  margin-top: 20px;
   text-align: center;
-}
-
-.draw-btn {
-  width: 260px;
-  padding: 14px 0;
-  font-family: inherit;
-  font-size: 16px;
-  font-weight: 600;
-  color: #fff;
-  background: var(--c-pink);
-  border: none;
-  border-radius: var(--radius-btn);
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.draw-btn:hover:not(:disabled) {
-  background: var(--c-pink-hover);
-}
-
-.draw-btn:disabled {
-  background: var(--c-text-3);
-  cursor: not-allowed;
-}
-
-.draw-hint {
-  margin: 10px 0 0;
-  font-size: 12px;
-  color: var(--c-text-3);
 }
 
 .record-card {
@@ -546,17 +566,13 @@ onBeforeUnmount(() => {
     display: none;
   }
 
-  .prize-grid {
+  .wheel-legend {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .draw-btn {
-    width: 100%;
   }
 }
 
 @media (max-width: 420px) {
-  .prize-grid {
+  .wheel-legend {
     grid-template-columns: 1fr;
   }
 }

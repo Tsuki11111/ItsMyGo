@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatCountdown, resolveLotteryState } from './lotteryState'
+import { computeSpinRotation, formatCountdown, resolveLotteryState } from './lotteryState'
 
 const activity = {
   startAt: '2026-12-01T10:00:00',
@@ -53,5 +53,24 @@ describe('formatCountdown', () => {
 
   it('负数按 0 处理', () => {
     expect(formatCountdown(-1)).toBe('00:00:00')
+  })
+})
+
+describe('computeSpinRotation', () => {
+  it('目标扇区最终停在顶部', () => {
+    for (let index = 0; index < 4; index++) {
+      const rotation = computeSpinRotation(0, index, 4)
+      const normalized = ((rotation % 360) + 360) % 360
+      expect(normalized).toBe((360 - index * 90) % 360)
+    }
+  })
+
+  it('每次至少多转 turns 圈', () => {
+    expect(computeSpinRotation(0, 0, 4)).toBe(1800)
+    expect(computeSpinRotation(1800, 0, 4)).toBe(3600)
+  })
+
+  it('扇区数为 0 时保持原角度', () => {
+    expect(computeSpinRotation(120, 0, 0)).toBe(120)
   })
 })

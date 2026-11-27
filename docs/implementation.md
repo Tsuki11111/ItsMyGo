@@ -3302,6 +3302,7 @@ MySQL 负责活动 / 奖项配置与每次抽奖的最终记录。
 **数据**
 
 - V40 三张表：`lottery_activities`、`lottery_prizes`、`lottery_draw_records`；
+- V41 给 `lottery_prizes` 增加 `image`（实物图 URL）与 `weight`（中奖权重）；
 - `lottery_draw_records`：
   - `uk_activity_user (activity_id, user_id)`：一人一活动的最终兜底；
   - `uk_prize_code (prize_code)`：奖券码全局唯一，谢谢参与写 NULL（MySQL 允许多个 NULL）；
@@ -3332,7 +3333,7 @@ MySQL 负责活动 / 奖项配置与每次抽奖的最终记录。
 1. 校验活动存在、`ACTIVE`、在开始 / 结束时间内；
 2. `SISMEMBER participants` 快速判断：已抽过就查 MySQL 记录直接返回；
 3. 确保奖池初始化；
-4. 在 `SCARD > 0` 的奖项里等概率选一个，`SPOP` 领奖券；选中的池子刚好被抢空就换下一个，
+4. 在 `SCARD > 0` 的奖项里按 `weight` 加权选一个，`SPOP` 领奖券；选中的池子刚好被抢空就换下一个，
    全空则 `THANKS`；
 5. 插入 `lottery_draw_records`：
    - `DuplicateKeyException` + 能查到本人记录 → 奖券放回池子，返回已有记录（幂等）；
@@ -3342,17 +3343,26 @@ MySQL 负责活动 / 奖项配置与每次抽奖的最终记录。
 **为什么不是纯 Lua**：Lua 只能保证 Redis 内部原子，无法把 MySQL 插入一起放进事务；
 所以采用「Redis 快挡 + MySQL 唯一键 + 失败补偿」，而不是「Redis 当唯一事实源」。
 
+**加权抽奖**（`LotteryServiceImpl.pickWeighted`）：
+
+- 每个奖项有 `weight`；总权重 = 候选奖项权重之和，`ThreadLocalRandom` 取 `1..total`；
+- 按顺序累加权重，roll 落在谁的区间就选谁；小额券权重高、实物大奖权重低；
+- 静态方法 `pickWeighted(candidates, roll)` 单独抽出来做区间边界单测；
+- 前端转盘扇区等分只是视觉，真实概率完全由后端权重决定。
+
 **接口**：管理端 5 个（活动创建 / 列表 / 状态、奖项添加 / 列表）；顾客端 4 个
 （当前活动、奖池、抽奖、我的记录）。契约见 [api.md §28](api.md)。
 
-**顾客端页面（`frontend/src/views/Lottery.vue`）**
+**顾客端转盘页（`frontend/src/views/Lottery.vue` + `components/lottery/LotteryWheel.vue`）**
 
 - 路由 `/lottery`，顶栏「抽奖」入口；当前活动与奖池匿名可看，抽奖 / 我的记录需登录；
 - 页面状态由纯函数 `utils/lotteryState.ts` 决定：未开始 / 可抽 / 抽奖中 / 已抽 / 已结束；
-- 匿名点「登录后抽奖」跳 `/login?redirect=/lottery`，登录后回到页面；
-- 抽奖成功弹窗展示奖品 / 奖券码，更新「我的记录」并刷新奖池库存；
-  响应丢失时重新拉 `/me`，利用后端幂等避免误判；
-- 倒计时每秒刷新，卸载时清理定时器；移动端奖池 1 列、按钮全宽。
+- 转盘用 `conic-gradient` 画等分扇区，每个扇区放奖品实物图；优惠券空图用券图标兜底；
+  最后一个扇区固定是「谢谢参与」；
+- 点击中心按钮先调后端拿结果，再按结果计算目标角度，5 圈 + 4.8 秒 CSS 过渡停在指针处；
+  `computeSpinRotation` 抽出纯函数做单测，`transitionend` + 5.2 秒兜底避免按钮永久禁用；
+- 动画结束后才更新「我的记录」并弹结果窗，避免提前剧透；响应丢失时重新拉 `/me` 幂等兜底；
+- 倒计时每秒刷新，卸载时清理定时器；移动端转盘缩放、图例 1~2 列。
 
 **测试**
 
@@ -3361,6 +3371,7 @@ MySQL 负责活动 / 奖项配置与每次抽奖的最终记录。
   结束活动拒绝、活动不存在、匿名可看活动 / 奖池但不能抽、Redis 资格丢失后 MySQL 仍阻止重复抽；
 - `LotteryDrawConcurrencyTest`：20 个用户并发抢 5 份奖品，恰好 5 个 WIN、15 个 THANKS，
   MySQL 20 条记录、5 个不同奖券码；
-- 前端 `lotteryState.spec.ts`：状态机 6 条 + 倒计时格式 3 条。
+- `LotteryServiceImplTest`：加权区间边界 2 条；
+- 前端 `lotteryState.spec.ts`：状态机 6 条 + 倒计时格式 3 条 + 转盘角度 3 条。
 
-**验证**：Java 全量 **369 通过 / 0 失败 / 0 跳过**；其中抽奖 16 条。前端 Vitest **34 条通过**。
+**验证**：Java 全量 **371 通过 / 0 失败 / 0 跳过**；其中抽奖 18 条。前端 Vitest **37 条通过**。

@@ -1916,13 +1916,14 @@ specText, unitPrice, quantity, refundAmount, createdAt`
 | POST | `/api/admin/lottery/activities` | `{name, startAt, endAt}` | `LotteryActivityView` |
 | GET | `/api/admin/lottery/activities` | — | `LotteryActivityView[]` |
 | PUT | `/api/admin/lottery/activities/{id}/status` | `{status}`：1 进行中 / 2 已结束 | `LotteryActivityView` |
-| POST | `/api/admin/lottery/activities/{id}/prizes` | `{name, level, stock}` | `LotteryPrizeView` |
+| POST | `/api/admin/lottery/activities/{id}/prizes` | `{name, image, level, weight, stock}` | `LotteryPrizeView` |
 | GET | `/api/admin/lottery/activities/{id}/prizes` | — | `LotteryPrizeView[]` |
 
 `LotteryActivityView`：`id, name, status, statusLabel, startAt, endAt, createdAt`
 
-`LotteryPrizeView`：`id, activityId, name, level, stock, remainingStock, createdAt`
+`LotteryPrizeView`：`id, activityId, name, image, level, weight, stock, remainingStock, createdAt`
 
+- `image` 是奖品实物图 URL（可空）；`weight` 越大越容易中，小额券配更高权重。
 - `stock` 是初始库存；`remainingStock` 是 Redis 奖池实时剩余（Redis 不可用时为 null）。
 - 开始时间必须早于结束时间；已结束的活动不能再添加奖项。
 
@@ -1937,6 +1938,9 @@ specText, unitPrice, quantity, refundAmount, createdAt`
 
 `LotteryActivityPublicView`：`id, name, status, statusLabel, startAt, endAt`。当前活动与奖池匿名可看，抽奖和我的记录需登录。
 
+`LotteryPrizePublicView`：`id, name, image, level, remainingStock`。不暴露 `weight`；
+抽奖按后端权重加权，前端转盘等分扇区只做视觉。
+
 `LotteryDrawResponse`：
 
 ```json
@@ -1950,7 +1954,8 @@ specText, unitPrice, quantity, refundAmount, createdAt`
 ```
 
 - 每人每活动只抽 1 次；重复调用返回 MySQL 里的同一条记录，不会重复中奖。
-- 多奖项等概率：只在还有库存的奖项里均匀随机；全部抽空返回 `THANKS`，这次机会同样消耗。
+- 多奖项按 `weight` 加权：小奖权重高、实物大奖权重低；只从还有库存的奖项中选。
+- 全部抽空返回 `THANKS`，这次机会同样消耗。
 - 中奖与谢谢参与都落 `lottery_draw_records`；`uk_activity_user` 兜底一人一次，
   `uk_prize_code` 防止同一奖券码重复中出。
 - `LotteryMyRecordView`：`{drawn, result, prizeId, prizeName, prizeCode, drawnAt}`；

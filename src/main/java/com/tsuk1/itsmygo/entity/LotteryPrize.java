@@ -24,8 +24,14 @@ public class LotteryPrize {
 
     private String name;
 
+    /** 奖品实物图 URL；空串表示无图（转盘用优惠券图标兜底） */
+    private String image;
+
     /** 奖项等级，仅用于展示（1 等奖 / 2 等奖…） */
     private Integer level;
+
+    /** 中奖权重，越大越容易中；小奖（优惠券）配更高权重 */
+    private Integer weight;
 
     /** 初始库存，必须大于 0 */
     private Integer stock;

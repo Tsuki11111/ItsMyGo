@@ -89,7 +89,9 @@ public class LotteryAdminServiceImpl implements LotteryAdminService {
         LotteryPrize prize = new LotteryPrize();
         prize.setActivityId(activityId);
         prize.setName(request.name());
+        prize.setImage(request.image() == null ? "" : request.image());
         prize.setLevel(request.level());
+        prize.setWeight(request.weight());
         prize.setStock(request.stock());
         prizeMapper.insert(prize);
 
@@ -147,7 +149,9 @@ public class LotteryAdminServiceImpl implements LotteryAdminService {
                 prize.getId(),
                 prize.getActivityId(),
                 prize.getName(),
+                prize.getImage(),
                 prize.getLevel(),
+                prize.getWeight(),
                 prize.getStock(),
                 remainingStock,
                 prize.getCreatedAt());

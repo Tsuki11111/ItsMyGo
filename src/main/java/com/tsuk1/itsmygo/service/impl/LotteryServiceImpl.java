@@ -91,7 +91,8 @@ public class LotteryServiceImpl implements LotteryService {
         for (LotteryPrize prize : prizes) {
             long remaining = prizePoolService.remainingStock(activity, prize);
             views.add(new LotteryPrizePublicView(
-                    prize.getId(), prize.getName(), prize.getLevel(), remaining));
+                    prize.getId(), prize.getName(), prize.getImage(),
+                    prize.getLevel(), remaining));
         }
         return views;
     }
@@ -124,9 +125,9 @@ public class LotteryServiceImpl implements LotteryService {
         LotteryPrize wonPrize = null;
         String prizeCode = null;
         while (!candidates.isEmpty()) {
-            // ThreadLocalRandom 是线程安全的随机数，多个并发抽奖请求不会共用同一个 Random 实例
-            int index = ThreadLocalRandom.current().nextInt(candidates.size());
-            LotteryPrize candidate = candidates.remove(index);
+            // 加权随机：weight 越大越容易选中；选中后池子刚好被抢空就换下一个
+            LotteryPrize candidate = pickWeighted(candidates);
+            candidates.remove(candidate);
             String code = redisStore.takePrize(activityId, candidate.getId());
             if (code != null) {
                 wonPrize = candidate;
@@ -192,6 +193,32 @@ public class LotteryServiceImpl implements LotteryService {
             throw new BizException(ResultCode.NOT_FOUND, "活动不存在");
         }
         return activity;
+    }
+
+    private LotteryPrize pickWeighted(List<LotteryPrize> candidates) {
+        int total = 0;
+        for (LotteryPrize prize : candidates) {
+            total += weightOf(prize);
+        }
+        // ThreadLocalRandom 线程安全，避免多个抽奖请求共用同一个 Random
+        int roll = ThreadLocalRandom.current().nextInt(total) + 1;
+        return pickWeighted(candidates, roll);
+    }
+
+    /** 按权重累计区间选奖项；抽离成静态方法方便单测 roll 的边界 */
+    static LotteryPrize pickWeighted(List<LotteryPrize> candidates, int roll) {
+        int cumulative = 0;
+        for (LotteryPrize prize : candidates) {
+            cumulative += weightOf(prize);
+            if (roll <= cumulative) {
+                return prize;
+            }
+        }
+        return candidates.get(candidates.size() - 1);
+    }
+
+    private static int weightOf(LotteryPrize prize) {
+        return prize.getWeight() == null ? 1 : Math.max(1, prize.getWeight());
     }
 
     private void validateActive(LotteryActivity activity) {

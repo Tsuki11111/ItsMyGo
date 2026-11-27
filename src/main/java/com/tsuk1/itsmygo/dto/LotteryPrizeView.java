@@ -12,7 +12,9 @@ public record LotteryPrizeView(
         Long id,
         Long activityId,
         String name,
+        String image,
         Integer level,
+        Integer weight,
         Integer stock,
         Integer remainingStock,
         LocalDateTime createdAt

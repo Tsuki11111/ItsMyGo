@@ -43,9 +43,10 @@ class LotteryAdminControllerTest extends ApiTestBase {
                         .header("Authorization", bearer(admin))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
-                                new LotteryPrizeRequest("一等奖", 1, 2))))
+                                new LotteryPrizeRequest("一等奖", "", 1, 1, 2))))
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.stock").value(2))
+                .andExpect(jsonPath("$.data.weight").value(1))
                 .andExpect(jsonPath("$.data.remainingStock").value(2));
 
         mockMvc.perform(get("/api/admin/lottery/activities/" + activityId + "/prizes")
@@ -79,7 +80,7 @@ class LotteryAdminControllerTest extends ApiTestBase {
                         .header("Authorization", bearer(admin))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
-                                new LotteryPrizeRequest("零库存", 1, 0))))
+                                new LotteryPrizeRequest("零库存", "", 1, 1, 0))))
                 .andExpect(jsonPath("$.code").value(400));
     }
 
@@ -91,7 +92,7 @@ class LotteryAdminControllerTest extends ApiTestBase {
                         .header("Authorization", bearer(admin))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
-                                new LotteryPrizeRequest("不存在", 1, 1))))
+                                new LotteryPrizeRequest("不存在", "", 1, 1, 1))))
                 .andExpect(jsonPath("$.code").value(404))
                 .andExpect(jsonPath("$.message").value("活动不存在"));
     }
@@ -112,7 +113,7 @@ class LotteryAdminControllerTest extends ApiTestBase {
                         .header("Authorization", bearer(admin))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
-                                new LotteryPrizeRequest("晚了", 1, 1))))
+                                new LotteryPrizeRequest("晚了", "", 1, 1, 1))))
                 .andExpect(jsonPath("$.code").value(400))
                 .andExpect(jsonPath("$.message").value("活动已结束，不能添加奖项"));
     }

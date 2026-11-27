@@ -236,7 +236,7 @@ class LotteryDrawControllerTest extends ApiTestBase {
                         .header("Authorization", bearer(admin))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
-                                new LotteryPrizeRequest(name, 1, stock))))
+                                new LotteryPrizeRequest(name, "", 1, 1, stock))))
                 .andExpect(jsonPath("$.code").value(200));
     }
 

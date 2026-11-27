@@ -217,6 +217,8 @@ export interface LotteryActivityPublicView {
 export interface LotteryPrizePublicView {
   id: number
   name: string
+  /** 奖品实物图 URL；空串表示无图（前端用优惠券图标兜底） */
+  image: string
   level: number
   remainingStock: number
 }

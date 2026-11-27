@@ -57,3 +57,25 @@ export function formatCountdown(totalSeconds: number): string {
     .join(':')
   return days > 0 ? `${days} 天 ${clock}` : clock
 }
+
+/**
+ * 计算转盘最终旋转角度：让第 targetIndex 个扇区的中心停在顶部指针处。
+ *
+ * <p>扇区 0 的中心在顶部，之后顺时针排列；转盘顺时针旋转，所以目标角度是
+ * {@code 360 - index * step}。再额外转 {@code turns} 圈，避免看起来只是轻微抖动。</p>
+ */
+export function computeSpinRotation(
+  current: number,
+  targetIndex: number,
+  itemCount: number,
+  turns = 5,
+): number {
+  if (itemCount <= 0) {
+    return current
+  }
+  const step = 360 / itemCount
+  const target = (360 - targetIndex * step) % 360
+  const currentMod = ((current % 360) + 360) % 360
+  const delta = (target - currentMod + 360) % 360
+  return current + 360 * turns + delta
+}
