@@ -109,25 +109,6 @@ PowerShell 用 `./deploy.ps1`，参数相同；跳过演示数据用 `./deploy.p
   `ORDER_CREATE_MAX_REPUBLISH`（超时重投次数，默认 3）。异步模式依赖 RabbitMQ
   （与超时关单共用同一实例，队列独立）。
 
-## 从旧版本升级（图片绝对地址 → 相对路径）
-
-旧版 `.env` 里可能写着 `MINIO_PUBLIC_ENDPOINT=http://<宿主机IP>:9000`，数据库里也存了
-绝对 URL。升级到同源方案：
-
-1. `.env` 改为 `MINIO_PUBLIC_ENDPOINT=/`，重建前端镜像并重启前后端；
-2. 执行一次数据迁移（按需先在旧 host 列表里加上自己的地址）：
-
-```bash
-docker exec -i its-my-go-mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" its_mygo' \
-  < sql/migrate-relative-image-urls.sql
-```
-
-3. 清掉商品详情缓存，让接口立即返回新 URL（否则要等 TTL）：
-
-```bash
-docker exec its-my-go-redis sh -c 'redis-cli --scan --pattern "its-my-go:product:*" | xargs -r redis-cli del'
-```
-
 ## 联合部署客服智能体
 
 **联合入口已收归本仓库**。`rag_helper` 目录用以下任一方式指定（不需要两个仓库同级）：

@@ -2623,7 +2623,7 @@ VM 换 IP 后召回图片全部裂开。RAG 侧已改为输出时按当前配置
 - `deploy.sh` / `deploy.ps1` 不再生成绝对地址；
 - 前端 Docker 构建上下文改为仓库根（PolicyView 需要读取 `docs/policies/*.md`，
   此前 Docker 内构建会因文件不在上下文而失败）；
-- 一次性迁移脚本 `sql/migrate-relative-image-urls.sql`，已在部署 VM 执行；
+- 一次性迁移脚本 `sql/migrate-relative-image-urls.sql`，已在部署 VM 执行（2026-11-27 删除该脚本，存量数据均已迁移）；
 - VM 网络从 DHCP 改为静态 `10.184.171.106/24`（网关 `10.184.171.119`，
   DNS 同网关 + `223.5.5.5`），并禁用 cloud-init 网络配置防止被覆盖。
 

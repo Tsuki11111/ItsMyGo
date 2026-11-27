@@ -169,8 +169,7 @@ frontend 依赖 backend。seed 用 MySQL 客户端镜像依次导入 `sql/seed-d
 浏览器请求同源路径，由前端 Nginx（生产）或 Vite（开发）反代到 MinIO。
 **不要把它配成绝对地址** —— 2026-11-05 前存的是 `http://<宿主机>:9000/...`，
 VM 的 DHCP 换 IP 后订单快照、头像、SKU 图全部指向不存在的主机，历史数据无法加载。
-相对路径同时避免混合内容（HTTPS 页面加载 HTTP 图片）。迁移脚本：
-`sql/migrate-relative-image-urls.sql`。
+相对路径同时避免混合内容（HTTPS 页面加载 HTTP 图片）。
 
 **环境变量来源**：Compose 的 `environment` 覆盖 `env_file: .env`。本地调试用的
 `AGENT_GRPC_TARGET=127.0.0.1:8003` 不能直接进容器，因此 Compose 读的是
