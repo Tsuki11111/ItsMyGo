@@ -517,7 +517,7 @@ agent 工具 prepare（只生成草稿）→ Java 落 agent_actions（PENDING_CO
 | D35 | 下单草稿支持改规格：`PUT /order-draft` 继续接收完整 `items`（含 skuId），前端补 SKU 下拉；智能体生成新下单草稿时，在同一事务里 CAS 作废同用户同会话的旧 `PENDING_CONFIRM` 草稿 | `buildOrderDraft` 已能按 skuId 重新校验/计价，只差前端入口；旧卡不取消时聊天区按 FIFO 只显示最早一张，用户可能确认错误规格；放在 `prepareOrder` 事务内避免“旧卡已取消、新卡没落库” | 已落地（2026-11-09） |
 | D36 | 代码质量整改按 **R5 包边界 → R1/R2 大类拆分 → T5 前端测试 → R3 状态标签单一来源** 推进；R5 用 shared kernel + 端口接口破循环，R1/R2 只拆编排不改行为，T5 先测纯逻辑，R3 由后端统一给 `statusLabel` | 循环依赖会让包边界失效、单测难隔离；`doCreate` / `AgentActionServiceImpl` 混了校验、落库、分派，修改风险高；前端零测试无法守住重构；状态中文名双份维护已开始漂移 | 已落地（2026-11-09） |
 | D37 | 购物车角标改为 **Redis Hash 计数缓存**（`its-my-go:cart:count:{userId}`，TTL 5 分钟 ±20%），写操作与下单补账后失效；购物车页与下单仍实时查 MySQL；**不把 Redis 当购物车唯一存储** | 顶栏 30 秒轮询是购物车最热的读路径，每用户每分钟要查 4 条 SQL，而角标只需要一个数字。缓存只承载展示数量、最长旧 5 分钟，交易正确性不依赖它；共用 Redis 是 `volatile-lru` 且所有 key 必须带 TTL，把唯一一份购物车变更放进去会因淘汰 / 过期丢数据 | 已落地（2026-11-27），有命中、失效、降级测试 |
-| D38 | 抽奖模块：**Redis Set 做资格与实时奖池，MySQL 做活动 / 奖项 / 每次抽奖记录**；每人 1 次、多奖项等概率、抽完记 `THANKS`；MySQL `stock` 是初始库存，实时剩余以 Redis `SCARD` 为准 | `SADD` 天然去重、`SPOP` 原子领奖且不超发，正好匹配「一人一次 + 随机领奖」；但 Lua 管不了 MySQL 插入，所以用「Redis 快挡 + MySQL 唯一键兜底 + 失败补偿」，不把 Redis 当唯一事实源 | V40 表 + 实体 / Mapper 已建（2026-11-27）；管理端与抽奖接口进行中 |
+| D38 | 抽奖模块：**Redis Set 做快速判断与实时奖池，MySQL 做活动 / 奖项 / 每次抽奖记录**；每人 1 次、多奖项等概率、抽完记 `THANKS`；MySQL `stock` 是初始库存，实时剩余以 Redis `SCARD` 为准；MySQL 唯一键兜底，DB 失败把奖券放回池子 | `SISMEMBER/SADD` 做快路径、`SPOP` 原子领奖且不超发，正好匹配「一人一次 + 随机领奖」；但 Lua 管不了 MySQL 插入，所以用「Redis 快挡 + `uk_activity_user` / `uk_prize_code` 兜底 + 失败补偿」，不把 Redis 当唯一事实源 | 已落地（2026-11-27），含 20 并发抢 5 奖测试 |
 
 **三条业务红线**（做任何功能都成立）：
 

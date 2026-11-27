@@ -1906,3 +1906,52 @@ specText, unitPrice, quantity, refundAmount, createdAt`
 - 默认配置 `PRODUCT_CLEANUP_ENABLED=false`、`PRODUCT_CLEANUP_DRY_RUN=true`；
 - 有候选/执行时给管理员发站内通知（`PRODUCT_CLEANUP`）；
 - 重新上架会清空 `archived_at`；物理删除不可恢复。
+
+## 28. 抽奖（2026-11-27）
+
+### 管理端（ADMIN；`/api/admin/**` 已由 SecurityConfig 限制，写操作进审计）
+
+| 方法 | 路径 | 请求 | 返回 |
+|---|---|---|---|
+| POST | `/api/admin/lottery/activities` | `{name, startAt, endAt}` | `LotteryActivityView` |
+| GET | `/api/admin/lottery/activities` | — | `LotteryActivityView[]` |
+| PUT | `/api/admin/lottery/activities/{id}/status` | `{status}`：1 进行中 / 2 已结束 | `LotteryActivityView` |
+| POST | `/api/admin/lottery/activities/{id}/prizes` | `{name, level, stock}` | `LotteryPrizeView` |
+| GET | `/api/admin/lottery/activities/{id}/prizes` | — | `LotteryPrizeView[]` |
+
+`LotteryActivityView`：`id, name, status, statusLabel, startAt, endAt, createdAt`
+
+`LotteryPrizeView`：`id, activityId, name, level, stock, remainingStock, createdAt`
+
+- `stock` 是初始库存；`remainingStock` 是 Redis 奖池实时剩余（Redis 不可用时为 null）。
+- 开始时间必须早于结束时间；已结束的活动不能再添加奖项。
+
+### 顾客端（登录）
+
+| 方法 | 路径 | 返回 |
+|---|---|---|
+| GET | `/api/lottery/{activityId}/prizes` | `LotteryPrizePublicView[]` |
+| POST | `/api/lottery/{activityId}/draw` | `LotteryDrawResponse` |
+| GET | `/api/lottery/{activityId}/me` | `LotteryMyRecordView` |
+
+`LotteryDrawResponse`：
+
+```json
+{
+  "result": "WIN",
+  "prizeId": 12,
+  "prizeName": "一等奖",
+  "prizeCode": "LOT-12-3",
+  "message": "恭喜中奖"
+}
+```
+
+- 每人每活动只抽 1 次；重复调用返回 MySQL 里的同一条记录，不会重复中奖。
+- 多奖项等概率：只在还有库存的奖项里均匀随机；全部抽空返回 `THANKS`，这次机会同样消耗。
+- 中奖与谢谢参与都落 `lottery_draw_records`；`uk_activity_user` 兜底一人一次，
+  `uk_prize_code` 防止同一奖券码重复中出。
+- `LotteryMyRecordView`：`{drawn, result, prizeId, prizeName, prizeCode, drawnAt}`；
+  没抽过时 `drawn=false`，其余字段为 null。
+
+**并发保证**：Redis Set 做快速判断与 `SPOP` 原子领奖；MySQL 唯一键是最终兜底；
+MySQL 写入失败时奖券放回 Redis 奖池，用户可以重试。

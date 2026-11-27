@@ -3293,3 +3293,64 @@ Vitest 13/13、`npm run build` 通过。
 
 **测试**：`UserProfileTest` 3 条（聚合字段、冷启动、无票据/假票据 401）；
 `PromotionServiceTest` 5 条（新增画像同品牌优先排序）；Java 全量 **365 通过 / 0 失败**。
+
+### 3.58 抽奖（`LotteryServiceImpl` / `LotteryAdminServiceImpl`，2026-11-27）
+
+**目标**：每人每活动抽 1 次，多奖项等概率；Redis Set 负责快速判断与实时库存，
+MySQL 负责活动 / 奖项配置与每次抽奖的最终记录。
+
+**数据**
+
+- V40 三张表：`lottery_activities`、`lottery_prizes`、`lottery_draw_records`；
+- `lottery_draw_records`：
+  - `uk_activity_user (activity_id, user_id)`：一人一活动的最终兜底；
+  - `uk_prize_code (prize_code)`：奖券码全局唯一，谢谢参与写 NULL（MySQL 允许多个 NULL）；
+  - 谢谢参与也写一条记录，保证「抽完扣次数」在 MySQL 里可追溯。
+
+**Redis Set（全部带 TTL = 活动结束 + 1 天，最少 60 秒）**
+
+| Key | 用途 |
+|---|---|
+| `its-my-go:lottery:participants:{activityId}` | 已抽用户，快速路径 |
+| `its-my-go:lottery:prize-pool:{activityId}:{prizeId}` | 奖券码库存，`SPOP` 原子领奖 |
+| `its-my-go:lottery:winners:{activityId}` | 中奖名单缓存 |
+| `its-my-go:lottery:initialized:{activityId}:{prizeId}` | 奖池初始化标记 |
+| `its-my-go:lottery:init-lock:{activityId}` | 初始化锁，防并发重复灌奖池 |
+
+新增成员的 `SADD + EXPIRE` 放在一个 Lua 里，避免崩溃留下不带 TTL 的 key。
+
+**奖池初始化**（`LotteryPrizePoolService`）
+
+- 奖券码固定为 `LOT-{prizeId}-{seq}`；
+- 先查 MySQL 里该奖项已中出的 `prize_code`，只把没发过的码 `SADD` 回 Redis，
+  Redis 丢失后重建也不会重复发奖；
+- 活动级 Redis 锁 + 双重检查：多个请求同时首次抽奖时只允许一个灌奖池，其余等标记出现；
+- 管理端奖项列表也走同一初始化，`remainingStock` 取 Redis `SCARD`；Redis 不可用时返回 null。
+
+**抽奖流程**（`LotteryServiceImpl.draw`）
+
+1. 校验活动存在、`ACTIVE`、在开始 / 结束时间内；
+2. `SISMEMBER participants` 快速判断：已抽过就查 MySQL 记录直接返回；
+3. 确保奖池初始化；
+4. 在 `SCARD > 0` 的奖项里等概率选一个，`SPOP` 领奖券；选中的池子刚好被抢空就换下一个，
+   全空则 `THANKS`；
+5. 插入 `lottery_draw_records`：
+   - `DuplicateKeyException` + 能查到本人记录 → 奖券放回池子，返回已有记录（幂等）；
+   - 其他 DB 异常 → 奖券放回池子，让用户重试；
+6. 成功后才写 `participants` / `winners` 缓存；缓存失败只记日志，不影响 MySQL 结果。
+
+**为什么不是纯 Lua**：Lua 只能保证 Redis 内部原子，无法把 MySQL 插入一起放进事务；
+所以采用「Redis 快挡 + MySQL 唯一键 + 失败补偿」，而不是「Redis 当唯一事实源」。
+
+**接口**：管理端 5 个（活动创建 / 列表 / 状态、奖项添加 / 列表）；顾客端 3 个
+（奖池、抽奖、我的记录）。契约见 [api.md §28](api.md)。
+
+**测试**
+
+- `LotteryAdminControllerTest`：创建 / 列表 / 时间校验 / 库存校验 / 404 / 结束活动拒加奖 / 403；
+- `LotteryDrawControllerTest`：重复抽幂等、谢谢参与扣次数、库存不超发、我的记录、
+  结束活动拒绝、活动不存在、Redis 资格丢失后 MySQL 仍阻止重复抽；
+- `LotteryDrawConcurrencyTest`：20 个用户并发抢 5 份奖品，恰好 5 个 WIN、15 个 THANKS，
+  MySQL 20 条记录、5 个不同奖券码。
+
+**验证**：Java 全量 **367 通过 / 0 失败 / 0 跳过**；其中抽奖 14 条。
