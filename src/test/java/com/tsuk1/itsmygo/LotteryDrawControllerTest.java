@@ -20,6 +20,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /** 顾客端抽奖：一人一次、库存不超发、谢谢参与、MySQL 兜底 */
 class LotteryDrawControllerTest extends ApiTestBase {
@@ -148,6 +149,49 @@ class LotteryDrawControllerTest extends ApiTestBase {
                         .header("Authorization", bearer(customer)))
                 .andExpect(jsonPath("$.code").value(404))
                 .andExpect(jsonPath("$.message").value("活动不存在"));
+    }
+
+    @Test
+    void anonymousCanSeeActiveActivityAndPrizesButCannotDraw() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        long activityId = createActivity(admin);
+        addPrize(admin, activityId, "公开奖池", 2);
+
+        // 当前活动与奖池匿名可看
+        mockMvc.perform(get("/api/lottery/active"))
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.id").value(activityId))
+                .andExpect(jsonPath("$.data.statusLabel").value("进行中"));
+        mockMvc.perform(get("/api/lottery/" + activityId + "/prizes"))
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data[0].name").value("公开奖池"))
+                .andExpect(jsonPath("$.data[0].remainingStock").value(2));
+
+        // 抽奖与我的记录仍要求登录
+        mockMvc.perform(post("/api/lottery/" + activityId + "/draw"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/lottery/" + activityId + "/me"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void activeReturnsLatestActiveActivity() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        long first = createActivity(admin);
+        long second = createActivity(admin);
+
+        mockMvc.perform(get("/api/lottery/active"))
+                .andExpect(jsonPath("$.data.id").value(second));
+
+        // 结束最新那个后，回到前一个进行中的活动
+        mockMvc.perform(put("/api/admin/lottery/activities/" + second + "/status")
+                        .header("Authorization", bearer(admin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new LotteryStatusRequest(2))))
+                .andExpect(jsonPath("$.code").value(200));
+
+        mockMvc.perform(get("/api/lottery/active"))
+                .andExpect(jsonPath("$.data.id").value(first));
     }
 
     @Test

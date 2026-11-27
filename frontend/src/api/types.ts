@@ -204,6 +204,40 @@ export interface CartCountView {
   count: number
 }
 
+/** 顾客端当前抽奖活动（匿名可看） */
+export interface LotteryActivityPublicView {
+  id: number
+  name: string
+  status: number
+  statusLabel: string
+  startAt: string
+  endAt: string
+}
+
+export interface LotteryPrizePublicView {
+  id: number
+  name: string
+  level: number
+  remainingStock: number
+}
+
+export interface LotteryDrawResponse {
+  result: 'WIN' | 'THANKS'
+  prizeId: number | null
+  prizeName: string | null
+  prizeCode: string | null
+  message: string
+}
+
+export interface LotteryMyRecordView {
+  drawn: boolean
+  result: 'WIN' | 'THANKS' | null
+  prizeId: number | null
+  prizeName: string | null
+  prizeCode: string | null
+  drawnAt: string | null
+}
+
 export interface Address {
   id: number
   userId: number

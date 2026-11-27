@@ -1926,13 +1926,16 @@ specText, unitPrice, quantity, refundAmount, createdAt`
 - `stock` 是初始库存；`remainingStock` 是 Redis 奖池实时剩余（Redis 不可用时为 null）。
 - 开始时间必须早于结束时间；已结束的活动不能再添加奖项。
 
-### 顾客端（登录）
+### 顾客端
 
-| 方法 | 路径 | 返回 |
-|---|---|---|
-| GET | `/api/lottery/{activityId}/prizes` | `LotteryPrizePublicView[]` |
-| POST | `/api/lottery/{activityId}/draw` | `LotteryDrawResponse` |
-| GET | `/api/lottery/{activityId}/me` | `LotteryMyRecordView` |
+| 方法 | 路径 | 权限 | 返回 |
+|---|---|---|---|
+| GET | `/api/lottery/active` | 公开 | `LotteryActivityPublicView`（无活动时 data 为 null） |
+| GET | `/api/lottery/{activityId}/prizes` | 公开 | `LotteryPrizePublicView[]` |
+| POST | `/api/lottery/{activityId}/draw` | 登录 | `LotteryDrawResponse` |
+| GET | `/api/lottery/{activityId}/me` | 登录 | `LotteryMyRecordView` |
+
+`LotteryActivityPublicView`：`id, name, status, statusLabel, startAt, endAt`。当前活动与奖池匿名可看，抽奖和我的记录需登录。
 
 `LotteryDrawResponse`：
 

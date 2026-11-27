@@ -25,6 +25,7 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     { path: '/coupons', name: 'coupon-center', component: () => import('@/views/CouponCenter.vue') },
+    { path: '/lottery', name: 'lottery', component: () => import('@/views/Lottery.vue') },
     {
       path: '/terms',
       name: 'policy-terms',

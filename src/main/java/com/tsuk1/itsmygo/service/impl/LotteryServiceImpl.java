@@ -5,6 +5,7 @@ import com.tsuk1.itsmygo.common.ResultCode;
 import com.tsuk1.itsmygo.common.exception.BizException;
 import com.tsuk1.itsmygo.common.lottery.LotteryPrizePoolService;
 import com.tsuk1.itsmygo.common.lottery.LotteryRedisStore;
+import com.tsuk1.itsmygo.dto.LotteryActivityPublicView;
 import com.tsuk1.itsmygo.dto.LotteryDrawResponse;
 import com.tsuk1.itsmygo.dto.LotteryMyRecordView;
 import com.tsuk1.itsmygo.dto.LotteryPrizePublicView;
@@ -53,6 +54,27 @@ public class LotteryServiceImpl implements LotteryService {
         this.drawRecordMapper = drawRecordMapper;
         this.prizePoolService = prizePoolService;
         this.redisStore = redisStore;
+    }
+
+    @Override
+    public LotteryActivityPublicView activeActivity() {
+        // 只取最近一个「进行中」的活动；活动多起来再升级成列表接口
+        LotteryActivity activity = activityMapper.selectOne(Wrappers.<LotteryActivity>lambdaQuery()
+                .eq(LotteryActivity::getStatus, LotteryActivityStatus.ACTIVE.code())
+                .orderByDesc(LotteryActivity::getId)
+                .last("LIMIT 1"));
+        if (activity == null) {
+            return null;
+        }
+        LotteryActivityStatus status = LotteryActivityStatus.fromCode(activity.getStatus());
+        String statusLabel = status == LotteryActivityStatus.ACTIVE ? "进行中" : "已结束";
+        return new LotteryActivityPublicView(
+                activity.getId(),
+                activity.getName(),
+                activity.getStatus(),
+                statusLabel,
+                activity.getStartAt(),
+                activity.getEndAt());
     }
 
     @Override
