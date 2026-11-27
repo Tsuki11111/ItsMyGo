@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Present, Ticket, Trophy } from '@element-plus/icons-vue'
 import LotteryWheel from '@/components/lottery/LotteryWheel.vue'
+import lotteryMascot from '@/assets/lottery-mascot.webp'
 import {
   drawLottery,
   fetchActiveLottery,
@@ -243,7 +244,7 @@ onBeforeUnmount(() => {
           </div>
           <p class="rules">每人限抽 1 次 · 小额奖品权重更高 · 奖品抽完即止</p>
         </div>
-        <el-icon class="hero-icon"><Present /></el-icon>
+        <img class="hero-mascot" :src="lotteryMascot" alt="抽奖小助手" />
       </section>
 
       <section class="wheel-section">
@@ -392,6 +393,18 @@ onBeforeUnmount(() => {
   font-size: 64px;
   color: var(--c-pink);
   opacity: 0.8;
+}
+
+.hero-mascot {
+  flex: none;
+  align-self: flex-end;
+  width: 128px;
+  height: auto;
+  margin: -6px -4px -20px 0;
+  /* 图片自带白色背景：multiply 让它在浅粉/白色 Hero 上像透明底一样融进去 */
+  mix-blend-mode: multiply;
+  pointer-events: none;
+  user-select: none;
 }
 
 .wheel-section {
@@ -564,6 +577,11 @@ onBeforeUnmount(() => {
 
   .hero-icon {
     display: none;
+  }
+
+  .hero-mascot {
+    width: 86px;
+    margin-bottom: -12px;
   }
 
   .wheel-legend {

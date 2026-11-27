@@ -3362,6 +3362,8 @@ MySQL 负责活动 / 奖项配置与每次抽奖的最终记录。
 - 点击中心按钮先调后端拿结果，再按结果计算目标角度，5 圈 + 4.8 秒 CSS 过渡停在指针处；
   `computeSpinRotation` 抽出纯函数做单测，`transitionend` + 5.2 秒兜底避免按钮永久禁用；
 - 动画结束后才更新「我的记录」并弹结果窗，避免提前剧透；响应丢失时重新拉 `/me` 幂等兜底；
+- Hero 右侧抽奖小助手使用 `frontend/src/assets/lottery-mascot.webp`，
+  原图是白底 WebP，用 `mix-blend-mode: multiply` 融入浅粉背景；
 - 倒计时每秒刷新，卸载时清理定时器；移动端转盘缩放、图例 1~2 列。
 
 **测试**
