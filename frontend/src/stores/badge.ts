@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
 import { fetchCouponCenter } from '@/api/coupon'
-import { fetchCart } from '@/api/cart'
+import { fetchCartCount } from '@/api/cart'
 import { getToken } from '@/api/http'
 import { useChatStore } from '@/stores/chat'
 import { useUserStore } from '@/stores/user'
@@ -39,13 +39,15 @@ export const useBadgeStore = defineStore('badge', () => {
       return
     }
     try {
-      syncCart(await fetchCart())
+      // 只取数量：轮询是最热的读路径，不需要整份购物车明细
+      const view = await fetchCartCount()
+      cartCount.value = view.count
     } catch {
       cartCount.value = 0
     }
   }
 
-  /** 购物车接口本来就返回整份购物车，直接同步，省一次请求 */
+  /** 购物车页 / 加购响应本来就带整份购物车，直接同步，省一次请求 */
   function syncCart(view: CartView) {
     cartCount.value = view.items.reduce((sum, item) => sum + item.quantity, 0)
   }

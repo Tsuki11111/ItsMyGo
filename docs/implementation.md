@@ -356,6 +356,29 @@ ON DUPLICATE KEY UPDATE quantity = quantity + #{quantity}
 
 **总价只算「已勾选 且 可购买」的项**，且用 `BigDecimal` 累加。
 
+**角标计数缓存**（`GET /api/cart/count`，`common/cart/CartCountCache`）：
+
+顶栏 30 秒轮询是购物车最热的读路径，但它只需要一个数字。所以单独开一条缓存：
+
+```
+its-my-go:cart:count:{userId}   Hash, TTL 5 分钟 ±20%
+  count      -> 所有行 quantity 之和
+  builtAt    -> 重建时间（毫秒，排查用）
+  sku:{id}   -> 该规格在购物车里的数量
+```
+
+- 读：`HGET count` 命中即返回；未命中按用户加 `SETNX` 锁回源
+  （`SELECT sku_id, quantity`），再用 Lua 把 `DEL + HSET + EXPIRE` 原子重建——
+  避免并发读到半成品，也避免崩溃留下不带 TTL 的 key。
+- **读命中不续期**：轮询 30 秒一次，如果读也续期，活跃用户的缓存永远不过期，
+  角标会一直停在第一次的值；过期后由下一轮轮询回源。
+- 写：加购 / 改数量 / 删除在**写库成功后** `DEL`；下单补账删除购物车行后先删一次，
+  再在事务提交后删一次——覆盖「删缓存后、提交前被并发读重建」的窗口。
+- 降级：Redis 异常一律记日志并直查数据库，购物车不能因为缓存挂掉而不可用。
+- 商品归档清理删除购物车行时不做跨用户精确驱逐，角标最多旧 5 分钟；
+  购物车页本身实时查库，不受影响。
+- **不缓存购物车明细与订单**：它们用户私有、频繁变动，且下单链路必须读实时数据。
+
 ### 3.7 订单与状态机（`OrderServiceImpl` / `OrderStatus`）
 
 **状态机集中在一个枚举里**（`OrderStatus.canTransitionTo`），不允许散落到各个 Service 里 `if`：
@@ -686,7 +709,8 @@ private Duration stockTtl() {
 | `GET /api/products/{id}` | ✅ `its-my-go:product:{id}`，TTL 10 分钟 | 热点、读多写少、所有人看到的一样 |
 | `GET /api/categories` | ✅ `its-my-go:category:tree`，TTL 30 分钟 | 极热点、极少变动 |
 | `GET /api/products`（列表/搜索） | ❌ | 关键词 × 分类 × 分页的组合太多，key 会爆炸 |
-| 购物车 / 订单 | ❌ | 用户私有 + 频繁变动 |
+| `GET /api/cart/count` | ✅ `its-my-go:cart:count:{userId}`，TTL 5 分钟 | 30 秒轮询最热；只影响顶栏数字，最长旧 5 分钟（D37） |
+| 购物车明细 / 订单 | ❌ | 用户私有 + 频繁变动，且下单必须读实时数据 |
 | `GET /api/auth/me` | ❌ | 根本不查库 |
 
 **读**（`getOrLoad`）：命中直接返回；未命中时**用互斥锁保护回源**（复用 §3.8 那套），
@@ -2478,7 +2502,8 @@ frontend/
 
 - 消息：`stores/chat.ts` 的 `unreadTotal`，由 SSE 实时更新；
 - 领券中心 / 购物车：`stores/badge.ts`。领券中心统计 `!claimed` 的券数
-  （匿名时即全部可领），购物车统计所有行 `quantity` 之和；
+  （匿名时即全部可领），购物车调 `GET /api/cart/count`
+  （Redis 计数缓存，最长旧 5 分钟，见 §3.6）；
 - 轮询 30 秒（后台标签页跳过）+ 加购、购物车增删改、领券后立即同步；
   三项都用 `el-badge`，值为 0 时 `hidden`，不显示红点。
 

@@ -199,6 +199,11 @@ export interface CartView {
   selectedTotal: number
 }
 
+/** 顶栏角标：所有行的数量之和（30s 轮询，走 Redis 缓存，最多旧 5 分钟） */
+export interface CartCountView {
+  count: number
+}
+
 export interface Address {
   id: number
   userId: number

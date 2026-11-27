@@ -1,5 +1,5 @@
 import { del, get, post, put } from './http'
-import type { CartView } from './types'
+import type { CartCountView, CartView } from './types'
 
 /**
  * 加购。后端靠 `ON DUPLICATE KEY UPDATE` 累加，重复加同一规格是合法的。
@@ -12,6 +12,14 @@ export function addToCart(productId: number, skuId: number, quantity: number): P
 
 export function fetchCart(): Promise<CartView> {
   return get<CartView>('/cart')
+}
+
+/**
+ * 顶栏角标专用。只返回数量，后端走 Redis 缓存，**最多旧 5 分钟**；
+ * 需要实时明细（购物车页、结算页）仍然用 {@link fetchCart}。
+ */
+export function fetchCartCount(): Promise<CartCountView> {
+  return get<CartCountView>('/cart/count')
 }
 
 /** 改数量或勾选状态。**两个参数都要传**（后端是整体覆盖那一行） */

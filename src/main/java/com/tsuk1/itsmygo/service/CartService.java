@@ -1,12 +1,15 @@
 package com.tsuk1.itsmygo.service;
 
 import com.tsuk1.itsmygo.dto.CartAddRequest;
+import com.tsuk1.itsmygo.dto.CartCountView;
 import com.tsuk1.itsmygo.dto.CartUpdateRequest;
 import com.tsuk1.itsmygo.dto.CartView;
 
 public interface CartService {
 
     CartView list(Long userId);
+
+    CartCountView count(Long userId);
 
     CartView add(Long userId, CartAddRequest request);
 

@@ -2,6 +2,7 @@ package com.tsuk1.itsmygo.service.impl;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.tsuk1.itsmygo.common.ResultCode;
+import com.tsuk1.itsmygo.common.cart.CartCountCache;
 import com.tsuk1.itsmygo.common.exception.BizException;
 import com.tsuk1.itsmygo.common.order.OrderTimeoutPublisher;
 import com.tsuk1.itsmygo.entity.Order;
@@ -18,11 +19,15 @@ import com.tsuk1.itsmygo.service.StockService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 下单补账实现（M31 / D1）。
@@ -43,6 +48,7 @@ public class OrderSettlementServiceImpl implements OrderSettlementService {
     private final CartItemMapper cartItemMapper;
     private final StockService stockService;
     private final OrderTimeoutPublisher orderTimeoutPublisher;
+    private final CartCountCache cartCountCache;
 
     public OrderSettlementServiceImpl(OrderMapper orderMapper,
                                       OrderItemMapper orderItemMapper,
@@ -51,7 +57,8 @@ public class OrderSettlementServiceImpl implements OrderSettlementService {
                                       UserCouponMapper userCouponMapper,
                                       CartItemMapper cartItemMapper,
                                       StockService stockService,
-                                      OrderTimeoutPublisher orderTimeoutPublisher) {
+                                      OrderTimeoutPublisher orderTimeoutPublisher,
+                                      CartCountCache cartCountCache) {
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
         this.skuMapper = skuMapper;
@@ -60,6 +67,7 @@ public class OrderSettlementServiceImpl implements OrderSettlementService {
         this.cartItemMapper = cartItemMapper;
         this.stockService = stockService;
         this.orderTimeoutPublisher = orderTimeoutPublisher;
+        this.cartCountCache = cartCountCache;
     }
 
     @Override
@@ -118,12 +126,39 @@ public class OrderSettlementServiceImpl implements OrderSettlementService {
         // ④ 清购物车：只删事件里快照的行 ID，避免误删后来加入的商品
         if (cartItemIds != null && !cartItemIds.isEmpty()) {
             cartItemMapper.deleteBatchIds(cartItemIds);
+            // 角标缓存删两次：先删保证事务内后续读取不会命中旧值；
+            // 提交后再删，覆盖「删缓存后、提交前」被并发读重建的窗口
+            Set<Long> userIds = new LinkedHashSet<>();
+            for (Order order : won) {
+                if (order.getUserId() != null) {
+                    userIds.add(order.getUserId());
+                }
+            }
+            for (Long userId : userIds) {
+                cartCountCache.evict(userId);
+            }
+            evictCartCountAfterCommit(userIds);
         }
 
         // ⑤ 事务提交后才发超时关单消息
         orderTimeoutPublisher.publishAfterCommit(won);
         log.info("下单补账完成: orderIds={} skuCount={}", wonIds, skuQuantities.size());
         return won;
+    }
+
+    private void evictCartCountAfterCommit(Set<Long> userIds) {
+        if (userIds.isEmpty() || !TransactionSynchronizationManager.isSynchronizationActive()) {
+            return;
+        }
+        List<Long> snapshot = List.copyOf(userIds);
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                for (Long userId : snapshot) {
+                    cartCountCache.evict(userId);
+                }
+            }
+        });
     }
 
     @Override

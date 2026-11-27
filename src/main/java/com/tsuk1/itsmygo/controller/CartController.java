@@ -2,6 +2,7 @@ package com.tsuk1.itsmygo.controller;
 
 import com.tsuk1.itsmygo.common.Result;
 import com.tsuk1.itsmygo.dto.CartAddRequest;
+import com.tsuk1.itsmygo.dto.CartCountView;
 import com.tsuk1.itsmygo.dto.CartUpdateRequest;
 import com.tsuk1.itsmygo.dto.CartView;
 import com.tsuk1.itsmygo.common.identity.CurrentUser;
@@ -31,6 +32,12 @@ public class CartController {
     @GetMapping
     public Result<CartView> list(@AuthenticationPrincipal CurrentUser user) {
         return Result.ok(cartService.list(user.id()));
+    }
+
+    /** 顶栏角标专用：只返回数量，走 Redis 缓存；购物车页仍用 {@link #list} 查实时数据 */
+    @GetMapping("/count")
+    public Result<CartCountView> count(@AuthenticationPrincipal CurrentUser user) {
+        return Result.ok(cartService.count(user.id()));
     }
 
     @PostMapping("/items")

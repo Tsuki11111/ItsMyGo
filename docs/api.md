@@ -240,6 +240,9 @@ Authorization: Bearer <token>
 - `selectedTotal` 只计算「已勾选且可购买」的行。
 - `available=false` 表示商品/规格下架、店铺停用或库存不足。
 
+**CartCountView**：`{ count: number }` —— 所有购物车行 `quantity` 之和，供顶栏角标使用。
+它有 Redis 缓存（TTL 5 分钟），**可能最多旧 5 分钟**；需要实时明细请用 `GET /api/cart`。
+
 ### 2.6 订单
 
 **Order**
@@ -581,6 +584,7 @@ Authorization: Bearer <token>
 | 方法 | 路径 | 权限 | 请求 | 返回 |
 |---|---|---|---|---|
 | GET | `/api/cart` | 登录 | — | `CartView` |
+| GET | `/api/cart/count` | 登录 | — | `CartCountView` |
 | POST | `/api/cart/items` | 登录 | `{productId, skuId, quantity}` | `CartView` |
 | PUT | `/api/cart/items/{id}` | 登录 | `{quantity, selected}` | `CartView` |
 | DELETE | `/api/cart/items/{id}` | 登录 | — | `CartView` |
@@ -589,6 +593,8 @@ Authorization: Bearer <token>
 - 加购会校验商品上架、SKU 在售、店铺 `ACTIVE`、库存充足。
 - 购物车行不存店铺 ID，由商品派生；商品归属变化不会留下脏行。
 - 所有写操作返回整份购物车，前端直接替换本地状态即可。
+- `/count` 是顶栏 30 秒轮询专用：只返回数量，走 Redis 缓存，最长旧 5 分钟；
+  加购 / 改数量 / 删除 / 下单补账后立即失效。不会用它判断能否成交。
 
 ---
 

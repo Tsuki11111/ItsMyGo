@@ -313,6 +313,10 @@ class OrderControllerTest extends ApiTestBase {
         long addressId = createAddress(token);
         addToCart(token, productId, 2);
 
+        // 先把角标缓存建出来，证明确实是「下单清车」把它失效了，而不是缓存本来就不存在
+        mockMvc.perform(get("/api/cart/count").header("Authorization", bearer(token)))
+                .andExpect(jsonPath("$.data.count").value(2));
+
         String body = mockMvc.perform(post("/api/orders")
                         .header("Authorization", bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -330,6 +334,9 @@ class OrderControllerTest extends ApiTestBase {
         assertProductStock(token, productId, 8);
         mockMvc.perform(get("/api/cart").header("Authorization", bearer(token)))
                 .andExpect(jsonPath("$.data.items.length()").value(0));
+        // 角标也必须立刻归零（下单补账删除购物车行后 evict）
+        mockMvc.perform(get("/api/cart/count").header("Authorization", bearer(token)))
+                .andExpect(jsonPath("$.data.count").value(0));
     }
 
     /** 订单快照的核心验证：下单后商品改价改名，历史订单必须保持原样 */

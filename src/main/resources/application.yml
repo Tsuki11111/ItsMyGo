@@ -117,6 +117,10 @@ itsmygo:
     batch-size: ${PROMOTION_BATCH_SIZE:200}
     # 一次推送最多带几件商品（卡片顺序与文案 ①②③ 对应）
     max-products: ${PROMOTION_MAX_PRODUCTS:3}
+  # 购物车角标：Redis Hash 计数缓存，只服务顶栏 30s 轮询。
+  # 购物车页与下单不读它；TTL 到期后由下一轮轮询回源重建。
+  cart-count:
+    ttl: ${CART_COUNT_TTL:5m}
   # 售后（M30）：商家审核超时自动同意、退货超时自动确认收货；扫描式，无需 MQ
   after-sale:
     enabled: ${AFTER_SALE_SCAN_ENABLED:true}

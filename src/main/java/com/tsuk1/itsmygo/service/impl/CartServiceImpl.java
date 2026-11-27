@@ -2,8 +2,11 @@ package com.tsuk1.itsmygo.service.impl;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.tsuk1.itsmygo.common.ResultCode;
+import com.tsuk1.itsmygo.common.cart.CartCountCache;
+import com.tsuk1.itsmygo.common.cart.CartCountSnapshot;
 import com.tsuk1.itsmygo.common.exception.BizException;
 import com.tsuk1.itsmygo.dto.CartAddRequest;
+import com.tsuk1.itsmygo.dto.CartCountView;
 import com.tsuk1.itsmygo.dto.CartItemView;
 import com.tsuk1.itsmygo.dto.CartUpdateRequest;
 import com.tsuk1.itsmygo.dto.CartView;
@@ -23,6 +26,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -37,13 +41,16 @@ public class CartServiceImpl implements CartService {
     private final ProductMapper productMapper;
     private final ProductSkuMapper skuMapper;
     private final MerchantMapper merchantMapper;
+    private final CartCountCache cartCountCache;
 
     public CartServiceImpl(CartItemMapper cartItemMapper, ProductMapper productMapper,
-                           ProductSkuMapper skuMapper, MerchantMapper merchantMapper) {
+                           ProductSkuMapper skuMapper, MerchantMapper merchantMapper,
+                           CartCountCache cartCountCache) {
         this.cartItemMapper = cartItemMapper;
         this.productMapper = productMapper;
         this.skuMapper = skuMapper;
         this.merchantMapper = merchantMapper;
+        this.cartCountCache = cartCountCache;
     }
 
     @Override
@@ -52,6 +59,12 @@ public class CartServiceImpl implements CartService {
                 .eq(CartItem::getUserId, userId)
                 .orderByDesc(CartItem::getId));
         return buildView(items);
+    }
+
+    @Override
+    public CartCountView count(Long userId) {
+        long count = cartCountCache.count(userId, () -> loadCountSnapshot(userId));
+        return new CartCountView(count);
     }
 
     @Override
@@ -67,6 +80,7 @@ public class CartServiceImpl implements CartService {
         }
 
         cartItemMapper.addQuantity(userId, product.getId(), sku.getId(), request.quantity());
+        cartCountCache.evict(userId);
         return list(userId);
     }
 
@@ -87,6 +101,7 @@ public class CartServiceImpl implements CartService {
         item.setQuantity(Math.min(request.quantity(), MAX_QUANTITY));
         item.setSelected(Boolean.TRUE.equals(request.selected()) ? 1 : 0);
         cartItemMapper.updateById(item);
+        cartCountCache.evict(userId);
         return list(userId);
     }
 
@@ -94,7 +109,22 @@ public class CartServiceImpl implements CartService {
     public CartView remove(Long userId, Long itemId) {
         requireOwned(userId, itemId);
         cartItemMapper.deleteById(itemId);
+        cartCountCache.evict(userId);
         return list(userId);
+    }
+
+    /** 只取角标需要的两列：总数 = 各行数量之和，明细供重建 Hash 的 sku 字段 */
+    private CartCountSnapshot loadCountSnapshot(Long userId) {
+        List<CartItem> rows = cartItemMapper.selectList(Wrappers.<CartItem>lambdaQuery()
+                .select(CartItem::getSkuId, CartItem::getQuantity)
+                .eq(CartItem::getUserId, userId));
+        Map<Long, Integer> skuQuantities = new LinkedHashMap<>(rows.size());
+        long total = 0;
+        for (CartItem row : rows) {
+            total += row.getQuantity();
+            skuQuantities.put(row.getSkuId(), row.getQuantity());
+        }
+        return new CartCountSnapshot(total, skuQuantities);
     }
 
     /**
