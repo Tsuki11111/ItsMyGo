@@ -593,3 +593,53 @@ SKU/价格历史同步删除；有订单/评价/收藏引用的商品只归档�
 越权、过期、非待确认仍返回原错误。
 
 **范围外**：在卡片内换商品（只换规格）；历史草稿批量迁移。
+
+### 2.16 抽奖模块（2026-11-27 定，M-lottery）
+
+**目标**：在 ItsMyGo 内提供一个「用户点击即时抽奖」模块，练习 Redis Set 与 MySQL 的配合。
+
+**规则**
+
+- 每个活动每人只能抽 **1 次**；中奖或谢谢参与都会消耗这次机会。
+- **多奖项、等概率**：在仍有库存的奖项中均匀随机选 1 个；奖项库存只决定能中几次，
+  不影响单次选中概率。
+- 奖池抽完 → 返回「谢谢参与」，仍写入抽奖记录。
+- 中奖与谢谢参与都落 MySQL（`lottery_draw_records`），
+  `UNIQUE(activity_id, user_id)` 兜底「一人一次」。
+- Redis Set：`participants` 做快速资格闸门，`prize-pool:{activityId}:{prizeId}`
+  存实时奖池（元素是唯一奖券码），`winners` 做快速名单缓存；
+  **所有 key 必须带 TTL = 活动结束 + 1 天**。
+- 库存口径：MySQL `stock` 是初始库存，实时剩余以 Redis `SCARD` 为准；
+  Redis 丢失后按「初始库存 - 该奖项 WIN 记录数」重建。
+
+**管理端接口（管理员）**
+
+- `POST /api/admin/lottery/activities`：创建活动（名称、开始 / 结束时间）
+- `GET /api/admin/lottery/activities`：活动列表
+- `POST /api/admin/lottery/activities/{id}/prizes`：添加奖项（名称、等级、初始库存）
+- `GET /api/admin/lottery/activities/{id}/prizes`：奖项列表（含 Redis 实时剩余库存）
+- `PUT /api/admin/lottery/activities/{id}/status`：结束 / 恢复活动
+
+**顾客端接口（登录）**
+
+- `GET /api/lottery/{activityId}/prizes`：奖池（含实时剩余库存）
+- `POST /api/lottery/{activityId}/draw`：抽奖，返回 `WIN` / `THANKS` + 奖项 / 奖券码
+- `GET /api/lottery/{activityId}/me`：我的抽奖记录（是否已抽、结果）
+
+**并发与一致性**
+
+- `SADD participants` 返回 1/0 做第一道并发闸门；
+- `SPOP` 原子领取奖券，天然不超发；
+- MySQL 唯一键是最终兜底；DB 失败时把奖券 `SADD` 回池，
+  必要时 `SREM` 资格后让用户重试；
+- **不把 Redis 当唯一事实源**：活动、奖项、抽奖记录以 MySQL 为准。
+
+**验收**
+
+- 同一用户并发 20 次抽奖，MySQL 只有 1 条记录；
+- 奖项库存 5，20 个用户并发抽，恰好 5 个 `WIN`，其余 `THANKS`；
+- 奖池全空时返回 `THANKS`，且该用户不能再次抽；
+- 管理端能创建活动 / 奖项，顾客端能抽奖并查询自己的结果；
+- Redis 资格集合丢失后，MySQL 唯一键仍能阻止同一用户重复抽奖。
+
+**范围外**：多轮抽奖、积分 / 次数购买、奖品发货、概率权重、活动页 UI（本增量只做接口）。
