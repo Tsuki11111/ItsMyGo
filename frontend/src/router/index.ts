@@ -25,7 +25,9 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     { path: '/coupons', name: 'coupon-center', component: () => import('@/views/CouponCenter.vue') },
-    { path: '/lottery', name: 'lottery', component: () => import('@/views/Lottery.vue') },
+    { path: '/activities', name: 'activity-center', component: () => import('@/views/ActivityCenter.vue') },
+    { path: '/lottery/:activityId', name: 'lottery', component: () => import('@/views/Lottery.vue') },
+    { path: '/lottery', redirect: '/activities' },
     {
       path: '/terms',
       name: 'policy-terms',
@@ -113,6 +115,7 @@ const router = createRouter({
         { path: 'after-sales', name: 'admin-after-sales', component: () => import('@/views/admin/AfterSales.vue') },
         { path: 'coupons', name: 'admin-coupons', component: () => import('@/views/admin/Coupons.vue') },
         { path: 'reviews', name: 'admin-reviews', component: () => import('@/views/admin/Reviews.vue') },
+        { path: 'activities', name: 'admin-activities', component: () => import('@/views/admin/Activities.vue') },
         { path: 'merchants', name: 'admin-merchants', component: () => import('@/views/admin/Merchants.vue') },
         { path: 'knowledge', name: 'admin-knowledge', component: () => import('@/views/admin/Knowledge.vue') },
         { path: 'knowledge-gaps', name: 'admin-knowledge-gaps', component: () => import('@/views/admin/KnowledgeGaps.vue') },

@@ -5,16 +5,16 @@ import com.tsuk1.itsmygo.common.ResultCode;
 import com.tsuk1.itsmygo.common.exception.BizException;
 import com.tsuk1.itsmygo.common.lottery.LotteryPrizePoolService;
 import com.tsuk1.itsmygo.common.lottery.LotteryRedisStore;
-import com.tsuk1.itsmygo.dto.LotteryActivityPublicView;
 import com.tsuk1.itsmygo.dto.LotteryDrawResponse;
 import com.tsuk1.itsmygo.dto.LotteryMyRecordView;
 import com.tsuk1.itsmygo.dto.LotteryPrizePublicView;
-import com.tsuk1.itsmygo.entity.LotteryActivity;
-import com.tsuk1.itsmygo.entity.LotteryActivityStatus;
+import com.tsuk1.itsmygo.entity.Activity;
+import com.tsuk1.itsmygo.entity.ActivityStatus;
+import com.tsuk1.itsmygo.entity.ActivityType;
 import com.tsuk1.itsmygo.entity.LotteryDrawRecord;
 import com.tsuk1.itsmygo.entity.LotteryDrawResult;
 import com.tsuk1.itsmygo.entity.LotteryPrize;
-import com.tsuk1.itsmygo.mapper.LotteryActivityMapper;
+import com.tsuk1.itsmygo.mapper.ActivityMapper;
 import com.tsuk1.itsmygo.mapper.LotteryDrawRecordMapper;
 import com.tsuk1.itsmygo.mapper.LotteryPrizeMapper;
 import com.tsuk1.itsmygo.service.LotteryService;
@@ -28,7 +28,7 @@ import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * 顾客抽奖（每人每活动 1 次，多奖项等概率）。
+ * 顾客抽奖（每人每活动 1 次，多奖项按 weight 加权）。
  *
  * <p>一致性策略：Redis Set 只做快速判断和实时库存，MySQL 的
  * {@code uk_activity_user} 才是「一人一次」的最终兜底。Redis 与 MySQL 不一致时，
@@ -38,13 +38,13 @@ import java.util.concurrent.ThreadLocalRandom;
 @Service
 public class LotteryServiceImpl implements LotteryService {
 
-    private final LotteryActivityMapper activityMapper;
+    private final ActivityMapper activityMapper;
     private final LotteryPrizeMapper prizeMapper;
     private final LotteryDrawRecordMapper drawRecordMapper;
     private final LotteryPrizePoolService prizePoolService;
     private final LotteryRedisStore redisStore;
 
-    public LotteryServiceImpl(LotteryActivityMapper activityMapper,
+    public LotteryServiceImpl(ActivityMapper activityMapper,
                               LotteryPrizeMapper prizeMapper,
                               LotteryDrawRecordMapper drawRecordMapper,
                               LotteryPrizePoolService prizePoolService,
@@ -57,29 +57,8 @@ public class LotteryServiceImpl implements LotteryService {
     }
 
     @Override
-    public LotteryActivityPublicView activeActivity() {
-        // 只取最近一个「进行中」的活动；活动多起来再升级成列表接口
-        LotteryActivity activity = activityMapper.selectOne(Wrappers.<LotteryActivity>lambdaQuery()
-                .eq(LotteryActivity::getStatus, LotteryActivityStatus.ACTIVE.code())
-                .orderByDesc(LotteryActivity::getId)
-                .last("LIMIT 1"));
-        if (activity == null) {
-            return null;
-        }
-        LotteryActivityStatus status = LotteryActivityStatus.fromCode(activity.getStatus());
-        String statusLabel = status == LotteryActivityStatus.ACTIVE ? "进行中" : "已结束";
-        return new LotteryActivityPublicView(
-                activity.getId(),
-                activity.getName(),
-                activity.getStatus(),
-                statusLabel,
-                activity.getStartAt(),
-                activity.getEndAt());
-    }
-
-    @Override
     public List<LotteryPrizePublicView> prizes(Long activityId) {
-        LotteryActivity activity = requireActivity(activityId);
+        Activity activity = requireLotteryActivity(activityId);
         prizePoolService.ensureInitialized(activity);
 
         List<LotteryPrize> prizes = prizeMapper.selectList(Wrappers.<LotteryPrize>lambdaQuery()
@@ -99,7 +78,7 @@ public class LotteryServiceImpl implements LotteryService {
 
     @Override
     public LotteryDrawResponse draw(Long userId, Long activityId) {
-        LotteryActivity activity = requireActivity(activityId);
+        Activity activity = requireLotteryActivity(activityId);
         validateActive(activity);
 
         // 快速路径：Redis 说已抽过，就直接查 MySQL 返回已有记录
@@ -171,7 +150,7 @@ public class LotteryServiceImpl implements LotteryService {
 
     @Override
     public LotteryMyRecordView myRecord(Long userId, Long activityId) {
-        requireActivity(activityId);
+        requireLotteryActivity(activityId);
         LotteryDrawRecord record = findRecord(activityId, userId);
         if (record == null) {
             return new LotteryMyRecordView(false, null, null, null, null, null);
@@ -187,10 +166,10 @@ public class LotteryServiceImpl implements LotteryService {
                 record.getCreatedAt());
     }
 
-    private LotteryActivity requireActivity(Long activityId) {
-        LotteryActivity activity = activityMapper.selectById(activityId);
-        if (activity == null) {
-            throw new BizException(ResultCode.NOT_FOUND, "活动不存在");
+    private Activity requireLotteryActivity(Long activityId) {
+        Activity activity = activityMapper.selectById(activityId);
+        if (activity == null || !ActivityType.LOTTERY.name().equals(activity.getType())) {
+            throw new BizException(ResultCode.NOT_FOUND, "抽奖活动不存在");
         }
         return activity;
     }
@@ -221,8 +200,8 @@ public class LotteryServiceImpl implements LotteryService {
         return prize.getWeight() == null ? 1 : Math.max(1, prize.getWeight());
     }
 
-    private void validateActive(LotteryActivity activity) {
-        if (activity.getStatus() != LotteryActivityStatus.ACTIVE.code()) {
+    private void validateActive(Activity activity) {
+        if (activity.getStatus() != ActivityStatus.ACTIVE.code()) {
             throw new BizException(ResultCode.BAD_REQUEST, "活动已结束");
         }
         LocalDateTime now = LocalDateTime.now();
@@ -240,7 +219,7 @@ public class LotteryServiceImpl implements LotteryService {
                 .eq(LotteryDrawRecord::getUserId, userId));
     }
 
-    private void returnPrizeQuietly(LotteryActivity activity, LotteryPrize prize, String prizeCode) {
+    private void returnPrizeQuietly(Activity activity, LotteryPrize prize, String prizeCode) {
         if (prize == null || prizeCode == null) {
             return;
         }
@@ -253,7 +232,7 @@ public class LotteryServiceImpl implements LotteryService {
         }
     }
 
-    private void markParticipantQuietly(LotteryActivity activity, Long userId) {
+    private void markParticipantQuietly(Activity activity, Long userId) {
         try {
             redisStore.markParticipant(activity.getId(), userId,
                     redisStore.ttlSeconds(activity.getEndAt()));
@@ -263,7 +242,7 @@ public class LotteryServiceImpl implements LotteryService {
         }
     }
 
-    private void cacheSuccessQuietly(LotteryActivity activity, Long userId, LotteryPrize wonPrize) {
+    private void cacheSuccessQuietly(Activity activity, Long userId, LotteryPrize wonPrize) {
         markParticipantQuietly(activity, userId);
         if (wonPrize == null) {
             return;

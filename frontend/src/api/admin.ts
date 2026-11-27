@@ -1,5 +1,8 @@
 import { del, download, get, post, postForm, put } from './http'
 import type {
+  ActivityPayload,
+  ActivityUpdatePayload,
+  ActivityView,
   AdjustSkuStockPayload,
   AdminDashboardView,
   AdminAuditView,
@@ -11,6 +14,8 @@ import type {
   CategoryPayload,
   Coupon,
   CouponPayload,
+  LotteryPrizePayload,
+  LotteryPrizeView,
   MerchantView,
   Order,
   OrderView,
@@ -290,4 +295,36 @@ export function fetchAdminAuditLogs(
   query: AdminAuditQuery,
 ): Promise<PageResponse<AdminAuditView>> {
   return get<PageResponse<AdminAuditView>>('/admin/audit-logs', { ...query })
+}
+
+// ── 活动管理（活动类型通用；奖项子资源目前只对抽奖开放） ──
+
+export function fetchAdminActivities(): Promise<ActivityView[]> {
+  return get<ActivityView[]>('/admin/activities')
+}
+
+export function createAdminActivity(payload: ActivityPayload): Promise<ActivityView> {
+  return post<ActivityView>('/admin/activities', payload)
+}
+
+export function updateAdminActivity(
+  id: number,
+  payload: ActivityUpdatePayload,
+): Promise<ActivityView> {
+  return put<ActivityView>(`/admin/activities/${id}`, payload)
+}
+
+export function updateAdminActivityStatus(id: number, status: number): Promise<ActivityView> {
+  return put<ActivityView>(`/admin/activities/${id}/status`, { status })
+}
+
+export function fetchAdminLotteryPrizes(activityId: number): Promise<LotteryPrizeView[]> {
+  return get<LotteryPrizeView[]>(`/admin/activities/${activityId}/prizes`)
+}
+
+export function createAdminLotteryPrize(
+  activityId: number,
+  payload: LotteryPrizePayload,
+): Promise<LotteryPrizeView> {
+  return post<LotteryPrizeView>(`/admin/activities/${activityId}/prizes`, payload)
 }

@@ -8,7 +8,7 @@ export type LotteryPageState =
   | 'DRAWN'
   | 'ENDED'
 
-export interface LotteryActivityTime {
+export interface ActivityTime {
   startAt: string
   endAt: string
 }
@@ -18,7 +18,7 @@ export interface LotteryRecordLike {
 }
 
 export function resolveLotteryState(
-  activity: LotteryActivityTime | null,
+  activity: ActivityTime | null,
   record: LotteryRecordLike | null,
   now: number,
   drawing: boolean,

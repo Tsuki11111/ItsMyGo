@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ChatDotRound, Location, Lock, Present, Search, Setting, Shop, ShoppingCart, Star, SwitchButton, Ticket, Tickets, User } from '@element-plus/icons-vue'
+import { Calendar, ChatDotRound, Location, Lock, Search, Setting, Shop, ShoppingCart, Star, SwitchButton, Ticket, Tickets, User } from '@element-plus/icons-vue'
 import ProductImage from '@/components/ProductImage.vue'
 import NotificationBell from '@/components/NotificationBell.vue'
 import { useBadgeStore } from '@/stores/badge'
@@ -137,11 +137,11 @@ onBeforeUnmount(() => badgeStore.stopPolling())
           </el-badge>
         </RouterLink>
         <RouterLink
-          to="/lottery"
+          to="/activities"
           class="link badge-link"
         >
-          <el-icon><Present /></el-icon>
-          <span class="link-label">抽奖</span>
+          <el-icon><Calendar /></el-icon>
+          <span class="link-label">活动中心</span>
         </RouterLink>
         <RouterLink
           to="/cart"

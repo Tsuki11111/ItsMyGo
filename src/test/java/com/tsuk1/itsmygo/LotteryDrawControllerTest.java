@@ -1,9 +1,9 @@
 package com.tsuk1.itsmygo;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.tsuk1.itsmygo.dto.LotteryActivityRequest;
+import com.tsuk1.itsmygo.dto.ActivityRequest;
+import com.tsuk1.itsmygo.dto.ActivityStatusRequest;
 import com.tsuk1.itsmygo.dto.LotteryPrizeRequest;
-import com.tsuk1.itsmygo.dto.LotteryStatusRequest;
 import com.tsuk1.itsmygo.entity.LotteryDrawRecord;
 import com.tsuk1.itsmygo.mapper.LotteryDrawRecordMapper;
 import org.junit.jupiter.api.AfterEach;
@@ -129,10 +129,10 @@ class LotteryDrawControllerTest extends ApiTestBase {
         String customer = customerToken("c" + System.nanoTime());
         long activityId = createActivity(admin);
 
-        mockMvc.perform(put("/api/admin/lottery/activities/" + activityId + "/status")
+        mockMvc.perform(put("/api/admin/activities/" + activityId + "/status")
                         .header("Authorization", bearer(admin))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new LotteryStatusRequest(2))))
+                        .content(objectMapper.writeValueAsString(new ActivityStatusRequest(2))))
                 .andExpect(jsonPath("$.code").value(200));
 
         mockMvc.perform(post("/api/lottery/" + activityId + "/draw")
@@ -148,20 +148,23 @@ class LotteryDrawControllerTest extends ApiTestBase {
         mockMvc.perform(post("/api/lottery/99999999/draw")
                         .header("Authorization", bearer(customer)))
                 .andExpect(jsonPath("$.code").value(404))
-                .andExpect(jsonPath("$.message").value("活动不存在"));
+                .andExpect(jsonPath("$.message").value("抽奖活动不存在"));
     }
 
     @Test
-    void anonymousCanSeeActiveActivityAndPrizesButCannotDraw() throws Exception {
+    void anonymousCanSeeActivityAndPrizesButCannotDraw() throws Exception {
         String admin = adminToken("adm" + System.nanoTime());
         long activityId = createActivity(admin);
         addPrize(admin, activityId, "公开奖池", 2);
 
-        // 当前活动与奖池匿名可看
-        mockMvc.perform(get("/api/lottery/active"))
+        // 活动中心与奖池匿名可看
+        mockMvc.perform(get("/api/activities"))
                 .andExpect(jsonPath("$.code").value(200))
-                .andExpect(jsonPath("$.data.id").value(activityId))
-                .andExpect(jsonPath("$.data.statusLabel").value("进行中"));
+                .andExpect(jsonPath("$.data[0].id").value(activityId))
+                .andExpect(jsonPath("$.data[0].typeLabel").value("抽奖"));
+        mockMvc.perform(get("/api/activities/" + activityId))
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.name").isNotEmpty());
         mockMvc.perform(get("/api/lottery/" + activityId + "/prizes"))
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data[0].name").value("公开奖池"))
@@ -175,23 +178,16 @@ class LotteryDrawControllerTest extends ApiTestBase {
     }
 
     @Test
-    void activeReturnsLatestActiveActivity() throws Exception {
+    void activityListShowsMultipleActivities() throws Exception {
         String admin = adminToken("adm" + System.nanoTime());
         long first = createActivity(admin);
         long second = createActivity(admin);
 
-        mockMvc.perform(get("/api/lottery/active"))
-                .andExpect(jsonPath("$.data.id").value(second));
-
-        // 结束最新那个后，回到前一个进行中的活动
-        mockMvc.perform(put("/api/admin/lottery/activities/" + second + "/status")
-                        .header("Authorization", bearer(admin))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new LotteryStatusRequest(2))))
-                .andExpect(jsonPath("$.code").value(200));
-
-        mockMvc.perform(get("/api/lottery/active"))
-                .andExpect(jsonPath("$.data.id").value(first));
+        mockMvc.perform(get("/api/activities"))
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.length()").value(2))
+                .andExpect(jsonPath("$.data[0].id").value(second))
+                .andExpect(jsonPath("$.data[1].id").value(first));
     }
 
     @Test
@@ -220,19 +216,19 @@ class LotteryDrawControllerTest extends ApiTestBase {
 
     private long createActivity(String admin) throws Exception {
         LocalDateTime now = LocalDateTime.now();
-        String body = mockMvc.perform(post("/api/admin/lottery/activities")
+        String body = mockMvc.perform(post("/api/admin/activities")
                         .header("Authorization", bearer(admin))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(
-                                new LotteryActivityRequest("抽奖" + System.nanoTime(),
-                                        now.minusHours(1), now.plusHours(1)))))
+                        .content(objectMapper.writeValueAsString(new ActivityRequest(
+                                "LOTTERY", "抽奖" + System.nanoTime(), "测试抽奖", "#e8638f", "",
+                                now.minusHours(1), now.plusHours(1)))))
                 .andExpect(jsonPath("$.code").value(200))
                 .andReturn().getResponse().getContentAsString();
         return objectMapper.readTree(body).path("data").path("id").asLong();
     }
 
     private void addPrize(String admin, long activityId, String name, int stock) throws Exception {
-        mockMvc.perform(post("/api/admin/lottery/activities/" + activityId + "/prizes")
+        mockMvc.perform(post("/api/admin/activities/" + activityId + "/prizes")
                         .header("Authorization", bearer(admin))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(

@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Aim, ChatDotRound, ChatLineRound, Collection, DataAnalysis, DataBoard, Discount, Document, Goods, Key, Menu as MenuIcon, RefreshLeft, Shop, Tickets, User } from '@element-plus/icons-vue'
+import { Aim, Calendar, ChatDotRound, ChatLineRound, Collection, DataAnalysis, DataBoard, Discount, Document, Goods, Key, Menu as MenuIcon, RefreshLeft, Shop, Tickets, User } from '@element-plus/icons-vue'
 import NotificationBell from '@/components/NotificationBell.vue'
 import { useChatStore } from '@/stores/chat'
 import { usePermissionStore } from '@/stores/permission'
@@ -24,6 +24,8 @@ const MENU = [
   { path: '/admin/orders', label: '订单管理', icon: Tickets, perm: 'admin:order:view' },
   { path: '/admin/after-sales', label: '售后管理', icon: RefreshLeft, perm: 'admin:aftersale:view' },
   { path: '/admin/coupons', label: '优惠券管理', icon: Discount, perm: 'admin:coupon:manage' },
+  // 活动管理暂不接 RBAC 权限码；/api/admin/** 已限制 ADMIN
+  { path: '/admin/activities', label: '活动管理', icon: Calendar },
   { path: '/admin/reviews', label: '评价管理', icon: ChatDotRound, perm: 'admin:review:manage' },
   { path: '/admin/knowledge', label: '知识库', icon: Collection, perm: 'admin:knowledge:import' },
   { path: '/admin/knowledge-gaps', label: '知识缺口', icon: Aim, perm: 'admin:knowledge-gap:manage' },

@@ -2,7 +2,6 @@ package com.tsuk1.itsmygo.controller;
 
 import com.tsuk1.itsmygo.common.Result;
 import com.tsuk1.itsmygo.common.identity.CurrentUser;
-import com.tsuk1.itsmygo.dto.LotteryActivityPublicView;
 import com.tsuk1.itsmygo.dto.LotteryDrawResponse;
 import com.tsuk1.itsmygo.dto.LotteryMyRecordView;
 import com.tsuk1.itsmygo.dto.LotteryPrizePublicView;
@@ -25,12 +24,6 @@ public class LotteryController {
 
     public LotteryController(LotteryService lotteryService) {
         this.lotteryService = lotteryService;
-    }
-
-    /** 当前进行中的活动；匿名可看，没有活动时 data 为 null */
-    @GetMapping("/active")
-    public Result<LotteryActivityPublicView> active() {
-        return Result.ok(lotteryService.activeActivity());
     }
 
     @GetMapping("/{activityId}/prizes")

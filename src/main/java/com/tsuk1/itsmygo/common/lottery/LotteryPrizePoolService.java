@@ -3,7 +3,7 @@ package com.tsuk1.itsmygo.common.lottery;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.tsuk1.itsmygo.common.ResultCode;
 import com.tsuk1.itsmygo.common.exception.BizException;
-import com.tsuk1.itsmygo.entity.LotteryActivity;
+import com.tsuk1.itsmygo.entity.Activity;
 import com.tsuk1.itsmygo.entity.LotteryDrawRecord;
 import com.tsuk1.itsmygo.entity.LotteryDrawResult;
 import com.tsuk1.itsmygo.entity.LotteryPrize;
@@ -48,7 +48,7 @@ public class LotteryPrizePoolService {
     }
 
     /** 初始化一个活动下所有奖项的奖池；已全部初始化则直接返回 */
-    public void ensureInitialized(LotteryActivity activity) {
+    public void ensureInitialized(Activity activity) {
         List<LotteryPrize> prizes = prizeMapper.selectList(Wrappers.<LotteryPrize>lambdaQuery()
                 .eq(LotteryPrize::getActivityId, activity.getId()));
         if (allInitialized(activity, prizes)) {
@@ -72,12 +72,12 @@ public class LotteryPrizePoolService {
     }
 
     /** 实时剩余库存：确保奖池已初始化后读 SCARD */
-    public long remainingStock(LotteryActivity activity, LotteryPrize prize) {
+    public long remainingStock(Activity activity, LotteryPrize prize) {
         ensureInitialized(activity);
         return redisStore.remainingStock(activity.getId(), prize.getId());
     }
 
-    private void initializeOne(LotteryActivity activity, LotteryPrize prize) {
+    private void initializeOne(Activity activity, LotteryPrize prize) {
         long ttlSeconds = redisStore.ttlSeconds(activity.getEndAt());
 
         // 已发出去的奖券码不再灌回池子，避免 Redis 丢失后重复发奖
@@ -110,7 +110,7 @@ public class LotteryPrizePoolService {
         redisStore.markPrizePoolInitialized(activity.getId(), prize.getId(), ttlSeconds);
     }
 
-    private boolean allInitialized(LotteryActivity activity, List<LotteryPrize> prizes) {
+    private boolean allInitialized(Activity activity, List<LotteryPrize> prizes) {
         for (LotteryPrize prize : prizes) {
             if (!redisStore.isPrizePoolInitialized(activity.getId(), prize.getId())) {
                 return false;
@@ -119,7 +119,7 @@ public class LotteryPrizePoolService {
         return true;
     }
 
-    private void waitForOtherInitializer(LotteryActivity activity, List<LotteryPrize> prizes) {
+    private void waitForOtherInitializer(Activity activity, List<LotteryPrize> prizes) {
         for (int round = 0; round < MAX_WAIT_ROUNDS; round++) {
             sleep();
             if (allInitialized(activity, prizes)) {

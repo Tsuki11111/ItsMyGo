@@ -52,8 +52,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/policies/**").permitAll()
                         // 领券中心匿名可看；**精确匹配**，不能写 /**，否则 /api/coupons/mine 也会被放行
                         .requestMatchers(HttpMethod.GET, "/api/coupons").permitAll()
-                        // 抽奖：当前活动与奖池匿名可看；抽奖 / 我的记录仍需登录
-                        .requestMatchers(HttpMethod.GET, "/api/lottery/active",
+                        // 活动中心与抽奖奖池匿名可看；抽奖 / 我的记录仍需登录
+                        .requestMatchers(HttpMethod.GET, "/api/activities/**",
                                 "/api/lottery/*/prizes").permitAll()
                         // SSE 流用一次性票据鉴权（EventSource 带不了 Authorization），其余聊天接口仍需登录
                         .requestMatchers(HttpMethod.GET, "/api/chat/stream").permitAll()

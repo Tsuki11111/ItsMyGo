@@ -3,13 +3,14 @@ package com.tsuk1.itsmygo;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.tsuk1.itsmygo.common.Roles;
 import com.tsuk1.itsmygo.dto.LotteryDrawResponse;
-import com.tsuk1.itsmygo.entity.LotteryActivity;
-import com.tsuk1.itsmygo.entity.LotteryActivityStatus;
+import com.tsuk1.itsmygo.entity.Activity;
+import com.tsuk1.itsmygo.entity.ActivityStatus;
+import com.tsuk1.itsmygo.entity.ActivityType;
 import com.tsuk1.itsmygo.entity.LotteryDrawRecord;
 import com.tsuk1.itsmygo.entity.LotteryDrawResult;
 import com.tsuk1.itsmygo.entity.LotteryPrize;
 import com.tsuk1.itsmygo.entity.User;
-import com.tsuk1.itsmygo.mapper.LotteryActivityMapper;
+import com.tsuk1.itsmygo.mapper.ActivityMapper;
 import com.tsuk1.itsmygo.mapper.LotteryDrawRecordMapper;
 import com.tsuk1.itsmygo.mapper.LotteryPrizeMapper;
 import com.tsuk1.itsmygo.mapper.UserMapper;
@@ -50,7 +51,7 @@ class LotteryDrawConcurrencyTest {
     @Autowired
     private LotteryService lotteryService;
     @Autowired
-    private LotteryActivityMapper activityMapper;
+    private ActivityMapper activityMapper;
     @Autowired
     private LotteryPrizeMapper prizeMapper;
     @Autowired
@@ -125,9 +126,13 @@ class LotteryDrawConcurrencyTest {
     }
 
     private Long createActivity(Long stamp) {
-        LotteryActivity activity = new LotteryActivity();
+        Activity activity = new Activity();
+        activity.setType(ActivityType.LOTTERY.name());
         activity.setName("并发抽奖" + stamp);
-        activity.setStatus(LotteryActivityStatus.ACTIVE.code());
+        activity.setDescription("并发测试");
+        activity.setPrimaryColor("#e8638f");
+        activity.setCoverImage("");
+        activity.setStatus(ActivityStatus.ACTIVE.code());
         activity.setStartAt(LocalDateTime.now().minusHours(1));
         activity.setEndAt(LocalDateTime.now().plusHours(1));
         activityMapper.insert(activity);
@@ -138,7 +143,9 @@ class LotteryDrawConcurrencyTest {
         LotteryPrize prize = new LotteryPrize();
         prize.setActivityId(activityId);
         prize.setName("并发奖品");
+        prize.setImage("");
         prize.setLevel(1);
+        prize.setWeight(1);
         prize.setStock(STOCK);
         prizeMapper.insert(prize);
         return prize.getId();

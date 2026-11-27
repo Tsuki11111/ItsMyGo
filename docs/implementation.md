@@ -3294,15 +3294,18 @@ Vitest 13/13、`npm run build` 通过。
 **测试**：`UserProfileTest` 3 条（聚合字段、冷启动、无票据/假票据 401）；
 `PromotionServiceTest` 5 条（新增画像同品牌优先排序）；Java 全量 **365 通过 / 0 失败**。
 
-### 3.58 抽奖（`LotteryServiceImpl` / `LotteryAdminServiceImpl`，2026-11-27）
+### 3.58 活动中心与抽奖（`ActivityServiceImpl` / `LotteryServiceImpl`，2026-11-27）
 
-**目标**：每人每活动抽 1 次，多奖项等概率；Redis Set 负责快速判断与实时库存，
-MySQL 负责活动 / 奖项配置与每次抽奖的最终记录。
+**目标**：活动是一等公民，抽奖只是 `type = LOTTERY` 的一种活动。活动中心展示全部活动卡片；
+活动管理端统一管理活动 CRUD，抽奖奖项作为活动子资源；每个用户每个抽奖活动只能抽 1 次，
+多奖项按 `weight` 加权，奖品带实物图。
 
 **数据**
 
-- V40 三张表：`lottery_activities`、`lottery_prizes`、`lottery_draw_records`；
-- V41 给 `lottery_prizes` 增加 `image`（实物图 URL）与 `weight`（中奖权重）；
+- V40 建立活动 / 奖项 / 抽奖记录；V42 把主表 `lottery_activities` 改名 **`activities`**，
+  增加 `type / description / primary_color / cover_image`；
+- V41 给 `lottery_prizes` 增加 `image`（实物图）与 `weight`（中奖权重）；
+- `lottery_prizes` / `lottery_draw_records` 的 `activity_id` 继续指向 `activities.id`；
 - `lottery_draw_records`：
   - `uk_activity_user (activity_id, user_id)`：一人一活动的最终兜底；
   - `uk_prize_code (prize_code)`：奖券码全局唯一，谢谢参与写 NULL（MySQL 允许多个 NULL）；
@@ -3330,7 +3333,7 @@ MySQL 负责活动 / 奖项配置与每次抽奖的最终记录。
 
 **抽奖流程**（`LotteryServiceImpl.draw`）
 
-1. 校验活动存在、`ACTIVE`、在开始 / 结束时间内；
+1. 校验活动存在、`type = LOTTERY`、`ACTIVE`、在开始 / 结束时间内；
 2. `SISMEMBER participants` 快速判断：已抽过就查 MySQL 记录直接返回；
 3. 确保奖池初始化；
 4. 在 `SCARD > 0` 的奖项里按 `weight` 加权选一个，`SPOP` 领奖券；选中的池子刚好被抢空就换下一个，
@@ -3350,10 +3353,21 @@ MySQL 负责活动 / 奖项配置与每次抽奖的最终记录。
 - 静态方法 `pickWeighted(candidates, roll)` 单独抽出来做区间边界单测；
 - 前端转盘扇区等分只是视觉，真实概率完全由后端权重决定。
 
-**接口**：管理端 5 个（活动创建 / 列表 / 状态、奖项添加 / 列表）；顾客端 4 个
-（当前活动、奖池、抽奖、我的记录）。契约见 [api.md §28](api.md)。
+**接口**：管理端 6 个（活动列表 / 创建 / 编辑 / 状态、奖项查询 / 添加）；顾客端 5 个
+（活动列表、活动详情、奖池、抽奖、我的记录）。契约见 [api.md §28](api.md)。
 
-**顾客端转盘页（`frontend/src/views/Lottery.vue` + `components/lottery/LotteryWheel.vue`）**
+**活动中心与管理端**
+
+- `ActivityServiceImpl`：公开活动列表 / 详情，按开始时间倒序；`ActivityView` 带 `typeLabel / statusLabel`；
+- `ActivityAdminServiceImpl`：活动创建 / 编辑 / 状态；创建时只接受已实现的 `LOTTERY` 类型；
+- 抽奖子资源 `LotteryAdminService` 仍负责奖项；所有入口用 `ActivityType.LOTTERY` 校验类型；
+- 活动中心 `/activities`：卡片展示封面、主色调、类型、状态（未开始 / 进行中 / 已结束）、起止日期；
+  主色调作为卡片顶部色条、类型标签、按钮强调色；
+- 管理端 `/admin/activities`：活动表格、创建 / 编辑、结束恢复、奖项配置（封面与奖品图走 `ImageUpload`）；
+- 活动封面演示图放在 `frontend/public/activity/`（Unsplash，来源见该目录 `SOURCES.md`）；
+- 旧 `/api/lottery/active`、`/api/admin/lottery/activities/**` 已删除。
+
+**顾客端抽奖页（`Lottery.vue` + `LotteryWheel.vue`）**
 
 - 路由 `/lottery`，顶栏「抽奖」入口；当前活动与奖池匿名可看，抽奖 / 我的记录需登录；
 - 页面状态由纯函数 `utils/lotteryState.ts` 决定：未开始 / 可抽 / 抽奖中 / 已抽 / 已结束；
@@ -3368,12 +3382,13 @@ MySQL 负责活动 / 奖项配置与每次抽奖的最终记录。
 
 **测试**
 
-- `LotteryAdminControllerTest`：创建 / 列表 / 时间校验 / 库存校验 / 404 / 结束活动拒加奖 / 403；
+- `ActivityAdminControllerTest`：活动创建 / 列表 / 编辑 / 时间校验 / 未知类型 / 404 / 结束活动拒加奖 / 403；
 - `LotteryDrawControllerTest`：重复抽幂等、谢谢参与扣次数、库存不超发、我的记录、
-  结束活动拒绝、活动不存在、匿名可看活动 / 奖池但不能抽、Redis 资格丢失后 MySQL 仍阻止重复抽；
+  结束活动拒绝、活动不存在、匿名可看活动中心 / 详情 / 奖池但不能抽、多个活动列表；
 - `LotteryDrawConcurrencyTest`：20 个用户并发抢 5 份奖品，恰好 5 个 WIN、15 个 THANKS，
   MySQL 20 条记录、5 个不同奖券码；
 - `LotteryServiceImplTest`：加权区间边界 2 条；
-- 前端 `lotteryState.spec.ts`：状态机 6 条 + 倒计时格式 3 条 + 转盘角度 3 条。
+- 前端 `lotteryState.spec.ts`：状态机 6 条 + 倒计时格式 3 条 + 转盘角度 3 条；
+  `activity.spec.ts`：活动阶段 4 条 + 文案 1 条 + 日期格式 1 条。
 
-**验证**：Java 全量 **371 通过 / 0 失败 / 0 跳过**；其中抽奖 18 条。前端 Vitest **37 条通过**。
+**验证**：Java 全量 **373 通过 / 0 失败 / 0 跳过**；其中活动 / 抽奖 20 条。前端 Vitest **43 条通过**。

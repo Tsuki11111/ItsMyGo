@@ -204,16 +204,6 @@ export interface CartCountView {
   count: number
 }
 
-/** 顾客端当前抽奖活动（匿名可看） */
-export interface LotteryActivityPublicView {
-  id: number
-  name: string
-  status: number
-  statusLabel: string
-  startAt: string
-  endAt: string
-}
-
 export interface LotteryPrizePublicView {
   id: number
   name: string
@@ -238,6 +228,55 @@ export interface LotteryMyRecordView {
   prizeName: string | null
   prizeCode: string | null
   drawnAt: string | null
+}
+
+/** 活动中心 / 管理端活动；type 目前只有 LOTTERY */
+export interface ActivityView {
+  id: number
+  type: string
+  typeLabel: string
+  name: string
+  description: string
+  primaryColor: string
+  coverImage: string
+  status: number
+  statusLabel: string
+  startAt: string
+  endAt: string
+  createdAt?: string
+}
+
+export interface ActivityPayload {
+  type: string
+  name: string
+  description: string
+  primaryColor: string
+  coverImage: string
+  startAt: string
+  endAt: string
+}
+
+export type ActivityUpdatePayload = Omit<ActivityPayload, 'type'>
+
+/** 管理端奖项视图（比顾客端多 weight / stock / activityId） */
+export interface LotteryPrizeView {
+  id: number
+  activityId: number
+  name: string
+  image: string
+  level: number
+  weight: number
+  stock: number
+  remainingStock: number | null
+  createdAt: string
+}
+
+export interface LotteryPrizePayload {
+  name: string
+  image: string
+  level: number
+  weight: number
+  stock: number
 }
 
 export interface Address {

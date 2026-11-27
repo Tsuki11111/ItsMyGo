@@ -423,8 +423,8 @@ SKU/价格历史同步删除；有订单/评价/收藏引用的商品只归档�
 
 ### 3.5 质量门禁
 
-- 后端自动化测试 **371 条**（本地；CI 367 条，跳过 4 条依赖 MinIO 的用例）；
-- 前端 Vitest **37 条**（订单状态 tag / 权限指令 / 登录态存储 / 抽奖状态机与转盘角度），另靠手工走查 + `npm run build`/`vue-tsc`；
+- 后端自动化测试 **373 条**（本地；CI 369 条，跳过 4 条依赖 MinIO 的用例）；
+- 前端 Vitest **43 条**（订单状态 tag / 权限指令 / 登录态存储 / 抽奖状态机 / 活动阶段），另靠手工走查 + `npm run build`/`vue-tsc`；
 - 压测基线与复现方法见 [HANDOFF.md](../HANDOFF.md) §4.8；
 - 已知但未处理的高并发问题清单在 [HANDOFF.md](../HANDOFF.md) §5 末尾，动手前先看。
 
@@ -466,7 +466,7 @@ SKU/价格历史同步删除；有订单/评价/收藏引用的商品只归档�
    执行流与卡片在浏览器可渲染。
 5. 一键部署：`./deploy.sh` 起全栈，`rag_helper/deploy.sh joint` 联合启动，
    两端 `/api/health` 与 agent `/health` 均通过。
-6. 测试与文档：后端 371 条全绿（CI 367）、前端 37 条全绿；implementation / HANDOFF / README 同步。
+6. 测试与文档：后端 373 条全绿（CI 369）、前端 43 条全绿；implementation / HANDOFF / README 同步。
 7. **售后**：整单与部分退款金额正确（优惠按比例分摊、尾差不丢），退货退款全链路可走通，
    同一订单项不能重复退超量，商家超时自动处理生效，越权一律 404。
 8. **下单异步补账（M31）**（已实现，2026-11-06；单测 + 真实 RabbitMQ 端到端均通过，验收见 HANDOFF §6）：
@@ -594,40 +594,41 @@ SKU/价格历史同步删除；有订单/评价/收藏引用的商品只归档�
 
 **范围外**：在卡片内换商品（只换规格）；历史草稿批量迁移。
 
-### 2.16 抽奖模块（2026-11-27 定，M-lottery）
+### 2.16 活动中心与抽奖活动（2026-11-27 定，M-activity）
 
-**目标**：在 ItsMyGo 内提供一个「用户点击即时抽奖」模块，练习 Redis Set 与 MySQL 的配合。
+**目标**：把「抽奖」升级为通用活动平台。活动中心展示全部活动卡片；抽奖是活动的一种类型
+（`type = LOTTERY`），后续可以扩展签到、领券等类型，但共用活动主表和管理入口。
 
-**规则**
+**活动规则**
 
-- 每个活动每人只能抽 **1 次**；中奖或谢谢参与都会消耗这次机会。
-- **多奖项、按权重加权**：每个奖项有 `weight`，越大越容易中；小额券这类小奖配更高权重，
-  实物大奖配低权重。只在仍有库存的奖项中按权重选 1 个。
-- 奖项可以有实物图 `image`，顾客端转盘展示；空图（如优惠券）用券图标兜底。
-- 奖池抽完 → 返回「谢谢参与」，仍写入抽奖记录。
-- 中奖与谢谢参与都落 MySQL（`lottery_draw_records`），
-  `UNIQUE(activity_id, user_id)` 兜底「一人一次」。
-- Redis Set：`participants` 做快速资格闸门，`prize-pool:{activityId}:{prizeId}`
-  存实时奖池（元素是唯一奖券码），`winners` 做快速名单缓存；
-  **所有 key 必须带 TTL = 活动结束 + 1 天**。
-- 库存口径：MySQL `stock` 是初始库存，实时剩余以 Redis `SCARD` 为准；
-  Redis 丢失后按「初始库存 - 该奖项 WIN 记录数」重建。
+- 活动主表 `activities`：`type / name / description / primary_color / cover_image /
+  status / start_at / end_at`；抽奖子配置仍走 `lottery_prizes` / `lottery_draw_records`。
+- 活动中心展示**全部活动**（未开始 / 进行中 / 已结束），卡片显示类型、名称、副标题、
+  起止日期、状态、封面图和活动主色调；没有封面的卡片用主色调渐变兜底。
+- 抽奖类型：每个用户每个活动只能抽 **1 次**；多奖项按 `weight` 加权，
+  小额券这类小奖配高权重、实物大奖配低权重；奖品可以配实物图；奖池抽完返回「谢谢参与」。
+- 中奖与谢谢参与都落 MySQL，`UNIQUE(activity_id, user_id)` 兜底一人一次；
+  Redis Set 做快速资格与实时奖池，所有 key 必须带 TTL = 活动结束 + 1 天。
+- 多个抽奖活动互不影响：各自的奖项、Redis 奖池、抽奖记录按 `activity_id` 隔离。
 
-**管理端接口（管理员）**
+**管理端（活动管理）**
 
-- `POST /api/admin/lottery/activities`：创建活动（名称、开始 / 结束时间）
-- `GET /api/admin/lottery/activities`：活动列表
-- `POST /api/admin/lottery/activities/{id}/prizes`：添加奖项
-  （名称、实物图 URL、等级、权重、初始库存）
-- `GET /api/admin/lottery/activities/{id}/prizes`：奖项列表（含 Redis 实时剩余库存）
-- `PUT /api/admin/lottery/activities/{id}/status`：结束 / 恢复活动
+- `GET /api/admin/activities`：全部活动列表
+- `POST /api/admin/activities`：创建活动（类型、名称、副标题、主色调、封面、起止时间）
+- `PUT /api/admin/activities/{id}`：编辑活动（类型不可改，避免子配置错位）
+- `PUT /api/admin/activities/{id}/status`：结束 / 恢复
+- `GET/POST /api/admin/activities/{id}/prizes`：抽奖类型的奖项查询 / 添加
+- 管理页 `/admin/activities`：活动表格、创建 / 编辑、结束恢复、奖项配置（封面与奖品图走上传）。
 
-**顾客端（当前活动 / 奖池公开只读；抽奖 / 我的记录需登录）**
+**顾客端**
 
-- `GET /api/lottery/active`：当前进行中的活动（无活动时 data 为 null）
-- `GET /api/lottery/{activityId}/prizes`：奖池（含实物图、实时剩余库存，匿名可看）
-- `POST /api/lottery/{activityId}/draw`：抽奖，按 `weight` 加权，返回 `WIN` / `THANKS` + 奖项 / 奖券码
-- `GET /api/lottery/{activityId}/me`：我的抽奖记录（是否已抽、结果）
+- `GET /api/activities`：活动中心列表（公开）
+- `GET /api/activities/{id}`：活动详情（公开，抽奖页使用）
+- `GET /api/lottery/{activityId}/prizes`：奖池（公开）
+- `POST /api/lottery/{activityId}/draw`：抽奖（登录）
+- `GET /api/lottery/{activityId}/me`：我的抽奖记录（登录）
+- 页面：活动中心 `/activities`，抽奖详情 `/lottery/:activityId`；顶栏入口「活动中心」。
+- 旧接口 `/api/lottery/active`、`/api/admin/lottery/activities/**` 删除，统一到上述路径。
 
 **并发与一致性**
 
@@ -638,14 +639,15 @@ SKU/价格历史同步删除；有订单/评价/收藏引用的商品只归档�
 
 **验收**
 
+- 活动中心能同时展示多个活动，含未开始 / 进行中 / 已结束，卡片有封面、主色调、起止日期；
+- 管理端能创建 / 编辑活动、结束恢复、配置抽奖奖项（含实物图与权重）；
 - 同一用户并发 20 次抽奖，MySQL 只有 1 条记录；
 - 奖项库存 5，20 个用户并发抽，恰好 5 个 `WIN`，其余 `THANKS`；
-- 权重大的小奖在区间测试中覆盖更多 roll 值（`LotteryServiceImplTest`）；
-- 奖池全空时返回 `THANKS`，且该用户不能再次抽；
-- 管理端能创建活动 / 奖项（含实物图与权重），顾客端能在转盘上抽奖并查询自己的结果；
+- 权重大的小奖覆盖更多 roll 区间（`LotteryServiceImplTest`）；
+- 活动中心与奖池匿名可看，抽奖 / 我的记录未登录返回 401；
 - Redis 资格集合丢失后，MySQL 唯一键仍能阻止同一用户重复抽奖。
 
-**实现状态**：2026-11-27 已落地（V40 / V41 + 管理端 / 顾客端接口 + 转盘页 + 测试）。
+**实现状态**：2026-11-27 已落地（V40 / V41 / V42 + 活动中心 + 管理端活动页 + 抽奖转盘 + 测试）。
 
-**范围外**：多轮抽奖、积分 / 次数购买、奖品发货、活动列表、管理端抽奖页面。
-优惠券奖品目前只发奖券码，不自动进入「我的优惠券」（需要另接优惠券资产链路）。
+**范围外**：其他活动类型的玩法实现（当前只实现 `LOTTERY`，类型字段已预留）、多轮抽奖、
+奖品发货、优惠券自动进入「我的优惠券」、活动列表分页 / 筛选。

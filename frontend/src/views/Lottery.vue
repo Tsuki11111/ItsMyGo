@@ -7,13 +7,13 @@ import LotteryWheel from '@/components/lottery/LotteryWheel.vue'
 import lotteryMascot from '@/assets/lottery-mascot.webp'
 import {
   drawLottery,
-  fetchActiveLottery,
   fetchLotteryPrizes,
   fetchMyLotteryRecord,
 } from '@/api/lottery'
+import { fetchActivity } from '@/api/activity'
 import { useUserStore } from '@/stores/user'
 import type {
-  LotteryActivityPublicView,
+  ActivityView,
   LotteryDrawResponse,
   LotteryMyRecordView,
   LotteryPrizePublicView,
@@ -23,8 +23,9 @@ import { computeSpinRotation, formatCountdown, resolveLotteryState } from '@/uti
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+const activityId = Number(route.params.activityId)
 
-const activity = ref<LotteryActivityPublicView | null>(null)
+const activity = ref<ActivityView | null>(null)
 const prizes = ref<LotteryPrizePublicView[]>([])
 const record = ref<LotteryMyRecordView | null>(null)
 const loading = ref(true)
@@ -45,6 +46,10 @@ const state = computed(() => resolveLotteryState(
   now.value,
   drawing.value,
 ))
+
+const pageStyle = computed(() => ({
+  '--activity-color': activity.value?.primaryColor || '#e8638f',
+}))
 
 const statusText = computed(() => {
   if (!activity.value) return ''
@@ -102,16 +107,20 @@ const wheelItems = computed(() => {
 async function load() {
   loading.value = true
   try {
-    activity.value = await fetchActiveLottery()
-    if (!activity.value) {
-      prizes.value = []
-      record.value = null
+    if (!Number.isFinite(activityId) || activityId <= 0) {
+      activity.value = null
       return
     }
-    prizes.value = await fetchLotteryPrizes(activity.value.id)
+    activity.value = await fetchActivity(activityId)
+    if (activity.value.type !== 'LOTTERY') {
+      ElMessage.warning('该活动不是抽奖活动')
+      router.replace('/activities')
+      return
+    }
+    prizes.value = await fetchLotteryPrizes(activityId)
     if (userStore.isLoggedIn) {
       try {
-        record.value = await fetchMyLotteryRecord(activity.value.id)
+        record.value = await fetchMyLotteryRecord(activityId)
       } catch {
         // 记录拉取失败不阻断奖池展示；抽奖时会再次校验
         record.value = null
@@ -120,7 +129,7 @@ async function load() {
       record.value = null
     }
   } catch {
-    // http 拦截器已提示；保持空状态
+    activity.value = null
   } finally {
     loading.value = false
   }
@@ -230,7 +239,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div v-loading="loading" class="lottery-page">
+  <div v-loading="loading" class="lottery-page" :style="pageStyle">
     <template v-if="activity">
       <section class="hero">
         <div class="hero-main">
@@ -297,8 +306,8 @@ onBeforeUnmount(() => {
       </section>
     </template>
 
-    <el-empty v-if="!loading && !activity" description="暂无进行中的抽奖活动">
-      <el-button type="primary" @click="router.push('/')">去逛逛</el-button>
+    <el-empty v-if="!loading && !activity" description="活动不存在或已下线">
+      <el-button type="primary" @click="router.push('/activities')">返回活动中心</el-button>
     </el-empty>
 
     <el-dialog
@@ -341,7 +350,11 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 20px;
   padding: 28px 30px;
-  background: linear-gradient(135deg, var(--c-pink-tint), #fff);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--activity-color) 12%, #fff),
+    #fff
+  );
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-card);
 }
@@ -351,7 +364,7 @@ onBeforeUnmount(() => {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.18em;
-  color: var(--c-pink);
+  color: var(--activity-color);
 }
 
 .hero-title {
@@ -371,8 +384,8 @@ onBeforeUnmount(() => {
 .status-tag {
   padding: 3px 10px;
   font-size: 12px;
-  color: var(--c-pink);
-  background: var(--c-pink-soft);
+  color: var(--activity-color);
+  background: color-mix(in srgb, var(--activity-color) 14%, #fff);
   border-radius: 999px;
 }
 

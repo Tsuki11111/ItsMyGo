@@ -1907,36 +1907,48 @@ specText, unitPrice, quantity, refundAmount, createdAt`
 - 有候选/执行时给管理员发站内通知（`PRODUCT_CLEANUP`）；
 - 重新上架会清空 `archived_at`；物理删除不可恢复。
 
-## 28. 抽奖（2026-11-27）
+## 28. 活动中心与抽奖（2026-11-27）
 
 ### 管理端（ADMIN；`/api/admin/**` 已由 SecurityConfig 限制，写操作进审计）
 
 | 方法 | 路径 | 请求 | 返回 |
 |---|---|---|---|
-| POST | `/api/admin/lottery/activities` | `{name, startAt, endAt}` | `LotteryActivityView` |
-| GET | `/api/admin/lottery/activities` | — | `LotteryActivityView[]` |
-| PUT | `/api/admin/lottery/activities/{id}/status` | `{status}`：1 进行中 / 2 已结束 | `LotteryActivityView` |
-| POST | `/api/admin/lottery/activities/{id}/prizes` | `{name, image, level, weight, stock}` | `LotteryPrizeView` |
-| GET | `/api/admin/lottery/activities/{id}/prizes` | — | `LotteryPrizeView[]` |
+| GET | `/api/admin/activities` | — | `ActivityView[]` |
+| POST | `/api/admin/activities` | `ActivityRequest` | `ActivityView` |
+| PUT | `/api/admin/activities/{id}` | `ActivityUpdateRequest` | `ActivityView` |
+| PUT | `/api/admin/activities/{id}/status` | `{status}`：1 进行中 / 2 已结束 | `ActivityView` |
+| GET | `/api/admin/activities/{id}/prizes` | — | `LotteryPrizeView[]` |
+| POST | `/api/admin/activities/{id}/prizes` | `{name, image, level, weight, stock}` | `LotteryPrizeView` |
 
-`LotteryActivityView`：`id, name, status, statusLabel, startAt, endAt, createdAt`
+`ActivityRequest`：`{type, name, description, primaryColor, coverImage, startAt, endAt}`；
+`type` 目前只支持 `LOTTERY`，创建后不可改。
+
+`ActivityView`：`id, type, typeLabel, name, description, primaryColor, coverImage,
+status, statusLabel, startAt, endAt, createdAt`
 
 `LotteryPrizeView`：`id, activityId, name, image, level, weight, stock, remainingStock, createdAt`
 
 - `image` 是奖品实物图 URL（可空）；`weight` 越大越容易中，小额券配更高权重。
 - `stock` 是初始库存；`remainingStock` 是 Redis 奖池实时剩余（Redis 不可用时为 null）。
-- 开始时间必须早于结束时间；已结束的活动不能再添加奖项。
+- 开始时间必须早于结束时间；已结束的活动不能再添加奖项；奖项子资源只对 `LOTTERY` 开放。
 
 ### 顾客端
 
 | 方法 | 路径 | 权限 | 返回 |
 |---|---|---|---|
-| GET | `/api/lottery/active` | 公开 | `LotteryActivityPublicView`（无活动时 data 为 null） |
+| GET | `/api/activities` | 公开 | `ActivityView[]`（全部活动） |
+| GET | `/api/activities/{id}` | 公开 | `ActivityView` |
 | GET | `/api/lottery/{activityId}/prizes` | 公开 | `LotteryPrizePublicView[]` |
 | POST | `/api/lottery/{activityId}/draw` | 登录 | `LotteryDrawResponse` |
 | GET | `/api/lottery/{activityId}/me` | 登录 | `LotteryMyRecordView` |
 
-`LotteryActivityPublicView`：`id, name, status, statusLabel, startAt, endAt`。当前活动与奖池匿名可看，抽奖和我的记录需登录。
+`ActivityView` 顾客端字段：`id, type, typeLabel, name, description, primaryColor,
+coverImage, status, statusLabel, startAt, endAt`。
+
+- 活动中心展示全部活动；`statusLabel` 是管理端状态（进行中 / 已结束），
+  前端按 `startAt / endAt` 再细分「未开始」。
+- 活动与奖池匿名可看，抽奖和我的记录需登录。
+- 旧 `/api/lottery/active`、`/api/admin/lottery/activities/**` 已删除。
 
 `LotteryPrizePublicView`：`id, name, image, level, remainingStock`。不暴露 `weight`；
 抽奖按后端权重加权，前端转盘等分扇区只做视觉。

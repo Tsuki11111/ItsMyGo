@@ -1,8 +1,9 @@
 package com.tsuk1.itsmygo;
 
-import com.tsuk1.itsmygo.dto.LotteryActivityRequest;
+import com.tsuk1.itsmygo.dto.ActivityRequest;
+import com.tsuk1.itsmygo.dto.ActivityStatusRequest;
+import com.tsuk1.itsmygo.dto.ActivityUpdateRequest;
 import com.tsuk1.itsmygo.dto.LotteryPrizeRequest;
-import com.tsuk1.itsmygo.dto.LotteryStatusRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -16,8 +17,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/** 管理端抽奖配置：活动与奖项的创建、校验、权限 */
-class LotteryAdminControllerTest extends ApiTestBase {
+/** 管理端活动管理：活动 CRUD、状态、抽奖奖项、校验与权限 */
+class ActivityAdminControllerTest extends ApiTestBase {
 
     @AfterEach
     void clearLotteryRedis() {
@@ -33,13 +34,14 @@ class LotteryAdminControllerTest extends ApiTestBase {
         String activityName = "抽奖" + System.nanoTime();
         long activityId = createActivity(admin, activityName);
 
-        mockMvc.perform(get("/api/admin/lottery/activities")
+        mockMvc.perform(get("/api/admin/activities")
                         .header("Authorization", bearer(admin)))
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data[0].name").value(activityName))
+                .andExpect(jsonPath("$.data[0].typeLabel").value("抽奖"))
                 .andExpect(jsonPath("$.data[0].statusLabel").value("进行中"));
 
-        mockMvc.perform(post("/api/admin/lottery/activities/" + activityId + "/prizes")
+        mockMvc.perform(post("/api/admin/activities/" + activityId + "/prizes")
                         .header("Authorization", bearer(admin))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
@@ -49,7 +51,7 @@ class LotteryAdminControllerTest extends ApiTestBase {
                 .andExpect(jsonPath("$.data.weight").value(1))
                 .andExpect(jsonPath("$.data.remainingStock").value(2));
 
-        mockMvc.perform(get("/api/admin/lottery/activities/" + activityId + "/prizes")
+        mockMvc.perform(get("/api/admin/activities/" + activityId + "/prizes")
                         .header("Authorization", bearer(admin)))
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.length()").value(1))
@@ -58,17 +60,52 @@ class LotteryAdminControllerTest extends ApiTestBase {
     }
 
     @Test
+    void adminCanUpdateActivity() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        long activityId = createActivity(admin, "待改名" + System.nanoTime());
+        LocalDateTime now = LocalDateTime.now();
+
+        mockMvc.perform(put("/api/admin/activities/" + activityId)
+                        .header("Authorization", bearer(admin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new ActivityUpdateRequest(
+                                "改名后", "新的副标题", "#7c9cff", "/activity/sale-sign.jpg",
+                                now.minusHours(1), now.plusHours(2)))))
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.name").value("改名后"))
+                .andExpect(jsonPath("$.data.description").value("新的副标题"))
+                .andExpect(jsonPath("$.data.primaryColor").value("#7c9cff"))
+                .andExpect(jsonPath("$.data.coverImage").value("/activity/sale-sign.jpg"));
+    }
+
+    @Test
     void timeRangeIsValidated() throws Exception {
         String admin = adminToken("adm" + System.nanoTime());
         LocalDateTime now = LocalDateTime.now();
 
-        mockMvc.perform(post("/api/admin/lottery/activities")
+        mockMvc.perform(post("/api/admin/activities")
                         .header("Authorization", bearer(admin))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(
-                                new LotteryActivityRequest("时间反了", now, now.minusHours(1)))))
+                        .content(objectMapper.writeValueAsString(new ActivityRequest(
+                                "LOTTERY", "时间反了", "", "#e8638f", "",
+                                now, now.minusHours(1)))))
                 .andExpect(jsonPath("$.code").value(400))
                 .andExpect(jsonPath("$.message").value("结束时间必须晚于开始时间"));
+    }
+
+    @Test
+    void unknownActivityTypeIsRejected() throws Exception {
+        String admin = adminToken("adm" + System.nanoTime());
+        LocalDateTime now = LocalDateTime.now();
+
+        mockMvc.perform(post("/api/admin/activities")
+                        .header("Authorization", bearer(admin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new ActivityRequest(
+                                "UNKNOWN", "未知活动", "", "#e8638f", "",
+                                now.minusHours(1), now.plusHours(1)))))
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.message").value("不支持的活动类型"));
     }
 
     @Test
@@ -76,7 +113,7 @@ class LotteryAdminControllerTest extends ApiTestBase {
         String admin = adminToken("adm" + System.nanoTime());
         long activityId = createActivity(admin, "库存校验" + System.nanoTime());
 
-        mockMvc.perform(post("/api/admin/lottery/activities/" + activityId + "/prizes")
+        mockMvc.perform(post("/api/admin/activities/" + activityId + "/prizes")
                         .header("Authorization", bearer(admin))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
@@ -88,13 +125,13 @@ class LotteryAdminControllerTest extends ApiTestBase {
     void addPrizeToMissingActivityReturns404() throws Exception {
         String admin = adminToken("adm" + System.nanoTime());
 
-        mockMvc.perform(post("/api/admin/lottery/activities/99999999/prizes")
+        mockMvc.perform(post("/api/admin/activities/99999999/prizes")
                         .header("Authorization", bearer(admin))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
                                 new LotteryPrizeRequest("不存在", "", 1, 1, 1))))
                 .andExpect(jsonPath("$.code").value(404))
-                .andExpect(jsonPath("$.message").value("活动不存在"));
+                .andExpect(jsonPath("$.message").value("抽奖活动不存在"));
     }
 
     @Test
@@ -102,14 +139,14 @@ class LotteryAdminControllerTest extends ApiTestBase {
         String admin = adminToken("adm" + System.nanoTime());
         long activityId = createActivity(admin, "已结束" + System.nanoTime());
 
-        mockMvc.perform(put("/api/admin/lottery/activities/" + activityId + "/status")
+        mockMvc.perform(put("/api/admin/activities/" + activityId + "/status")
                         .header("Authorization", bearer(admin))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new LotteryStatusRequest(2))))
+                        .content(objectMapper.writeValueAsString(new ActivityStatusRequest(2))))
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.statusLabel").value("已结束"));
 
-        mockMvc.perform(post("/api/admin/lottery/activities/" + activityId + "/prizes")
+        mockMvc.perform(post("/api/admin/activities/" + activityId + "/prizes")
                         .header("Authorization", bearer(admin))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
@@ -119,21 +156,22 @@ class LotteryAdminControllerTest extends ApiTestBase {
     }
 
     @Test
-    void customerCannotAccessAdminLottery() throws Exception {
+    void customerCannotAccessAdminActivities() throws Exception {
         String customer = customerToken("c" + System.nanoTime());
 
-        mockMvc.perform(get("/api/admin/lottery/activities")
+        mockMvc.perform(get("/api/admin/activities")
                         .header("Authorization", bearer(customer)))
                 .andExpect(status().isForbidden());
     }
 
     private long createActivity(String admin, String name) throws Exception {
         LocalDateTime now = LocalDateTime.now();
-        String body = mockMvc.perform(post("/api/admin/lottery/activities")
+        String body = mockMvc.perform(post("/api/admin/activities")
                         .header("Authorization", bearer(admin))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(
-                                new LotteryActivityRequest(name, now.minusHours(1), now.plusHours(1)))))
+                        .content(objectMapper.writeValueAsString(new ActivityRequest(
+                                "LOTTERY", name, "测试活动", "#e8638f", "",
+                                now.minusHours(1), now.plusHours(1)))))
                 .andExpect(jsonPath("$.code").value(200))
                 .andReturn().getResponse().getContentAsString();
         return objectMapper.readTree(body).path("data").path("id").asLong();
