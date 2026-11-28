@@ -11,6 +11,7 @@ import com.tsuk1.itsmygo.dto.LotteryPrizeView;
 import com.tsuk1.itsmygo.service.ActivityAdminService;
 import com.tsuk1.itsmygo.service.LotteryAdminService;
 import jakarta.validation.Valid;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -26,10 +27,11 @@ import java.util.List;
  * 奖项子资源只对抽奖活动开放（LotteryAdminService 会校验 type）。
  *
  * <p>路径在 /api/admin/** 下，SecurityConfig 已限制 ADMIN；
- * 暂不接 RBAC 权限码，和抽奖模块保持一致。</p>
+ * 权限码：查看用 admin:activity:view，写操作用 admin:activity:manage。</p>
  */
 @RestController
 @RequestMapping("/api/admin/activities")
+@PreAuthorize("hasAuthority('admin:activity:view')")
 public class AdminActivityController {
 
     private final ActivityAdminService activityAdminService;
@@ -47,12 +49,14 @@ public class AdminActivityController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAuthority('admin:activity:manage')")
     @AdminAudit(action = "ACTIVITY_CREATE", label = "创建活动", targetType = "ACTIVITY")
     public Result<ActivityView> create(@Valid @RequestBody ActivityRequest request) {
         return Result.ok(activityAdminService.create(request));
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAuthority('admin:activity:manage')")
     @AdminAudit(action = "ACTIVITY_UPDATE", label = "编辑活动", targetType = "ACTIVITY")
     public Result<ActivityView> update(@PathVariable Long id,
                                        @Valid @RequestBody ActivityUpdateRequest request) {
@@ -60,6 +64,7 @@ public class AdminActivityController {
     }
 
     @PutMapping("/{id}/status")
+    @PreAuthorize("hasAuthority('admin:activity:manage')")
     @AdminAudit(action = "ACTIVITY_STATUS", label = "修改活动状态", targetType = "ACTIVITY")
     public Result<ActivityView> updateStatus(@PathVariable Long id,
                                              @Valid @RequestBody ActivityStatusRequest request) {
@@ -72,6 +77,7 @@ public class AdminActivityController {
     }
 
     @PostMapping("/{id}/prizes")
+    @PreAuthorize("hasAuthority('admin:activity:manage')")
     @AdminAudit(action = "LOTTERY_PRIZE_CREATE", label = "新增抽奖奖项", targetType = "LOTTERY_PRIZE")
     public Result<LotteryPrizeView> addPrize(@PathVariable Long id,
                                              @Valid @RequestBody LotteryPrizeRequest request) {

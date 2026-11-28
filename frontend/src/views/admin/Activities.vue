@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { Calendar, Picture } from '@element-plus/icons-vue'
 import ImageUpload from '@/components/ImageUpload.vue'
+import { usePermissionStore } from '@/stores/permission'
 import {
   createAdminActivity,
   createAdminLotteryPrize,
@@ -22,6 +23,9 @@ import type {
 
 const rows = ref<ActivityView[]>([])
 const loading = ref(false)
+const permissionStore = usePermissionStore()
+/** 无 manage 权限时只读：隐藏新建/编辑、禁用状态开关、隐藏新增奖项表单 */
+const canManage = computed(() => permissionStore.has('admin:activity:manage'))
 
 const dialogVisible = ref(false)
 const editing = ref<ActivityView | null>(null)
@@ -205,7 +209,7 @@ onMounted(load)
   <div class="admin-page">
     <div class="page-head">
       <h2>活动管理</h2>
-      <el-button type="primary" @click="openCreate">新建活动</el-button>
+      <el-button v-if="canManage" type="primary" @click="openCreate">新建活动</el-button>
     </div>
 
     <el-table v-loading="loading" :data="rows" border>
@@ -237,12 +241,16 @@ onMounted(load)
       </el-table-column>
       <el-table-column label="状态" width="90" align="center">
         <template #default="{ row }">
-          <el-switch :model-value="row.status === 1" @change="toggleStatus(row, $event)" />
+          <el-switch
+            :model-value="row.status === 1"
+            :disabled="!canManage"
+            @change="toggleStatus(row, $event)"
+          />
         </template>
       </el-table-column>
       <el-table-column label="操作" width="170" fixed="right">
         <template #default="{ row }">
-          <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
+          <el-button v-if="canManage" link type="primary" @click="openEdit(row)">编辑</el-button>
           <el-button
             v-if="row.type === 'LOTTERY'"
             link
@@ -333,18 +341,20 @@ onMounted(load)
         </template>
       </el-table>
 
-      <el-divider>新增奖项</el-divider>
-      <div class="prize-form">
-        <el-input v-model="prizeForm.name" placeholder="奖项名称" style="width: 200px" />
-        <el-input-number v-model="prizeForm.level" :min="1" :max="99" controls-position="right" />
-        <el-input-number v-model="prizeForm.weight" :min="1" :max="9999" controls-position="right" />
-        <el-input-number v-model="prizeForm.stock" :min="1" :max="99999" controls-position="right" />
-        <ImageUpload v-model="prizeForm.image" compact />
-        <el-button type="primary" :loading="prizeSaving" @click="addPrize">添加</el-button>
-      </div>
-      <p class="prize-hint">
-        权重越大越容易中；小额券建议配高权重，实物大奖配低权重。图片留空时前端显示券图标。
-      </p>
+      <template v-if="canManage">
+        <el-divider>新增奖项</el-divider>
+        <div class="prize-form">
+          <el-input v-model="prizeForm.name" placeholder="奖项名称" style="width: 200px" />
+          <el-input-number v-model="prizeForm.level" :min="1" :max="99" controls-position="right" />
+          <el-input-number v-model="prizeForm.weight" :min="1" :max="9999" controls-position="right" />
+          <el-input-number v-model="prizeForm.stock" :min="1" :max="99999" controls-position="right" />
+          <ImageUpload v-model="prizeForm.image" compact />
+          <el-button type="primary" :loading="prizeSaving" @click="addPrize">添加</el-button>
+        </div>
+        <p class="prize-hint">
+          权重越大越容易中；小额券建议配高权重，实物大奖配低权重。图片留空时前端显示券图标。
+        </p>
+      </template>
 
       <template #footer>
         <el-button @click="prizeVisible = false">关闭</el-button>

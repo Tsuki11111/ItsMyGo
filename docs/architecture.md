@@ -290,7 +290,7 @@ CREATE TABLE admin_user_roles (
 | 阶段 | 内容 | 验收 |
 |---|---|---|
 | P0（当前） | requirements §2.9 + 本节 + D26 评审，不改代码 | 用户确认 |
-| P1 后端 | ✅ 2026-11-08 已落地：V36 建表/seed；AuthIdentityService + JwtAuthenticationFilter 加载 ADMIN 权限码并缓存；`@EnableMethodSecurity`；17 个管理端 controller 加 `@PreAuthorize`；`itsmygo.rbac.enabled` 默认 **false**（关闭=现状 ADMIN 全通）；单测覆盖 403/200/子角色边界 | 开关关闭时全量测试不变；打开后按权限码生效 |
+| P1 后端 | ✅ 2026-11-08 已落地：V36 建表/seed；AuthIdentityService + JwtAuthenticationFilter 加载 ADMIN 权限码并缓存；`@EnableMethodSecurity`；18 个管理端 controller 加 `@PreAuthorize`（活动管理权限码由 V43 追加）；`itsmygo.rbac.enabled` 默认 **false**（关闭=现状 ADMIN 全通）；单测覆盖 403/200/子角色边界 | 开关关闭时全量测试不变；打开后按权限码生效 |
 | P2 前端 | ✅ 基础版 2026-11-08：`/api/auth/permissions` + 权限 store + `v-permission` 指令 + 管理端菜单过滤 + 订单操作按钮显隐；**P2.1 邀请选角色已确认不做** | 无权限菜单/按钮不渲染；直接调接口仍 403 |
 | P3 灰度 | ⏸️ 暂不执行：P2.1 不做，`RBAC_ENABLED` 保持 false；清理 `hasRole` 硬编码和灰度验收一并搁置 | 不启用开关 |
 

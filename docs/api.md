@@ -1911,6 +1911,9 @@ specText, unitPrice, quantity, refundAmount, createdAt`
 
 ### 管理端（ADMIN；`/api/admin/**` 已由 SecurityConfig 限制，写操作进审计）
 
+> RBAC 权限码（`RBAC_ENABLED=true` 时生效，V43）：查看 `admin:activity:view`，
+> 新建/编辑/状态/奖项 `admin:activity:manage`。
+
 | 方法 | 路径 | 请求 | 返回 |
 |---|---|---|---|
 | GET | `/api/admin/activities` | — | `ActivityView[]` |

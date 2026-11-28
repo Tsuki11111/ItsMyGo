@@ -101,4 +101,36 @@ class RbacPermissionTest extends ApiTestBase {
                         .content("{\"trackingNo\":\"SF1\"}"))
                 .andExpect(jsonPath("$.code").value(404));
     }
+
+    @Test
+    void customerServiceCannotAccessActivityAdmin() throws Exception {
+        String username = "cs" + System.nanoTime();
+        String token = adminToken(username);
+        assignRole(username, "CUSTOMER_SERVICE");
+
+        mockMvc.perform(get("/api/admin/activities").header("Authorization", bearer(token)))
+                .andExpect(jsonPath("$.code").value(403));
+        mockMvc.perform(post("/api/admin/activities")
+                        .header("Authorization", bearer(token))
+                        .contentType("application/json")
+                        .content("{\"type\":\"LOTTERY\",\"name\":\"RBAC Test\","
+                                + "\"primaryColor\":\"#e8638f\","
+                                + "\"startAt\":\"2026-01-01T00:00:00\",\"endAt\":\"2026-01-02T00:00:00\"}"))
+                .andExpect(jsonPath("$.code").value(403));
+    }
+
+    @Test
+    void operatorHasActivityPermissionCodes() throws Exception {
+        String username = "op" + System.nanoTime();
+        String token = adminToken(username);
+        assignRole(username, "OPERATOR");
+
+        mockMvc.perform(get("/api/auth/permissions").header("Authorization", bearer(token)))
+                .andExpect(jsonPath("$.data.permissions").value(
+                        org.hamcrest.Matchers.hasItem("admin:activity:view")))
+                .andExpect(jsonPath("$.data.permissions").value(
+                        org.hamcrest.Matchers.hasItem("admin:activity:manage")));
+        mockMvc.perform(get("/api/admin/activities").header("Authorization", bearer(token)))
+                .andExpect(jsonPath("$.code").value(200));
+    }
 }

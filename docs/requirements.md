@@ -275,6 +275,7 @@ CREATING ──补账成功──> PENDING_PAYMENT → 后续与现有交易状�
 | 知识库 | `admin:knowledge:import` / `admin:knowledge-gap:manage` | 导入、缺口闭环 |
 | 评测 | `admin:agent-eval:view` / `admin:agent-eval:run` | 查看报告 / 启动评测 |
 | 优惠券 | `admin:coupon:manage` | 平台券运营 |
+| 活动 | `admin:activity:view` / `admin:activity:manage` | 活动查看 / 活动与奖项管理（V43 追加） |
 | 审计 | `admin:audit:view` | 审计日志 |
 | 通知 | `admin:notification:view` | 站内通知（所有管理员默认有） |
 
@@ -286,7 +287,7 @@ CREATING ──补账成功──> PENDING_PAYMENT → 后续与现有交易状�
 | 子角色 | 权限范围 |
 |---|---|
 | `SUPER_ADMIN` | 全部权限码 |
-| `OPERATOR`（运营） | 概览、订单查看/导出、商品、优惠券、知识库、评测查看/运行、通知；**不含**退款审核、管理员管理、审计 |
+| `OPERATOR`（运营） | 概览、订单查看/导出、商品、活动、优惠券、知识库、评测查看/运行、通知；**不含**退款审核、管理员管理、审计 |
 | `CUSTOMER_SERVICE`（客服） | 概览、订单查看、售后查看/处理、用户查看、通知；**不含**代发货、退款审核、商品/商家/管理员管理 |
 | `FINANCE`（财务） | 订单查看/导出、退款审核、售后查看、审计查看、通知 |
 

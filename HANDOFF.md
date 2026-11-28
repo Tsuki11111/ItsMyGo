@@ -50,8 +50,8 @@
   顾客端活动中心 `/activities` 卡片展示全部活动（封面 + 主色调 + 状态 + 起止日期），
   抽奖详情 `/lottery/:activityId` 使用转盘；管理端 `/admin/activities` 支持活动 CRUD、
   结束恢复、奖项配置（实物图 + 权重）。多个抽奖活动各自独立；旧 `/api/lottery/active`、
-  `/api/admin/lottery/activities/**` 已删除。活动管理页暂未接 RBAC 权限码，`/api/admin/**`
-  仍有 ADMIN 兜底。
+  `/api/admin/lottery/activities/**` 已删除。活动管理页已接 RBAC 权限码（V43：
+  `admin:activity:view` / `admin:activity:manage`），运营子角色默认可管理活动。
 - **购物车角标缓存（2026-11-27，D37）**：新增 `GET /api/cart/count`，Redis Hash
   计数缓存（`its-my-go:cart:count:{userId}`，TTL 5 分钟 ±20%），顶栏 30 秒轮询不再
   每用户每分钟查 4 条 SQL；加购 / 改数量 / 删除 / 下单补账后失效；购物车页与下单
@@ -210,8 +210,8 @@ role / merchantId 由 `AuthIdentityService` 按数据库实时推导（60 秒缓
 ### 3.3 数据库
 
 - 开发库 `its_mygo`、测试库 `its_mygo_test`（都在共用的 `mysql` 容器里，为什么要分开见 §5.20）
-- 迁移脚本在 `src/main/resources/db/migration/`，**当前 schema 版本 v38**
-  （2026-11-08 核对迁移目录：`V1`–`V38` 连续、无缺号）
+- 迁移脚本在 `src/main/resources/db/migration/`，**当前 schema 版本 v43**
+  （V1–V43 连续、无缺号；V39 平台政策、V40–V42 活动中心与抽奖、V43 活动权限码）
 - 已建表：`merchants`（V16，默认商户 id=1 平台自营；**V23 加发货地址
   `ship_province/city/district/address/lng/lat`**）、`users`（V1，V3 加 `role`，
   V12 加 `avatar`，**V16 加 `merchant_id`**，V25 加 `idx_user_role_status`）、
@@ -1626,6 +1626,23 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 **不算服务端错误**，不要进 ERROR 日志/告警。
 
 ## 6. 历史记录
+
+### 2026-11-28 · 活动管理接入 RBAC 权限码（V43）
+
+**背景**：活动中心与抽奖上线时管理端页面只靠 `/api/admin/**` 的 ADMIN 兜底，未接 RBAC 权限码，
+与其它管理端功能不一致。
+
+**实现**：
+- `V43__activity_permissions.sql` 新增 `admin:activity:view`（活动查看）/
+  `admin:activity:manage`（活动与奖项管理）；SUPER_ADMIN 全量、OPERATOR 默认获得，客服/财务不给。
+- `AdminActivityController` 类级 `admin:activity:view`，新建/编辑/状态/奖项写操作
+  `admin:activity:manage`；`RBAC_ENABLED=false`（默认）时行为不变。
+- 前端菜单「活动管理」按 `admin:activity:view` 过滤；页面无 manage 时隐藏新建/编辑、
+  禁用状态开关、隐藏新增奖项表单（只读可看奖项列表）。
+
+**验证**：`RbacPermissionTest` 扩到 5 条（客服访问活动管理/写操作 403、运营具备两个权限码且列表 200）；
+定向 5/5 通过；前端 `type-check`、`build`、Vitest 43 条通过。
+浏览器实测受本地管理员凭据与开发库写权限限制未做（RBAC 默认关闭时页面行为与改前一致）。
 
 ### 2026-11-12 · 用户画像接入导购与智能推广
 
