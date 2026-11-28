@@ -200,8 +200,9 @@ class LotteryDrawControllerTest extends ApiTestBase {
         String first = draw(customer, activityId);
         String firstCode = objectMapper.readTree(first).path("data").path("prizeCode").asText();
 
-        // 模拟 Redis 资格集合丢失：MySQL 唯一键仍必须阻止重复抽奖
-        redisTemplate.delete("its-my-go:lottery:participants:" + activityId);
+        // 模拟 Redis 资格集合丢失：MySQL 唯一键仍必须阻止当天重复抽奖
+        redisTemplate.delete("its-my-go:lottery:participants:" + activityId + ":"
+                + java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE));
 
         mockMvc.perform(post("/api/lottery/" + activityId + "/draw")
                         .header("Authorization", bearer(customer)))
@@ -232,7 +233,7 @@ class LotteryDrawControllerTest extends ApiTestBase {
                         .header("Authorization", bearer(admin))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
-                                new LotteryPrizeRequest(name, "", 1, 1, stock))))
+                                new LotteryPrizeRequest(name, "", null, null, 1, 1, stock))))
                 .andExpect(jsonPath("$.code").value(200));
     }
 

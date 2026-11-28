@@ -13,6 +13,8 @@ public record LotteryPrizeView(
         Long activityId,
         String name,
         String image,
+        String prizeType,
+        Long couponId,
         Integer level,
         Integer weight,
         Integer stock,

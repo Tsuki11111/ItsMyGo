@@ -45,7 +45,7 @@ class ActivityAdminControllerTest extends ApiTestBase {
                         .header("Authorization", bearer(admin))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
-                                new LotteryPrizeRequest("一等奖", "", 1, 1, 2))))
+                                new LotteryPrizeRequest("一等奖", "", null, null, 1, 1, 2))))
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.stock").value(2))
                 .andExpect(jsonPath("$.data.weight").value(1))
@@ -117,7 +117,7 @@ class ActivityAdminControllerTest extends ApiTestBase {
                         .header("Authorization", bearer(admin))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
-                                new LotteryPrizeRequest("零库存", "", 1, 1, 0))))
+                                new LotteryPrizeRequest("零库存", "", null, null, 1, 1, 0))))
                 .andExpect(jsonPath("$.code").value(400));
     }
 
@@ -129,7 +129,7 @@ class ActivityAdminControllerTest extends ApiTestBase {
                         .header("Authorization", bearer(admin))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
-                                new LotteryPrizeRequest("不存在", "", 1, 1, 1))))
+                                new LotteryPrizeRequest("不存在", "", null, null, 1, 1, 1))))
                 .andExpect(jsonPath("$.code").value(404))
                 .andExpect(jsonPath("$.message").value("抽奖活动不存在"));
     }
@@ -150,7 +150,7 @@ class ActivityAdminControllerTest extends ApiTestBase {
                         .header("Authorization", bearer(admin))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
-                                new LotteryPrizeRequest("晚了", "", 1, 1, 1))))
+                                new LotteryPrizeRequest("晚了", "", null, null, 1, 1, 1))))
                 .andExpect(jsonPath("$.code").value(400))
                 .andExpect(jsonPath("$.message").value("活动已结束，不能添加奖项"));
     }

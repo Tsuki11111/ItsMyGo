@@ -3296,34 +3296,42 @@ Vitest 13/13、`npm run build` 通过。
 **测试**：`UserProfileTest` 3 条（聚合字段、冷启动、无票据/假票据 401）；
 `PromotionServiceTest` 5 条（新增画像同品牌优先排序）；Java 全量 **365 通过 / 0 失败**。
 
-### 3.58 活动中心与抽奖（`ActivityServiceImpl` / `LotteryServiceImpl`，2026-11-27）
+### 3.58 活动中心与抽奖（`ActivityServiceImpl` / `LotteryServiceImpl`，2026-11-27；奖品下发 2026-11-28）
 
 **目标**：活动是一等公民，抽奖只是 `type = LOTTERY` 的一种活动。活动中心展示全部活动卡片；
-活动管理端统一管理活动 CRUD，抽奖奖项作为活动子资源；每个用户每个抽奖活动只能抽 1 次，
-多奖项按 `weight` 加权，奖品带实物图。
+活动管理端统一管理活动 CRUD，抽奖奖项作为活动子资源；每个用户每个抽奖活动**每天**可抽 1 次，
+多奖项按 `weight` 加权，奖品带实物图；中奖后券类自动到账、实物类走领取发货。
 
 **数据**
 
 - V40 建立活动 / 奖项 / 抽奖记录；V42 把主表 `lottery_activities` 改名 **`activities`**，
   增加 `type / description / primary_color / cover_image`；
 - V41 给 `lottery_prizes` 增加 `image`（实物图）与 `weight`（中奖权重）；
+- **V44**：
+  - `lottery_draw_records` 增加 `draw_date`，唯一键改为
+    `uk_activity_user_day (activity_id, user_id, draw_date)`（一人一天一次）；
+  - `lottery_prizes` 增加 `prize_type`（`COUPON` / `PHYSICAL`）与 `coupon_id`；
+  - `user_coupons` 增加 `source`（`CLAIM` / `LOTTERY`）与 `source_id`（领券为 0，抽奖为记录 id），
+    唯一键改为 `uk_user_coupon_source (user_id, coupon_id, source, source_id)`；
+  - 新建 `lottery_prize_claims`（实物领取单，一奖一单，`uk_draw_record`）；
 - `lottery_prizes` / `lottery_draw_records` 的 `activity_id` 继续指向 `activities.id`；
 - `lottery_draw_records`：
-  - `uk_activity_user (activity_id, user_id)`：一人一活动的最终兜底；
+  - `uk_activity_user_day`：一人一天一次的最终兜底；
   - `uk_prize_code (prize_code)`：奖券码全局唯一，谢谢参与写 NULL（MySQL 允许多个 NULL）；
   - 谢谢参与也写一条记录，保证「抽完扣次数」在 MySQL 里可追溯。
 
-**Redis Set（全部带 TTL = 活动结束 + 1 天，最少 60 秒）**
+**Redis Set（除资格集合外，TTL = 活动结束 + 1 天，最少 60 秒）**
 
 | Key | 用途 |
 |---|---|
-| `its-my-go:lottery:participants:{activityId}` | 已抽用户，快速路径 |
+| `its-my-go:lottery:participants:{activityId}:{yyyyMMdd}` | 当天已抽用户，快速路径；TTL 2 天 |
 | `its-my-go:lottery:prize-pool:{activityId}:{prizeId}` | 奖券码库存，`SPOP` 原子领奖 |
 | `its-my-go:lottery:winners:{activityId}` | 中奖名单缓存 |
 | `its-my-go:lottery:initialized:{activityId}:{prizeId}` | 奖池初始化标记 |
 | `its-my-go:lottery:init-lock:{activityId}` | 初始化锁，防并发重复灌奖池 |
 
 新增成员的 `SADD + EXPIRE` 放在一个 Lua 里，避免崩溃留下不带 TTL 的 key。
+资格集合按天分 key、TTL 2 天，跨天自动失效，活动期内不用手工清理。
 
 **奖池初始化**（`LotteryPrizePoolService`）
 
@@ -3336,14 +3344,30 @@ Vitest 13/13、`npm run build` 通过。
 **抽奖流程**（`LotteryServiceImpl.draw`）
 
 1. 校验活动存在、`type = LOTTERY`、`ACTIVE`、在开始 / 结束时间内；
-2. `SISMEMBER participants` 快速判断：已抽过就查 MySQL 记录直接返回；
+2. `SISMEMBER participants:{date}` 快速判断：今天已抽过就查 MySQL 当天记录直接返回；
 3. 确保奖池初始化；
 4. 在 `SCARD > 0` 的奖项里按 `weight` 加权选一个，`SPOP` 领奖券；选中的池子刚好被抢空就换下一个，
    全空则 `THANKS`；
-5. 插入 `lottery_draw_records`：
-   - `DuplicateKeyException` + 能查到本人记录 → 奖券放回池子，返回已有记录（幂等）；
-   - 其他 DB 异常 → 奖券放回池子，让用户重试；
+5. `LotteryFulfillmentService.persistAndFulfill` 在**同一个事务**里：
+   - 插入 `lottery_draw_records`（带 `draw_date`）；
+   - 中奖则发奖：券类 `CouponService.issueForLottery` 写一张 `source=LOTTERY` 的用户券；
+     实物类写一条 `lottery_prize_claims`（`PENDING_ADDRESS`）；
+   - 发站内通知 `LOTTERY_WIN`；
+   - 任一环节失败整笔回滚；
+   - `DuplicateKeyException` + 能查到本人当天记录 → 奖券放回池子，返回已有记录（幂等）；
+   - 其他异常 → 奖券放回池子，让用户重试；
 6. 成功后才写 `participants` / `winners` 缓存；缓存失败只记日志，不影响 MySQL 结果。
+
+**奖品下发**
+
+- 券类奖品：管理端配置 `coupon_id`（必须是平台券、有效期覆盖活动结束）；
+  中奖时按模板快照写 `user_coupons`，**不增加模板的 `claimed_count`**，因此不会因为
+  领券中心领完而发不出；`source=LOTTERY` + `source_id=抽奖记录 id` 让同款券可以和
+  领券中心领取的那张并存，多个活动同模板也互不挤占；
+- 实物奖品：中奖生成 `lottery_prize_claims`，用户填地址（快照）后变 `PENDING_SHIPMENT`，
+  管理端填运单号变 `SHIPPED` 并发通知；已发货后不允许再改地址；
+- 顾客端「我的奖品」`/user/prizes`：券类显示券状态并可跳「我的优惠券」；
+  实物显示领取状态、收货信息、运单号，待发货前可修改地址。
 
 **为什么不是纯 Lua**：Lua 只能保证 Redis 内部原子，无法把 MySQL 插入一起放进事务；
 所以采用「Redis 快挡 + MySQL 唯一键 + 失败补偿」，而不是「Redis 当唯一事实源」。
@@ -3355,38 +3379,51 @@ Vitest 13/13、`npm run build` 通过。
 - 静态方法 `pickWeighted(candidates, roll)` 单独抽出来做区间边界单测；
 - 前端转盘扇区等分只是视觉，真实概率完全由后端权重决定。
 
-**接口**：管理端 6 个（活动列表 / 创建 / 编辑 / 状态、奖项查询 / 添加）；顾客端 5 个
-（活动列表、活动详情、奖池、抽奖、我的记录）。契约见 [api.md §28](api.md)。
+**接口**：管理端 8 个（活动列表 / 创建 / 编辑 / 状态、奖项查询 / 添加、中奖记录、实物发货）；
+顾客端 7 个（活动列表、活动详情、奖池、抽奖、今天的记录、我的奖品、填写收货信息）。
+契约见 [api.md §28](api.md)。
 
 **活动中心与管理端**
 
 - `ActivityServiceImpl`：公开活动列表 / 详情，按开始时间倒序；`ActivityView` 带 `typeLabel / statusLabel`；
 - `ActivityAdminServiceImpl`：活动创建 / 编辑 / 状态；创建时只接受已实现的 `LOTTERY` 类型；
 - 抽奖子资源 `LotteryAdminService` 仍负责奖项；所有入口用 `ActivityType.LOTTERY` 校验类型；
+  添加奖项时校验奖品类型与券模板（平台券、启用、有效期覆盖活动结束）；
 - 活动中心 `/activities`：卡片展示封面、主色调、类型、状态（未开始 / 进行中 / 已结束）、起止日期；
   主色调作为卡片顶部色条、类型标签、按钮强调色；
-- 管理端 `/admin/activities`：活动表格、创建 / 编辑、结束恢复、奖项配置（封面与奖品图走 `ImageUpload`）；
+- 管理端 `/admin/activities`：活动表格、创建 / 编辑、结束恢复、奖项配置（封面与奖品图走 `ImageUpload`，
+  奖品可选实物 / 优惠券）、中奖记录抽屉（用户、奖项、时间、履约状态）与实物发货（填运单号）；
 - 活动封面演示图放在 `frontend/public/activity/`（Unsplash，来源见该目录 `SOURCES.md`）；
 - 旧 `/api/lottery/active`、`/api/admin/lottery/activities/**` 已删除。
 
 **顾客端抽奖页（`Lottery.vue` + `LotteryWheel.vue`）**
 
-- 路由 `/lottery`，顶栏「抽奖」入口；当前活动与奖池匿名可看，抽奖 / 我的记录需登录；
+- 路由 `/lottery/:activityId`，顶栏「活动中心」入口；当前活动与奖池匿名可看，抽奖 / 我的记录需登录；
 - 页面状态由纯函数 `utils/lotteryState.ts` 决定：未开始 / 可抽 / 抽奖中 / 已抽 / 已结束；
+  「已抽」只表示**今天**已抽，跨天自动恢复可抽；
 - 转盘用 `conic-gradient` 画等分扇区，每个扇区放奖品实物图；优惠券空图用券图标兜底；
   最后一个扇区固定是「谢谢参与」；
 - 点击中心按钮先调后端拿结果，再按结果计算目标角度，5 圈 + 4.8 秒 CSS 过渡停在指针处；
   `computeSpinRotation` 抽出纯函数做单测，`transitionend` + 5.2 秒兜底避免按钮永久禁用；
 - 动画结束后才更新「我的记录」并弹结果窗，避免提前剧透；响应丢失时重新拉 `/me` 幂等兜底；
+- 中奖弹窗按奖品类型引导：券类「去我的优惠券」，实物「去填写收货地址」；
 - Hero 右侧抽奖小助手使用 `frontend/src/assets/lottery-mascot.webp`，
   原图是白底 WebP，用 `mix-blend-mode: multiply` 融入浅粉背景；
 - 倒计时每秒刷新，卸载时清理定时器；移动端转盘缩放、图例 1~2 列。
+
+**我的奖品（`views/user/Prizes.vue`）**
+
+- 用户中心菜单 `/user/prizes`；分页展示中奖记录，券类显示券状态并跳「我的优惠券」；
+- 实物类显示领取单状态、收货快照与运单号；未发货前可填写 / 修改地址（对话框校验手机号）；
+  已发货后只能查看。
 
 **测试**
 
 - `ActivityAdminControllerTest`：活动创建 / 列表 / 编辑 / 时间校验 / 未知类型 / 404 / 结束活动拒加奖 / 403；
 - `LotteryDrawControllerTest`：重复抽幂等、谢谢参与扣次数、库存不超发、我的记录、
   结束活动拒绝、活动不存在、匿名可看活动中心 / 详情 / 奖池但不能抽、多个活动列表；
+- `LotteryPrizeFulfillmentTest`：券类中奖自动发券且与领券中心同款券并存、实物领取单
+  「填地址 → 发货 → 用户可见运单号」、他人领取单 404、跨天可再抽；
 - `LotteryDrawConcurrencyTest`：20 个用户并发抢 5 份奖品，恰好 5 个 WIN、15 个 THANKS，
   MySQL 20 条记录、5 个不同奖券码；
 - `LotteryServiceImplTest`：加权区间边界 2 条；

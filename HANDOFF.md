@@ -38,18 +38,22 @@
 
 ## 1. 当前状态一句话
 
-**交易闭环、多商户、AI 客服、运营后台、平台政策、压测、售后、下单异步补账、三端站内通知、购物车角标缓存、活动中心与抽奖、Docker 部署均已完成（2026-11-27）。**
-后端自动化测试 **373 条**（本地；CI 跳过 4 条依赖 MinIO 的用例），前端 Vitest **43 条**。数据库 schema 到 **v42**。
+**交易闭环、多商户、AI 客服、运营后台、平台政策、压测、售后、下单异步补账、三端站内通知、购物车角标缓存、活动中心与抽奖、抽奖奖品下发、Docker 部署均已完成（2026-11-28）。**
+后端自动化测试 **379 条**（本地；CI 跳过 4 条依赖 MinIO 的用例），前端 Vitest **43 条**。数据库 schema 到 **v44**。
 
 **待办/注意**：RBAC P2.1（邀请管理员选子角色）与商户与商品运营二期已确认**不做**；
 因此 `RBAC_ENABLED` 保持默认 **false**（开启后新管理员无角色行会等同超管）。
 商品归档清理默认关闭 + dry-run，需先在本地/演示确认报告后再打开 `PRODUCT_CLEANUP_ENABLED`。
 
-- **活动中心与抽奖（2026-11-27，V40–V42 / D38–D41）**：活动主表 `activities` 支持
-  `type / description / primary_color / cover_image`，抽奖是 `type=LOTTERY` 的一种活动；
-  顾客端活动中心 `/activities` 卡片展示全部活动（封面 + 主色调 + 状态 + 起止日期），
-  抽奖详情 `/lottery/:activityId` 使用转盘；管理端 `/admin/activities` 支持活动 CRUD、
-  结束恢复、奖项配置（实物图 + 权重）。多个抽奖活动各自独立；旧 `/api/lottery/active`、
+- **活动中心与抽奖（2026-11-27，V40–V42 / D38–D41；奖品下发 2026-11-28，V44 / D42–D45）**：
+  活动主表 `activities` 支持 `type / description / primary_color / cover_image`，
+  抽奖是 `type=LOTTERY` 的一种活动；顾客端活动中心 `/activities` 卡片展示全部活动
+  （封面 + 主色调 + 状态 + 起止日期），抽奖详情 `/lottery/:activityId` 使用转盘；
+  抽奖资格为**每人每天 1 次**（活动期内可多天参与）。奖品分两类：券类中奖自动发到
+  「我的优惠券」（可与领券中心的同款券并存），实物中奖生成领取单，用户在「我的奖品」
+  填收货地址、管理端在中奖记录里填运单号发货；中奖后发站内通知。
+  管理端 `/admin/activities` 支持活动 CRUD、结束恢复、奖项配置（实物图 + 权重 +
+  奖品类型 / 券模板）、中奖记录与实物发货。多个抽奖活动各自独立；旧 `/api/lottery/active`、
   `/api/admin/lottery/activities/**` 已删除。活动管理页已接 RBAC 权限码（V43：
   `admin:activity:view` / `admin:activity:manage`），运营子角色默认可管理活动。
 - **购物车角标缓存（2026-11-27，D37）**：新增 `GET /api/cart/count`，Redis Hash
@@ -117,7 +121,9 @@
   以及把旧整单退款接口统一下线（两者并存的技术债，见 architecture §7）。
 - **M14 导购增强**（商品对比 / 加购）。
 - **技术债**：CI 里 MinIO 镜像拉不到（`SKIP_MINIO_TESTS` 跳过 4 条）、订单号冲突重试、
-  连接池默认值。
+  连接池默认值；V44 之前的历史中奖记录奖品类型迁移时统一默认 `PHYSICAL`、
+  也没有对应的 `lottery_prize_claims` 领取单（演示库里名为「xx 券」的旧奖品会显示为实物、
+  无地址入口）——历史数据无法判定形态，可在活动管理里编辑奖品改回券类型，或忽略。
 
 ⚠️ **四个对接约定**（细节见 implementation §4.3）：
 响应拦截器按 **body 的 `code`** 判断而不是 HTTP 状态码；库存走独立接口；
@@ -210,8 +216,9 @@ role / merchantId 由 `AuthIdentityService` 按数据库实时推导（60 秒缓
 ### 3.3 数据库
 
 - 开发库 `its_mygo`、测试库 `its_mygo_test`（都在共用的 `mysql` 容器里，为什么要分开见 §5.20）
-- 迁移脚本在 `src/main/resources/db/migration/`，**当前 schema 版本 v43**
-  （V1–V43 连续、无缺号；V39 平台政策、V40–V42 活动中心与抽奖、V43 活动权限码）
+- 迁移脚本在 `src/main/resources/db/migration/`，**当前 schema 版本 v44**
+  （V1–V44 连续、无缺号；V39 平台政策、V40–V42 活动中心与抽奖、V43 活动权限码、
+  V44 抽奖奖品下发）
 - 已建表：`merchants`（V16，默认商户 id=1 平台自营；**V23 加发货地址
   `ship_province/city/district/address/lng/lat`**）、`users`（V1，V3 加 `role`，
   V12 加 `avatar`，**V16 加 `merchant_id`**，V25 加 `idx_user_role_status`）、
@@ -1626,6 +1633,27 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 **不算服务端错误**，不要进 ERROR 日志/告警。
 
 ## 6. 历史记录
+
+### 2026-11-28 · 抽奖奖品下发：每天一次、券自动到账、实物领取发货（V44）
+
+**需求（用户敲定）**：完善抽奖系统并真实接入项目，中奖后奖品要真正发给用户。
+选定：券自动到账 + 实物发货、后台填运单号、**每人每天一次**、奖品券允许额外得一张。
+
+**实现**：
+- V44：`lottery_draw_records.draw_date` + `uk_activity_user_day`；`lottery_prizes.prize_type/coupon_id`；
+  `user_coupons.source/source_id` + 唯一键调整；新建 `lottery_prize_claims`。
+- 抽奖资格改为每人每天一次；Redis 资格 Set 按天 key（TTL 2 天）；`/me` 只返回今天。
+- `LotteryFulfillmentService`：抽奖记录 + 发券 / 实物领取单 + 站内通知同一事务，
+  发奖失败整笔回滚并把奖券放回 Redis。
+- 券类：`CouponService.issueForLottery` 写 `source=LOTTERY` 的用户券快照，
+  不占模板领取库存；配置奖项时校验平台券、启用、有效期覆盖活动结束。
+- 实物：中奖生成 `PENDING_ADDRESS` 领取单；用户填地址 → `PENDING_SHIPMENT`；
+  管理端中奖记录填运单号 → `SHIPPED` 并通知；已发货不能改地址。
+- 前端：抽奖页中奖弹窗按类型引导；用户中心新增「我的奖品」`/user/prizes`；
+  管理端奖项表单支持类型 / 券模板，新增中奖记录抽屉与实物发货。
+
+**验证**：Java 全量 **379 通过 / 0 失败**（其中抽奖定向 24 条：新增 `LotteryPrizeFulfillmentTest` 4 条 +
+既有抽奖测试 20 条）；前端 `type-check` / `build` / Vitest 43 条通过。
 
 ### 2026-11-28 · 活动管理接入 RBAC 权限码（V43）
 

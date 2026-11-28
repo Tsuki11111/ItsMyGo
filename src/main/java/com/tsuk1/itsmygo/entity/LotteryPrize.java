@@ -27,6 +27,12 @@ public class LotteryPrize {
     /** 奖品实物图 URL；空串表示无图（转盘用优惠券图标兜底） */
     private String image;
 
+    /** 奖品类型：COUPON 自动发券 / PHYSICAL 生成领取单 */
+    private String prizeType;
+
+    /** 券类奖品关联的券模板；实物奖品为 null */
+    private Long couponId;
+
     /** 奖项等级，仅用于展示（1 等奖 / 2 等奖…） */
     private Integer level;
 

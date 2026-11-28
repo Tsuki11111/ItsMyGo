@@ -185,6 +185,7 @@ function finishSpin() {
     result: response.result,
     prizeId: response.prizeId,
     prizeName: response.prizeName,
+    prizeType: response.prizeType,
     prizeCode: response.prizeCode,
     drawnAt: new Date().toISOString(),
   }
@@ -197,6 +198,11 @@ function finishSpin() {
 function onSpinEnd(event: TransitionEvent) {
   if (event.propertyName !== 'transform') return
   finishSpin()
+}
+
+function goFulfill() {
+  resultVisible.value = false
+  router.push(result.value?.prizeType === 'COUPON' ? '/user/coupons' : '/user/prizes')
 }
 
 async function onDraw() {
@@ -251,7 +257,7 @@ onBeforeUnmount(() => {
               {{ countdownLabel }} {{ countdownText }}
             </span>
           </div>
-          <p class="rules">每人限抽 1 次 · 小额奖品权重更高 · 奖品抽完即止</p>
+          <p class="rules">每人每天限抽 1 次 · 小额奖品权重更高 · 奖品抽完即止</p>
         </div>
         <img class="hero-mascot" :src="lotteryMascot" alt="抽奖小助手" />
       </section>
@@ -300,7 +306,17 @@ onBeforeUnmount(() => {
             <p v-if="record?.result === 'WIN'" class="record-detail">
               {{ record?.prizeName }} · <code>{{ record?.prizeCode }}</code>
             </p>
-            <p v-else class="record-detail">这次没有抽中，机会已使用</p>
+            <p v-if="record?.result === 'WIN'" class="record-fulfill">
+              {{
+                record?.prizeType === 'COUPON'
+                  ? '优惠券已发放，可在「我的优惠券」使用'
+                  : '实物奖品请到「我的奖品」填写收货地址'
+              }}
+              <router-link :to="record?.prizeType === 'COUPON' ? '/user/coupons' : '/user/prizes'">
+                去查看
+              </router-link>
+            </p>
+            <p v-if="record?.result !== 'WIN'" class="record-detail">这次没有抽中，机会已使用</p>
           </div>
         </div>
       </section>
@@ -328,9 +344,24 @@ onBeforeUnmount(() => {
         <template v-if="result?.result === 'WIN'">
           <p class="result-prize">{{ result.prizeName }}</p>
           <p class="result-code">{{ result.prizeCode }}</p>
+          <p class="result-fulfill">
+            {{
+              result.prizeType === 'COUPON'
+                ? '优惠券已自动放入「我的优惠券」'
+                : '实物奖品请在「我的奖品」填写收货地址'
+            }}
+          </p>
         </template>
         <p class="result-message">{{ result?.message }}</p>
-        <button type="button" class="result-btn" @click="resultVisible = false">知道了</button>
+        <button
+          v-if="result?.result === 'WIN'"
+          type="button"
+          class="result-btn"
+          @click="goFulfill"
+        >
+          {{ result.prizeType === 'COUPON' ? '去我的优惠券' : '去填写收货地址' }}
+        </button>
+        <button type="button" class="result-btn ghost" @click="resultVisible = false">知道了</button>
       </div>
     </el-dialog>
   </div>
@@ -531,6 +562,16 @@ onBeforeUnmount(() => {
   color: var(--c-pink);
 }
 
+.record-fulfill {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--c-text-3);
+}
+
+.record-fulfill a {
+  color: var(--c-pink);
+}
+
 .result {
   padding: 4px 6px 2px;
   text-align: center;
@@ -567,6 +608,12 @@ onBeforeUnmount(() => {
   color: var(--c-text-2);
 }
 
+.result-fulfill {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--c-text-3);
+}
+
 .result-btn {
   width: 100%;
   padding: 11px 0;
@@ -577,6 +624,16 @@ onBeforeUnmount(() => {
   border: none;
   border-radius: var(--radius-btn);
   cursor: pointer;
+}
+
+.result-btn + .result-btn {
+  margin-top: 8px;
+}
+
+.result-btn.ghost {
+  color: var(--c-text-2);
+  background: #fff;
+  border: 1px solid var(--el-border-color);
 }
 
 @media (max-width: 720px) {

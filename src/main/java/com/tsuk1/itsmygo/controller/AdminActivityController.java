@@ -8,6 +8,10 @@ import com.tsuk1.itsmygo.dto.ActivityUpdateRequest;
 import com.tsuk1.itsmygo.dto.ActivityView;
 import com.tsuk1.itsmygo.dto.LotteryPrizeRequest;
 import com.tsuk1.itsmygo.dto.LotteryPrizeView;
+import com.tsuk1.itsmygo.dto.LotteryClaimView;
+import com.tsuk1.itsmygo.dto.LotteryRecordAdminView;
+import com.tsuk1.itsmygo.dto.LotteryShipRequest;
+import com.tsuk1.itsmygo.dto.PageResponse;
 import com.tsuk1.itsmygo.service.ActivityAdminService;
 import com.tsuk1.itsmygo.service.LotteryAdminService;
 import jakarta.validation.Valid;
@@ -18,6 +22,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -82,5 +87,21 @@ public class AdminActivityController {
     public Result<LotteryPrizeView> addPrize(@PathVariable Long id,
                                              @Valid @RequestBody LotteryPrizeRequest request) {
         return Result.ok(lotteryAdminService.addPrize(id, request));
+    }
+
+    @GetMapping("/{id}/records")
+    public Result<PageResponse<LotteryRecordAdminView>> records(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return Result.ok(lotteryAdminService.listRecords(id, page, size));
+    }
+
+    @PutMapping("/claims/{claimId}/ship")
+    @PreAuthorize("hasAuthority('admin:activity:manage')")
+    @AdminAudit(action = "LOTTERY_CLAIM_SHIP", label = "实物奖品发货", targetType = "LOTTERY_CLAIM")
+    public Result<LotteryClaimView> shipClaim(@PathVariable Long claimId,
+                                              @Valid @RequestBody LotteryShipRequest request) {
+        return Result.ok(lotteryAdminService.shipClaim(claimId, request.trackingNo()));
     }
 }

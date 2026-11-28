@@ -6,7 +6,9 @@ import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 /**
@@ -21,6 +23,11 @@ import java.util.List;
 public class LotteryRedisStore {
 
     private static final String PREFIX = "its-my-go:lottery:";
+
+    /** 资格 Set 按天分 key，保留 2 天足够覆盖跨天对账，也避免活动期无限堆积 */
+    private static final long PARTICIPANT_TTL_SECONDS = 2 * 24 * 3600L;
+
+    private static final DateTimeFormatter DAY_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd");
 
     /**
      * KEYS[1] = Set key，ARGV[1] = TTL 秒，ARGV[2..] = 要加入的成员。
@@ -43,16 +50,17 @@ public class LotteryRedisStore {
         this.redisTemplate = redisTemplate;
     }
 
-    /** 标记用户已抽过奖；返回 true 表示这次是第一次加入 */
-    public boolean markParticipant(Long activityId, Long userId, long ttlSeconds) {
-        Long added = addWithTtl(participantsKey(activityId), ttlSeconds, String.valueOf(userId));
+    /** 标记用户今天已抽过奖；key 按天区分，跨天自动失效 */
+    public boolean markParticipant(Long activityId, Long userId, LocalDate date) {
+        Long added = addWithTtl(participantsKey(activityId, date), PARTICIPANT_TTL_SECONDS,
+                String.valueOf(userId));
         return added != null && added > 0;
     }
 
-    /** 快速判断用户是否抽过；真正兜底仍靠 MySQL 的 uk_activity_user */
-    public boolean isParticipant(Long activityId, Long userId) {
+    /** 快速判断用户今天是否抽过；真正兜底仍靠 MySQL 的 uk_activity_user_day */
+    public boolean isParticipant(Long activityId, Long userId, LocalDate date) {
         return Boolean.TRUE.equals(redisTemplate.opsForSet()
-                .isMember(participantsKey(activityId), String.valueOf(userId)));
+                .isMember(participantsKey(activityId, date), String.valueOf(userId)));
     }
 
     /** 奖池剩余数量 */
@@ -120,8 +128,8 @@ public class LotteryRedisStore {
         return redisTemplate.execute(ADD_WITH_TTL, List.of(key), args);
     }
 
-    private String participantsKey(Long activityId) {
-        return PREFIX + "participants:" + activityId;
+    private String participantsKey(Long activityId, LocalDate date) {
+        return PREFIX + "participants:" + activityId + ":" + DAY_FORMAT.format(date);
     }
 
     private String prizePoolKey(Long activityId, Long prizeId) {

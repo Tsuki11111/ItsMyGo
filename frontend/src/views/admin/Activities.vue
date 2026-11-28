@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { Calendar, Picture } from '@element-plus/icons-vue'
 import ImageUpload from '@/components/ImageUpload.vue'
@@ -9,7 +9,10 @@ import {
   createAdminActivity,
   createAdminLotteryPrize,
   fetchAdminActivities,
+  fetchAdminActivityRecords,
+  fetchAdminCoupons,
   fetchAdminLotteryPrizes,
+  shipAdminLotteryClaim,
   updateAdminActivity,
   updateAdminActivityStatus,
 } from '@/api/admin'
@@ -17,8 +20,10 @@ import type {
   ActivityPayload,
   ActivityUpdatePayload,
   ActivityView,
+  Coupon,
   LotteryPrizePayload,
   LotteryPrizeView,
+  LotteryRecordAdminView,
 } from '@/api/types'
 
 const rows = ref<ActivityView[]>([])
@@ -53,13 +58,24 @@ const prizeActivity = ref<ActivityView | null>(null)
 const prizes = ref<LotteryPrizeView[]>([])
 const prizeLoading = ref(false)
 const prizeSaving = ref(false)
+const coupons = ref<Coupon[]>([])
 const prizeForm = reactive<LotteryPrizePayload>({
   name: '',
   image: '',
+  prizeType: 'PHYSICAL',
+  couponId: null,
   level: 1,
   weight: 1,
   stock: 10,
 })
+
+const recordsVisible = ref(false)
+const recordsActivity = ref<ActivityView | null>(null)
+const records = ref<LotteryRecordAdminView[]>([])
+const recordsLoading = ref(false)
+const recordsPage = ref(1)
+const recordsTotal = ref(0)
+const recordsSize = 20
 
 async function load() {
   loading.value = true
@@ -160,9 +176,73 @@ function openPrizes(row: ActivityView) {
     return
   }
   prizeActivity.value = row
-  Object.assign(prizeForm, { name: '', image: '', level: 1, weight: 1, stock: 10 })
+  Object.assign(prizeForm, {
+    name: '',
+    image: '',
+    prizeType: 'PHYSICAL',
+    couponId: null,
+    level: 1,
+    weight: 1,
+    stock: 10,
+  })
   prizeVisible.value = true
+  void loadCoupons()
   loadPrizes(row.id)
+}
+
+async function loadCoupons() {
+  try {
+    const result = await fetchAdminCoupons({ page: 1, size: 100, enabled: true })
+    // 抽奖奖品只能用平台券（店铺券由商家自己发）
+    coupons.value = result.records.filter((coupon) => coupon.merchantId === null)
+  } catch {
+    coupons.value = []
+  }
+}
+
+function openRecords(row: ActivityView) {
+  recordsActivity.value = row
+  recordsPage.value = 1
+  recordsVisible.value = true
+  void loadRecords()
+}
+
+async function loadRecords() {
+  if (!recordsActivity.value) return
+  recordsLoading.value = true
+  try {
+    const result = await fetchAdminActivityRecords(
+      recordsActivity.value.id,
+      recordsPage.value,
+      recordsSize,
+    )
+    records.value = result.records
+    recordsTotal.value = result.total
+  } finally {
+    recordsLoading.value = false
+  }
+}
+
+function onRecordsPageChange(next: number) {
+  recordsPage.value = next
+  loadRecords()
+}
+
+async function shipRecord(record: LotteryRecordAdminView) {
+  if (!record.claim) return
+  try {
+    const { value } = await ElMessageBox.prompt('请输入快递单号', '实物奖品发货', {
+      confirmButtonText: '发货',
+      cancelButtonText: '取消',
+      inputPattern: /\S+/,
+      inputErrorMessage: '快递单号不能为空',
+    })
+    await shipAdminLotteryClaim(record.claim.id, value.trim())
+    ElMessage.success('已发货')
+    await loadRecords()
+  } catch {
+    // 用户取消或接口失败：接口错误已由拦截器提示
+  }
 }
 
 async function loadPrizes(activityId: number) {
@@ -180,18 +260,32 @@ async function addPrize() {
     ElMessage.warning('请填写奖项名称')
     return
   }
+  if (prizeForm.prizeType === 'COUPON' && !prizeForm.couponId) {
+    ElMessage.warning('券类奖品请选择优惠券')
+    return
+  }
   const activityId = prizeActivity.value.id
   prizeSaving.value = true
   try {
     await createAdminLotteryPrize(activityId, {
       name: prizeForm.name.trim(),
       image: prizeForm.image,
+      prizeType: prizeForm.prizeType,
+      couponId: prizeForm.prizeType === 'COUPON' ? prizeForm.couponId : null,
       level: prizeForm.level,
       weight: prizeForm.weight,
       stock: prizeForm.stock,
     })
     ElMessage.success('奖项已添加')
-    Object.assign(prizeForm, { name: '', image: '', level: 1, weight: 1, stock: 10 })
+    Object.assign(prizeForm, {
+      name: '',
+      image: '',
+      prizeType: 'PHYSICAL',
+      couponId: null,
+      level: 1,
+      weight: 1,
+      stock: 10,
+    })
     await loadPrizes(activityId)
   } finally {
     prizeSaving.value = false
@@ -248,7 +342,7 @@ onMounted(load)
           />
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="170" fixed="right">
+      <el-table-column label="操作" width="210" fixed="right">
         <template #default="{ row }">
           <el-button v-if="canManage" link type="primary" @click="openEdit(row)">编辑</el-button>
           <el-button
@@ -258,6 +352,9 @@ onMounted(load)
             @click="openPrizes(row)"
           >
             奖项
+          </el-button>
+          <el-button v-if="row.type === 'LOTTERY'" link type="primary" @click="openRecords(row)">
+            记录
           </el-button>
         </template>
       </el-table-column>
@@ -344,7 +441,24 @@ onMounted(load)
       <template v-if="canManage">
         <el-divider>新增奖项</el-divider>
         <div class="prize-form">
-          <el-input v-model="prizeForm.name" placeholder="奖项名称" style="width: 200px" />
+          <el-input v-model="prizeForm.name" placeholder="奖项名称" style="width: 180px" />
+          <el-select v-model="prizeForm.prizeType" style="width: 120px">
+            <el-option label="实物奖品" value="PHYSICAL" />
+            <el-option label="优惠券" value="COUPON" />
+          </el-select>
+          <el-select
+            v-if="prizeForm.prizeType === 'COUPON'"
+            v-model="prizeForm.couponId"
+            placeholder="选择平台券"
+            style="width: 200px"
+          >
+            <el-option
+              v-for="coupon in coupons"
+              :key="coupon.id"
+              :label="coupon.name"
+              :value="coupon.id"
+            />
+          </el-select>
           <el-input-number v-model="prizeForm.level" :min="1" :max="99" controls-position="right" />
           <el-input-number v-model="prizeForm.weight" :min="1" :max="9999" controls-position="right" />
           <el-input-number v-model="prizeForm.stock" :min="1" :max="99999" controls-position="right" />
@@ -352,7 +466,8 @@ onMounted(load)
           <el-button type="primary" :loading="prizeSaving" @click="addPrize">添加</el-button>
         </div>
         <p class="prize-hint">
-          权重越大越容易中；小额券建议配高权重，实物大奖配低权重。图片留空时前端显示券图标。
+          权重越大越容易中；小额券建议配高权重，实物大奖配低权重。
+          券类奖品中奖后自动发到用户「我的优惠券」，实物奖品由用户在「我的奖品」填地址后发货。
         </p>
       </template>
 
@@ -360,6 +475,61 @@ onMounted(load)
         <el-button @click="prizeVisible = false">关闭</el-button>
       </template>
     </el-dialog>
+
+    <el-drawer
+      v-model="recordsVisible"
+      :title="recordsActivity ? `中奖记录 · ${recordsActivity.name}` : '中奖记录'"
+      size="640px"
+    >
+      <el-table v-loading="recordsLoading" :data="records" border size="small">
+        <el-table-column prop="username" label="用户" width="140" />
+        <el-table-column prop="prizeName" label="奖项" min-width="120" />
+        <el-table-column label="类型" width="90" align="center">
+          <template #default="{ row }">
+            <el-tag size="small">{{ row.prizeType === 'COUPON' ? '优惠券' : '实物' }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="中奖时间" width="150">
+          <template #default="{ row }">{{ formatTime(row.drawnAt) }}</template>
+        </el-table-column>
+        <el-table-column label="履约状态" min-width="190">
+          <template #default="{ row }">
+            <template v-if="row.prizeType === 'COUPON'">已发券</template>
+            <template v-else-if="row.claim">
+              {{ row.claim.statusLabel }}
+              <span v-if="row.claim.trackingNo" class="tracking-no">
+                · {{ row.claim.trackingNo }}
+              </span>
+            </template>
+            <template v-else>-</template>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="90" align="center">
+          <template #default="{ row }">
+            <el-button
+              v-if="row.claim && row.claim.status === 'PENDING_SHIPMENT'"
+              link
+              type="primary"
+              @click="shipRecord(row)"
+            >
+              发货
+            </el-button>
+          </template>
+        </el-table-column>
+        <template #empty>
+          <el-empty description="还没有中奖记录" />
+        </template>
+      </el-table>
+      <div v-if="recordsTotal > recordsSize" class="records-pager">
+        <el-pagination
+          layout="prev, pager, next"
+          :current-page="recordsPage"
+          :page-size="recordsSize"
+          :total="recordsTotal"
+          @current-change="onRecordsPageChange"
+        />
+      </div>
+    </el-drawer>
   </div>
 </template>
 
@@ -423,6 +593,16 @@ onMounted(load)
 .prize-hint {
   margin: 10px 0 0;
   font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+.records-pager {
+  margin-top: 14px;
+  display: flex;
+  justify-content: center;
+}
+
+.tracking-no {
   color: var(--el-text-color-secondary);
 }
 </style>

@@ -91,6 +91,7 @@ const router = createRouter({
         { path: 'favorites', name: 'user-favorites', component: () => import('@/views/user/Favorites.vue') },
         { path: 'footprints', name: 'user-footprints', component: () => import('@/views/user/Footprints.vue') },
         { path: 'coupons', name: 'user-coupons', component: () => import('@/views/user/Coupons.vue') },
+        { path: 'prizes', name: 'user-prizes', component: () => import('@/views/user/Prizes.vue') },
         { path: 'reviews', name: 'user-reviews', component: () => import('@/views/user/Reviews.vue') },
         { path: 'report', name: 'user-report', component: () => import('@/views/user/ConsumptionReport.vue') },
         { path: 'messages/:conversationId?', name: 'user-messages', component: () => import('@/views/user/Messages.vue') },

@@ -1921,7 +1921,9 @@ specText, unitPrice, quantity, refundAmount, createdAt`
 | PUT | `/api/admin/activities/{id}` | `ActivityUpdateRequest` | `ActivityView` |
 | PUT | `/api/admin/activities/{id}/status` | `{status}`：1 进行中 / 2 已结束 | `ActivityView` |
 | GET | `/api/admin/activities/{id}/prizes` | — | `LotteryPrizeView[]` |
-| POST | `/api/admin/activities/{id}/prizes` | `{name, image, level, weight, stock}` | `LotteryPrizeView` |
+| POST | `/api/admin/activities/{id}/prizes` | `{name, image, prizeType, couponId, level, weight, stock}` | `LotteryPrizeView` |
+| GET | `/api/admin/activities/{id}/records` | `page` / `size`（中奖记录） | `PageResponse<LotteryRecordAdminView>` |
+| PUT | `/api/admin/activities/claims/{claimId}/ship` | `{trackingNo}`：实物奖品发货 | `LotteryClaimView` |
 
 `ActivityRequest`：`{type, name, description, primaryColor, coverImage, startAt, endAt}`；
 `type` 目前只支持 `LOTTERY`，创建后不可改。
@@ -1929,11 +1931,21 @@ specText, unitPrice, quantity, refundAmount, createdAt`
 `ActivityView`：`id, type, typeLabel, name, description, primaryColor, coverImage,
 status, statusLabel, startAt, endAt, createdAt`
 
-`LotteryPrizeView`：`id, activityId, name, image, level, weight, stock, remainingStock, createdAt`
+`LotteryPrizeView`：`id, activityId, name, image, prizeType, couponId, level, weight,
+stock, remainingStock, createdAt`
 
+`LotteryRecordAdminView`：`id, activityId, userId, username, prizeId, prizeName,
+prizeType, prizeCode, drawnAt, claim`（`claim` 仅实物奖品有，见 `LotteryClaimView`）
+
+`LotteryClaimView`：`id, status, statusLabel, receiverName, receiverPhone,
+receiverAddress, trackingNo, shippedAt`
+
+- `prizeType` 取 `COUPON` / `PHYSICAL`（不传默认 `PHYSICAL`）；`COUPON` 必须带 `couponId`。
+- 券类奖品只能选**平台券**，且券有效期必须覆盖活动结束时间；中奖后自动发到用户「我的优惠券」。
 - `image` 是奖品实物图 URL（可空）；`weight` 越大越容易中，小额券配更高权重。
 - `stock` 是初始库存；`remainingStock` 是 Redis 奖池实时剩余（Redis 不可用时为 null）。
 - 开始时间必须早于结束时间；已结束的活动不能再添加奖项；奖项子资源只对 `LOTTERY` 开放。
+- 实物领取单状态 `PENDING_ADDRESS → PENDING_SHIPMENT → SHIPPED`；只有 `PENDING_SHIPMENT` 能发货。
 
 ### 顾客端
 
@@ -1942,8 +1954,10 @@ status, statusLabel, startAt, endAt, createdAt`
 | GET | `/api/activities` | 公开 | `ActivityView[]`（全部活动） |
 | GET | `/api/activities/{id}` | 公开 | `ActivityView` |
 | GET | `/api/lottery/{activityId}/prizes` | 公开 | `LotteryPrizePublicView[]` |
-| POST | `/api/lottery/{activityId}/draw` | 登录 | `LotteryDrawResponse` |
-| GET | `/api/lottery/{activityId}/me` | 登录 | `LotteryMyRecordView` |
+| POST | `/api/lottery/{activityId}/draw` | 登录，每天 1 次 | `LotteryDrawResponse` |
+| GET | `/api/lottery/{activityId}/me` | 登录 | `LotteryMyRecordView`（今天） |
+| GET | `/api/lottery/my-prizes` | 登录，`page` / `size` | `PageResponse<LotteryPrizeRecordView>` |
+| PUT | `/api/lottery/claims/{claimId}/address` | 登录，仅本人 | `LotteryClaimView` |
 
 `ActivityView` 顾客端字段：`id, type, typeLabel, name, description, primaryColor,
 coverImage, status, statusLabel, startAt, endAt`。
@@ -1962,19 +1976,25 @@ coverImage, status, statusLabel, startAt, endAt`。
 {
   "result": "WIN",
   "prizeId": 12,
-  "prizeName": "一等奖",
+  "prizeName": "满100减10券",
+  "prizeType": "COUPON",
   "prizeCode": "LOT-12-3",
   "message": "恭喜中奖"
 }
 ```
 
-- 每人每活动只抽 1 次；重复调用返回 MySQL 里的同一条记录，不会重复中奖。
+- 每人每活动**每天**只能抽 1 次；同一天重复调用返回 MySQL 里的同一条记录，不会重复中奖。
 - 多奖项按 `weight` 加权：小奖权重高、实物大奖权重低；只从还有库存的奖项中选。
 - 全部抽空返回 `THANKS`，这次机会同样消耗。
-- 中奖与谢谢参与都落 `lottery_draw_records`；`uk_activity_user` 兜底一人一次，
+- 中奖与谢谢参与都落 `lottery_draw_records`；`uk_activity_user_day` 兜底一人一天一次，
   `uk_prize_code` 防止同一奖券码重复中出。
-- `LotteryMyRecordView`：`{drawn, result, prizeId, prizeName, prizeCode, drawnAt}`；
-  没抽过时 `drawn=false`，其余字段为 null。
+- 券类中奖自动发一张 `source=LOTTERY` 的用户券，可与领券中心领取的同款券并存；
+  实物中奖生成领取单，用户在「我的奖品」填地址。
+- `LotteryMyRecordView`：`{drawn, result, prizeId, prizeName, prizeType, prizeCode, drawnAt}`；
+  只返回**今天**的记录，没抽过时 `drawn=false`，其余字段为 null。
+- `LotteryPrizeRecordView`：`{id, activityId, activityName, prizeId, prizeName, prizeImage,
+  prizeType, prizeCode, drawnAt, claim, userCouponId, couponStatus, couponValidTo}`。
+- 填地址请求：`{receiverName, receiverPhone, receiverAddress}`；已发货后返回 400。
 
-**并发保证**：Redis Set 做快速判断与 `SPOP` 原子领奖；MySQL 唯一键是最终兜底；
-MySQL 写入失败时奖券放回 Redis 奖池，用户可以重试。
+**并发保证**：Redis Set 按天做快速判断与 `SPOP` 原子领奖；MySQL 唯一键是最终兜底；
+MySQL 写入 / 发奖失败时奖券放回 Redis 奖池，用户可以重试。

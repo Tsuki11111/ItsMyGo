@@ -91,4 +91,18 @@ public interface UserCouponMapper extends BaseMapper<UserCoupon> {
     List<UserCoupon> selectAvailable(@Param("userId") Long userId,
                                      @Param("amount") BigDecimal amount,
                                      @Param("merchantId") Long merchantId);
+
+    /** 抽奖发放的券：按抽奖记录 id 批量查，展示状态用数据库 NOW() 计算 */
+    @Select("""
+            <script>
+            SELECT uc.*,
+                   CASE WHEN uc.status = 'UNUSED' AND uc.valid_to &lt; NOW()
+                        THEN 'EXPIRED' ELSE uc.status END AS display_status
+            FROM user_coupons uc
+            WHERE uc.source = 'LOTTERY'
+              AND uc.source_id IN
+              <foreach collection="sourceIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+            </script>
+            """)
+    List<UserCoupon> selectLotteryCoupons(@Param("sourceIds") java.util.Collection<Long> sourceIds);
 }

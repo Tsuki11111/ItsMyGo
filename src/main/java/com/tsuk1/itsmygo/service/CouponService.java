@@ -17,6 +17,12 @@ public interface CouponService {
 
     void claim(Long userId, Long couponId);
 
+    /**
+     * 抽奖中奖发券：直接生成一张 {@code source=LOTTERY} 的用户券快照，
+     * 不占模板的领取库存，也不受领券中心「每人一张」限制。
+     */
+    void issueForLottery(Long userId, Long couponId, Long drawRecordId);
+
     PageResponse<UserCouponView> mine(Long userId, int page, int size, String status);
 
     /** 结算页预校验：未使用、未过期、门槛满足 */

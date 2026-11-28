@@ -15,6 +15,7 @@ import com.tsuk1.itsmygo.mapper.CouponMapper;
 import com.tsuk1.itsmygo.mapper.MerchantMapper;
 import com.tsuk1.itsmygo.mapper.UserCouponMapper;
 import com.tsuk1.itsmygo.service.CouponService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,6 +30,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
+@Slf4j
 @Service
 public class CouponServiceImpl implements CouponService {
 
@@ -70,6 +72,7 @@ public class CouponServiceImpl implements CouponService {
         if (userId != null) {
             List<UserCoupon> claimed = userCouponMapper.selectList(Wrappers.<UserCoupon>lambdaQuery()
                     .eq(UserCoupon::getUserId, userId)
+                    .eq(UserCoupon::getSource, UserCoupon.SOURCE_CLAIM)
                     .in(UserCoupon::getCouponId, couponIds));
             for (UserCoupon userCoupon : claimed) {
                 claimedIds.add(userCoupon.getCouponId());
@@ -112,6 +115,8 @@ public class CouponServiceImpl implements CouponService {
         UserCoupon userCoupon = new UserCoupon();
         userCoupon.setUserId(userId);
         userCoupon.setCouponId(couponId);
+        userCoupon.setSource(UserCoupon.SOURCE_CLAIM);
+        userCoupon.setSourceId(0L);
         userCoupon.setMerchantId(coupon.getMerchantId());
         // 快照：模板以后改价/改期，不影响已领的券
         userCoupon.setCouponName(coupon.getName());
@@ -130,6 +135,34 @@ public class CouponServiceImpl implements CouponService {
         // 最终以这条条件更新为准：领完/失效都会返回 0，事务回滚上面那条插入
         if (couponMapper.claimOne(couponId) == 0) {
             throw new BizException(ResultCode.BAD_REQUEST, "优惠券已领完或已失效");
+        }
+    }
+
+    @Override
+    public void issueForLottery(Long userId, Long couponId, Long drawRecordId) {
+        Coupon coupon = couponMapper.selectById(couponId);
+        if (coupon == null) {
+            throw new BizException(ResultCode.BAD_REQUEST, "奖品券模板不存在");
+        }
+        UserCoupon userCoupon = new UserCoupon();
+        userCoupon.setUserId(userId);
+        userCoupon.setCouponId(couponId);
+        userCoupon.setSource(UserCoupon.SOURCE_LOTTERY);
+        userCoupon.setSourceId(drawRecordId);
+        userCoupon.setMerchantId(coupon.getMerchantId());
+        userCoupon.setCouponName(coupon.getName());
+        userCoupon.setThresholdAmount(coupon.getThresholdAmount());
+        userCoupon.setDiscountAmount(coupon.getDiscountAmount());
+        userCoupon.setValidFrom(coupon.getValidFrom());
+        userCoupon.setValidTo(coupon.getValidTo());
+        userCoupon.setStatus(UserCoupon.UNUSED);
+        try {
+            // 奖品券不占模板的领取库存：中奖是承诺，不能因为领券中心领完了发不出
+            userCouponMapper.insert(userCoupon);
+        } catch (DuplicateKeyException e) {
+            // 同一条抽奖记录只会发一次；重复调用是上游重试，忽略
+            log.info("抽奖券已发放，跳过重复发放: userId={} couponId={} drawRecordId={}",
+                    userId, couponId, drawRecordId);
         }
     }
 

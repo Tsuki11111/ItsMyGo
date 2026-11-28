@@ -14,8 +14,10 @@ import type {
   CategoryPayload,
   Coupon,
   CouponPayload,
+  LotteryClaimView,
   LotteryPrizePayload,
   LotteryPrizeView,
+  LotteryRecordAdminView,
   MerchantView,
   Order,
   OrderView,
@@ -327,4 +329,20 @@ export function createAdminLotteryPrize(
   payload: LotteryPrizePayload,
 ): Promise<LotteryPrizeView> {
   return post<LotteryPrizeView>(`/admin/activities/${activityId}/prizes`, payload)
+}
+
+/** 中奖记录（只含中奖，含实物领取单状态） */
+export function fetchAdminActivityRecords(
+  activityId: number,
+  page = 1,
+  size = 20,
+): Promise<PageResponse<LotteryRecordAdminView>> {
+  return get<PageResponse<LotteryRecordAdminView>>(
+    `/admin/activities/${activityId}/records?page=${page}&size=${size}`,
+  )
+}
+
+/** 实物奖品填运单号发货 */
+export function shipAdminLotteryClaim(claimId: number, trackingNo: string): Promise<LotteryClaimView> {
+  return put<LotteryClaimView>(`/admin/activities/claims/${claimId}/ship`, { trackingNo })
 }

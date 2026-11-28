@@ -217,6 +217,8 @@ export interface LotteryDrawResponse {
   result: 'WIN' | 'THANKS'
   prizeId: number | null
   prizeName: string | null
+  /** COUPON 已自动发券 / PHYSICAL 需填收货地址；谢谢参与为 null */
+  prizeType: 'COUPON' | 'PHYSICAL' | null
   prizeCode: string | null
   message: string
 }
@@ -226,6 +228,7 @@ export interface LotteryMyRecordView {
   result: 'WIN' | 'THANKS' | null
   prizeId: number | null
   prizeName: string | null
+  prizeType: 'COUPON' | 'PHYSICAL' | null
   prizeCode: string | null
   drawnAt: string | null
 }
@@ -264,6 +267,8 @@ export interface LotteryPrizeView {
   activityId: number
   name: string
   image: string
+  prizeType: 'COUPON' | 'PHYSICAL'
+  couponId: number | null
   level: number
   weight: number
   stock: number
@@ -274,9 +279,60 @@ export interface LotteryPrizeView {
 export interface LotteryPrizePayload {
   name: string
   image: string
+  prizeType: 'COUPON' | 'PHYSICAL'
+  couponId: number | null
   level: number
   weight: number
   stock: number
+}
+
+/** 实物奖品领取单 */
+export interface LotteryClaimView {
+  id: number
+  status: 'PENDING_ADDRESS' | 'PENDING_SHIPMENT' | 'SHIPPED'
+  statusLabel: string
+  receiverName: string
+  receiverPhone: string
+  receiverAddress: string
+  trackingNo: string
+  shippedAt: string | null
+}
+
+/** 我的奖品：一次中奖一条 */
+export interface LotteryPrizeRecordView {
+  id: number
+  activityId: number
+  activityName: string
+  prizeId: number | null
+  prizeName: string
+  prizeImage: string
+  prizeType: 'COUPON' | 'PHYSICAL' | null
+  prizeCode: string | null
+  drawnAt: string
+  claim: LotteryClaimView | null
+  userCouponId: number | null
+  couponStatus: string | null
+  couponValidTo: string | null
+}
+
+export interface LotteryClaimAddressPayload {
+  receiverName: string
+  receiverPhone: string
+  receiverAddress: string
+}
+
+/** 管理端中奖记录 */
+export interface LotteryRecordAdminView {
+  id: number
+  activityId: number
+  userId: number
+  username: string
+  prizeId: number | null
+  prizeName: string
+  prizeType: 'COUPON' | 'PHYSICAL' | null
+  prizeCode: string | null
+  drawnAt: string
+  claim: LotteryClaimView | null
 }
 
 export interface Address {

@@ -21,12 +21,24 @@ public class UserCoupon {
     public static final String USED = "USED";
     public static final String EXPIRED = "EXPIRED";
 
+    /** 领券中心领取 */
+    public static final String SOURCE_CLAIM = "CLAIM";
+
+    /** 抽奖中奖发放 */
+    public static final String SOURCE_LOTTERY = "LOTTERY";
+
     @TableId(type = IdType.AUTO)
     private Long id;
 
     private Long userId;
 
     private Long couponId;
+
+    /** 来源：CLAIM 领券中心 / LOTTERY 抽奖 */
+    private String source;
+
+    /** 来源业务 id：领券为 0，抽奖为抽奖记录 id */
+    private Long sourceId;
 
     /** 领取时的商户快照；NULL 表示平台券 */
     private Long merchantId;
