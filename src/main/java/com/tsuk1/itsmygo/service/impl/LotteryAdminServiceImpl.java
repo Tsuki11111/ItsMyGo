@@ -104,6 +104,77 @@ public class LotteryAdminServiceImpl implements LotteryAdminService {
     }
 
     @Override
+    public LotteryPrizeView updatePrize(Long activityId, Long prizeId, LotteryPrizeRequest request) {
+        Activity activity = requireLotteryActivity(activityId);
+        if (activity.getStatus() == ActivityStatus.ENDED.code()) {
+            throw new BizException(ResultCode.BAD_REQUEST, "活动已结束，不能编辑奖项");
+        }
+        LotteryPrize prize = requirePrize(activityId, prizeId);
+
+        String prizeType = resolvePrizeType(request.prizeType());
+        if (!prizeType.equals(prize.getPrizeType()) && hasWinner(activityId, prizeId)) {
+            // 历史中奖记录没有奖品快照，类型一变「券已发 / 实物待发」的语义就错了
+            throw new BizException(ResultCode.BAD_REQUEST, "奖项已有中奖记录，不能修改奖品类型");
+        }
+        Long couponId = null;
+        if (LotteryPrizeType.COUPON.name().equals(prizeType)) {
+            couponId = requirePrizeCoupon(request.couponId(), activity);
+        }
+
+        // 先按差量同步 Redis 奖池：调低库存小于已中出数量时在这里拒绝，DB 不动
+        prizePoolService.adjustStock(activity, prize, prize.getStock(), request.stock());
+
+        prize.setName(request.name());
+        prize.setImage(request.image() == null ? "" : request.image());
+        prize.setPrizeType(prizeType);
+        prize.setCouponId(couponId);
+        prize.setLevel(request.level());
+        prize.setWeight(request.weight());
+        prize.setStock(request.stock());
+        prizeMapper.updateById(prize);
+
+        LotteryPrize saved = prizeMapper.selectById(prizeId);
+        Integer remaining = null;
+        try {
+            remaining = (int) prizePoolService.remainingStock(activity, saved);
+        } catch (RuntimeException e) {
+            log.warn("读取抽奖实时库存失败: activityId={} prizeId={} err={}",
+                    activityId, prizeId, e.getMessage());
+        }
+        return toView(saved, remaining);
+    }
+
+    @Override
+    public void deletePrize(Long activityId, Long prizeId) {
+        Activity activity = requireLotteryActivity(activityId);
+        if (activity.getStatus() == ActivityStatus.ENDED.code()) {
+            throw new BizException(ResultCode.BAD_REQUEST, "活动已结束，不能删除奖项");
+        }
+        LotteryPrize prize = requirePrize(activityId, prizeId);
+        if (hasWinner(activityId, prizeId)) {
+            throw new BizException(ResultCode.CONFLICT, "该奖项已有中奖记录，不能删除");
+        }
+        prizeMapper.deleteById(prizeId);
+        prizePoolService.removePrizePool(activity, prize);
+    }
+
+    private LotteryPrize requirePrize(Long activityId, Long prizeId) {
+        LotteryPrize prize = prizeMapper.selectById(prizeId);
+        if (prize == null || !activityId.equals(prize.getActivityId())) {
+            throw new BizException(ResultCode.NOT_FOUND, "奖项不存在");
+        }
+        return prize;
+    }
+
+    private boolean hasWinner(Long activityId, Long prizeId) {
+        Long count = drawRecordMapper.selectCount(Wrappers.<LotteryDrawRecord>lambdaQuery()
+                .eq(LotteryDrawRecord::getActivityId, activityId)
+                .eq(LotteryDrawRecord::getPrizeId, prizeId)
+                .eq(LotteryDrawRecord::getResult, LotteryDrawResult.WIN.name()));
+        return count != null && count > 0;
+    }
+
+    @Override
     public List<LotteryPrizeView> listPrizes(Long activityId) {
         Activity activity = requireLotteryActivity(activityId);
         List<LotteryPrize> prizes = prizeMapper.selectList(Wrappers.<LotteryPrize>lambdaQuery()

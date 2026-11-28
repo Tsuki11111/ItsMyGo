@@ -45,7 +45,8 @@
 因此 `RBAC_ENABLED` 保持默认 **false**（开启后新管理员无角色行会等同超管）。
 商品归档清理默认关闭 + dry-run，需先在本地/演示确认报告后再打开 `PRODUCT_CLEANUP_ENABLED`。
 
-- **活动中心与抽奖（2026-11-27，V40–V42 / D38–D41；奖品下发 2026-11-28，V44 / D42–D45）**：
+- **活动中心与抽奖（2026-11-27，V40–V42 / D38–D41；奖品下发 2026-11-28，V44 / D42–D45；
+  奖项编辑 / 删除 2026-11-28，D46）**：
   活动主表 `activities` 支持 `type / description / primary_color / cover_image`，
   抽奖是 `type=LOTTERY` 的一种活动；顾客端活动中心 `/activities` 卡片展示全部活动
   （封面 + 主色调 + 状态 + 起止日期），抽奖详情 `/lottery/:activityId` 使用转盘；
@@ -53,7 +54,7 @@
   「我的优惠券」（可与领券中心的同款券并存），实物中奖生成领取单，用户在「我的奖品」
   填收货地址、管理端在中奖记录里填运单号发货；中奖后发站内通知。
   管理端 `/admin/activities` 支持活动 CRUD、结束恢复、奖项配置（实物图 + 权重 +
-  奖品类型 / 券模板）、中奖记录与实物发货。多个抽奖活动各自独立；旧 `/api/lottery/active`、
+  奖品类型 / 券模板，奖项可编辑 / 删除）、中奖记录与实物发货。多个抽奖活动各自独立；旧 `/api/lottery/active`、
   `/api/admin/lottery/activities/**` 已删除。活动管理页已接 RBAC 权限码（V43：
   `admin:activity:view` / `admin:activity:manage`），运营子角色默认可管理活动。
 - **购物车角标缓存（2026-11-27，D37）**：新增 `GET /api/cart/count`，Redis Hash
@@ -123,8 +124,7 @@
 - **技术债**：CI 里 MinIO 镜像拉不到（`SKIP_MINIO_TESTS` 跳过 4 条）、订单号冲突重试、
   连接池默认值；V44 之前的历史中奖记录奖品类型迁移时统一默认 `PHYSICAL`、
   也没有对应的 `lottery_prize_claims` 领取单（演示库里名为「xx 券」的旧奖品会显示为实物、
-  无地址入口）——历史数据无法判定形态，可在活动管理里编辑奖品改回券类型，或忽略；
-  活动管理「奖项配置」只能新增奖项，没有编辑 / 删除（改权重、补库存只能改库）。
+  无地址入口）——历史数据无法判定形态，可在活动管理里编辑奖品改回券类型，或忽略。
 
 ⚠️ **四个对接约定**（细节见 implementation §4.3）：
 响应拦截器按 **body 的 `code`** 判断而不是 HTTP 状态码；库存走独立接口；
@@ -1634,6 +1634,22 @@ Windows PowerShell 5.1 对无 BOM 文件按系统 ANSI 解码，中文注释/字
 **不算服务端错误**，不要进 ERROR 日志/告警。
 
 ## 6. 历史记录
+
+### 2026-11-28 · 抽奖奖项编辑 / 删除
+
+**背景**：管理端「奖项配置」原先只能新增，管理页验证时发现无法改权重 / 补库存 / 删错加的奖项。
+
+**实现**：
+- `PUT /api/admin/activities/{id}/prizes/{prizeId}`：名称 / 图片 / 等级 / 权重 / 库存 / 券可改；
+  `DELETE .../prizes/{prizeId}`：删除奖项并清掉 Redis 奖池与初始化标记；均需 `admin:activity:manage`，
+  写审计 `LOTTERY_PRIZE_UPDATE` / `LOTTERY_PRIZE_DELETE`（D46）。
+- 库存差量同步 Redis 奖池（`LotteryPrizePoolService.adjustStock`）：加库存补新序号奖券码、
+  减库存 `SPOP` 未发出的码，不重建池；新库存小于已中出数量返回 400。
+- 有中奖记录后奖品类型冻结（400，历史记录无奖品快照）、奖项不能删（409）。
+- 前端奖项表格加「编辑 / 删除」列；底部表单新增 / 编辑两用（保存修改、取消编辑）。
+
+**验证**：新增 `LotteryPrizeEditDeleteTest` 6 条（库存同步、库存下限、类型冻结、删除成功 / 409、404）
+全部通过；前端 `type-check`、Vitest 43 条通过。
 
 ### 2026-11-28 · 抽奖奖品下发：每天一次、券自动到账、实物领取发货（V44）
 

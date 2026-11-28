@@ -13,6 +13,12 @@ public interface LotteryAdminService {
 
     LotteryPrizeView addPrize(Long activityId, LotteryPrizeRequest request);
 
+    /** 编辑奖项；有中奖记录后不允许改奖品类型，库存按差量同步 Redis 奖池 */
+    LotteryPrizeView updatePrize(Long activityId, Long prizeId, LotteryPrizeRequest request);
+
+    /** 删除奖项；已有中奖记录的奖项不允许删除 */
+    void deletePrize(Long activityId, Long prizeId);
+
     List<LotteryPrizeView> listPrizes(Long activityId);
 
     /** 某个活动的中奖记录（只含 WIN） */

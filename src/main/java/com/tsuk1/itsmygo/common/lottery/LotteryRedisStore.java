@@ -74,6 +74,23 @@ public class LotteryRedisStore {
         return redisTemplate.opsForSet().pop(prizePoolKey(activityId, prizeId));
     }
 
+    /** 批量抽走奖券（调低库存时用）；返回实际取出的数量 */
+    public long takePrizes(Long activityId, Long prizeId, long count) {
+        if (count <= 0) {
+            return 0;
+        }
+        List<String> removed = redisTemplate.opsForSet()
+                .pop(prizePoolKey(activityId, prizeId), count);
+        return removed == null ? 0 : removed.size();
+    }
+
+    /** 删除奖项的奖池与初始化标记（删除奖项后调用） */
+    public void removePrizePool(Long activityId, Long prizeId) {
+        redisTemplate.delete(prizePoolKey(activityId, prizeId));
+        redisTemplate.delete(initializedKey(activityId, prizeId));
+    }
+
+
     /** 抽奖失败时把奖券放回奖池（比如 MySQL 插入失败） */
     public void returnPrize(Long activityId, Long prizeId, String prizeCode, long ttlSeconds) {
         addWithTtl(prizePoolKey(activityId, prizeId), ttlSeconds, prizeCode);

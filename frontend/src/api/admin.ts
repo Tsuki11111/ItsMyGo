@@ -331,6 +331,19 @@ export function createAdminLotteryPrize(
   return post<LotteryPrizeView>(`/admin/activities/${activityId}/prizes`, payload)
 }
 
+export function updateAdminLotteryPrize(
+  activityId: number,
+  prizeId: number,
+  payload: LotteryPrizePayload,
+): Promise<LotteryPrizeView> {
+  return put<LotteryPrizeView>(`/admin/activities/${activityId}/prizes/${prizeId}`, payload)
+}
+
+/** 删除奖项；已有中奖记录的奖项后端会返回 409 */
+export function deleteAdminLotteryPrize(activityId: number, prizeId: number): Promise<void> {
+  return del<void>(`/admin/activities/${activityId}/prizes/${prizeId}`)
+}
+
 /** 中奖记录（只含中奖，含实物领取单状态） */
 export function fetchAdminActivityRecords(
   activityId: number,

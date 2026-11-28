@@ -1922,6 +1922,8 @@ specText, unitPrice, quantity, refundAmount, createdAt`
 | PUT | `/api/admin/activities/{id}/status` | `{status}`：1 进行中 / 2 已结束 | `ActivityView` |
 | GET | `/api/admin/activities/{id}/prizes` | — | `LotteryPrizeView[]` |
 | POST | `/api/admin/activities/{id}/prizes` | `{name, image, prizeType, couponId, level, weight, stock}` | `LotteryPrizeView` |
+| PUT | `/api/admin/activities/{id}/prizes/{prizeId}` | 同上 | `LotteryPrizeView` |
+| DELETE | `/api/admin/activities/{id}/prizes/{prizeId}` | — | `Result<Void>` |
 | GET | `/api/admin/activities/{id}/records` | `page` / `size`（中奖记录） | `PageResponse<LotteryRecordAdminView>` |
 | PUT | `/api/admin/activities/claims/{claimId}/ship` | `{trackingNo}`：实物奖品发货 | `LotteryClaimView` |
 
@@ -1945,6 +1947,10 @@ receiverAddress, trackingNo, shippedAt`
 - `image` 是奖品实物图 URL（可空）；`weight` 越大越容易中，小额券配更高权重。
 - `stock` 是初始库存；`remainingStock` 是 Redis 奖池实时剩余（Redis 不可用时为 null）。
 - 开始时间必须早于结束时间；已结束的活动不能再添加奖项；奖项子资源只对 `LOTTERY` 开放。
+- 奖项可编辑、可删除（`admin:activity:manage`，写审计 `LOTTERY_PRIZE_UPDATE` / `LOTTERY_PRIZE_DELETE`）：
+  - 调库存时 Redis 奖池按差量同步（加库存补新码、减库存移走未发出的码），
+    新库存小于已中出数量返回 400。
+  - 奖项已有中奖记录时：不能修改奖品类型（400），不能删除（409）。
 - 实物领取单状态 `PENDING_ADDRESS → PENDING_SHIPMENT → SHIPPED`；只有 `PENDING_SHIPMENT` 能发货。
 
 ### 顾客端

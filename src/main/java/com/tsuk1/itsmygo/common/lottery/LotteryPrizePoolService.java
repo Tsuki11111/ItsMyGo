@@ -77,6 +77,54 @@ public class LotteryPrizePoolService {
         return redisStore.remainingStock(activity.getId(), prize.getId());
     }
 
+    /**
+     * 管理端调库存后同步 Redis 奖池（差量调整，不重建池）。
+     *
+     * <p>奖券码是 {@code LOT-{prizeId}-{seq}}，seq 上限就是库存；所以加库存 = 追加新序号的码，
+     * 减库存 = 从池里移走几个未发出去的码（已发的码在抽中时就已出池，不会被误删）。
+     * 池还没初始化过则什么都不用做 —— 下次初始化会直接按新库存灌。</p>
+     *
+     * @throws BizException 新库存小于已中出数量时
+     */
+    public void adjustStock(Activity activity, LotteryPrize prize, int oldStock, int newStock) {
+        if (newStock == oldStock) {
+            return;
+        }
+        if (newStock < oldStock) {
+            long issued = drawRecordMapper.selectCount(Wrappers.<LotteryDrawRecord>lambdaQuery()
+                    .eq(LotteryDrawRecord::getActivityId, activity.getId())
+                    .eq(LotteryDrawRecord::getPrizeId, prize.getId())
+                    .eq(LotteryDrawRecord::getResult, LotteryDrawResult.WIN.name()));
+            if (newStock < issued) {
+                throw new BizException(ResultCode.BAD_REQUEST,
+                        "库存不能小于已中出数量（已中出 " + issued + " 件）");
+            }
+        }
+        if (!redisStore.isPrizePoolInitialized(activity.getId(), prize.getId())) {
+            return;
+        }
+
+        long ttlSeconds = redisStore.ttlSeconds(activity.getEndAt());
+        if (newStock > oldStock) {
+            List<String> codes = new ArrayList<>();
+            for (int seq = oldStock + 1; seq <= newStock; seq++) {
+                codes.add(prizeCode(prize.getId(), seq));
+            }
+            for (int from = 0; from < codes.size(); from += SEED_BATCH_SIZE) {
+                int to = Math.min(from + SEED_BATCH_SIZE, codes.size());
+                redisStore.seedPrizeCodes(activity.getId(), prize.getId(),
+                        codes.subList(from, to), ttlSeconds);
+            }
+        } else {
+            redisStore.takePrizes(activity.getId(), prize.getId(), oldStock - newStock);
+        }
+    }
+
+    /** 删除奖项后清掉它的奖池与初始化标记 */
+    public void removePrizePool(Activity activity, LotteryPrize prize) {
+        redisStore.removePrizePool(activity.getId(), prize.getId());
+    }
+
     private void initializeOne(Activity activity, LotteryPrize prize) {
         long ttlSeconds = redisStore.ttlSeconds(activity.getEndAt());
 

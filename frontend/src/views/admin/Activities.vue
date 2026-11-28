@@ -8,6 +8,7 @@ import { usePermissionStore } from '@/stores/permission'
 import {
   createAdminActivity,
   createAdminLotteryPrize,
+  deleteAdminLotteryPrize,
   fetchAdminActivities,
   fetchAdminActivityRecords,
   fetchAdminCoupons,
@@ -15,6 +16,7 @@ import {
   shipAdminLotteryClaim,
   updateAdminActivity,
   updateAdminActivityStatus,
+  updateAdminLotteryPrize,
 } from '@/api/admin'
 import type {
   ActivityPayload,
@@ -68,6 +70,8 @@ const prizeForm = reactive<LotteryPrizePayload>({
   weight: 1,
   stock: 10,
 })
+/** 非空表示底部表单处于「编辑奖项」模式 */
+const editingPrizeId = ref<number | null>(null)
 
 const recordsVisible = ref(false)
 const recordsActivity = ref<ActivityView | null>(null)
@@ -176,6 +180,14 @@ function openPrizes(row: ActivityView) {
     return
   }
   prizeActivity.value = row
+  resetPrizeForm()
+  prizeVisible.value = true
+  void loadCoupons()
+  loadPrizes(row.id)
+}
+
+function resetPrizeForm() {
+  editingPrizeId.value = null
   Object.assign(prizeForm, {
     name: '',
     image: '',
@@ -185,9 +197,38 @@ function openPrizes(row: ActivityView) {
     weight: 1,
     stock: 10,
   })
-  prizeVisible.value = true
-  void loadCoupons()
-  loadPrizes(row.id)
+}
+
+function startEditPrize(prize: LotteryPrizeView) {
+  editingPrizeId.value = prize.id
+  Object.assign(prizeForm, {
+    name: prize.name,
+    image: prize.image,
+    prizeType: prize.prizeType,
+    couponId: prize.couponId,
+    level: prize.level,
+    weight: prize.weight,
+    stock: prize.stock,
+  })
+}
+
+async function removePrize(prize: LotteryPrizeView) {
+  if (!prizeActivity.value) return
+  try {
+    await ElMessageBox.confirm(`确定删除奖项「${prize.name}」吗？`, '删除奖项', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+  } catch {
+    return
+  }
+  await deleteAdminLotteryPrize(prizeActivity.value.id, prize.id)
+  ElMessage.success('奖项已删除')
+  if (editingPrizeId.value === prize.id) {
+    resetPrizeForm()
+  }
+  await loadPrizes(prizeActivity.value.id)
 }
 
 async function loadCoupons() {
@@ -254,7 +295,7 @@ async function loadPrizes(activityId: number) {
   }
 }
 
-async function addPrize() {
+async function submitPrize() {
   if (!prizeActivity.value) return
   if (!prizeForm.name.trim()) {
     ElMessage.warning('请填写奖项名称')
@@ -265,27 +306,25 @@ async function addPrize() {
     return
   }
   const activityId = prizeActivity.value.id
+  const payload: LotteryPrizePayload = {
+    name: prizeForm.name.trim(),
+    image: prizeForm.image,
+    prizeType: prizeForm.prizeType,
+    couponId: prizeForm.prizeType === 'COUPON' ? prizeForm.couponId : null,
+    level: prizeForm.level,
+    weight: prizeForm.weight,
+    stock: prizeForm.stock,
+  }
   prizeSaving.value = true
   try {
-    await createAdminLotteryPrize(activityId, {
-      name: prizeForm.name.trim(),
-      image: prizeForm.image,
-      prizeType: prizeForm.prizeType,
-      couponId: prizeForm.prizeType === 'COUPON' ? prizeForm.couponId : null,
-      level: prizeForm.level,
-      weight: prizeForm.weight,
-      stock: prizeForm.stock,
-    })
-    ElMessage.success('奖项已添加')
-    Object.assign(prizeForm, {
-      name: '',
-      image: '',
-      prizeType: 'PHYSICAL',
-      couponId: null,
-      level: 1,
-      weight: 1,
-      stock: 10,
-    })
+    if (editingPrizeId.value !== null) {
+      await updateAdminLotteryPrize(activityId, editingPrizeId.value, payload)
+      ElMessage.success('奖项已更新')
+    } else {
+      await createAdminLotteryPrize(activityId, payload)
+      ElMessage.success('奖项已添加')
+    }
+    resetPrizeForm()
     await loadPrizes(activityId)
   } finally {
     prizeSaving.value = false
@@ -433,13 +472,19 @@ onMounted(load)
             {{ row.remainingStock === null ? '-' : row.remainingStock }}
           </template>
         </el-table-column>
+        <el-table-column v-if="canManage" label="操作" width="120" align="center">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="startEditPrize(row)">编辑</el-button>
+            <el-button link type="danger" @click="removePrize(row)">删除</el-button>
+          </template>
+        </el-table-column>
         <template #empty>
           <el-empty description="还没有奖项" />
         </template>
       </el-table>
 
       <template v-if="canManage">
-        <el-divider>新增奖项</el-divider>
+        <el-divider>{{ editingPrizeId === null ? '新增奖项' : '编辑奖项' }}</el-divider>
         <div class="prize-form">
           <el-input v-model="prizeForm.name" placeholder="奖项名称" style="width: 180px" />
           <el-select v-model="prizeForm.prizeType" style="width: 120px">
@@ -463,7 +508,10 @@ onMounted(load)
           <el-input-number v-model="prizeForm.weight" :min="1" :max="9999" controls-position="right" />
           <el-input-number v-model="prizeForm.stock" :min="1" :max="99999" controls-position="right" />
           <ImageUpload v-model="prizeForm.image" compact />
-          <el-button type="primary" :loading="prizeSaving" @click="addPrize">添加</el-button>
+          <el-button type="primary" :loading="prizeSaving" @click="submitPrize">
+            {{ editingPrizeId === null ? '添加' : '保存修改' }}
+          </el-button>
+          <el-button v-if="editingPrizeId !== null" @click="resetPrizeForm">取消编辑</el-button>
         </div>
         <p class="prize-hint">
           权重越大越容易中；小额券建议配高权重，实物大奖配低权重。

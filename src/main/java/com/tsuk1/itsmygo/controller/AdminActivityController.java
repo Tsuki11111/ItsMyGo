@@ -16,6 +16,7 @@ import com.tsuk1.itsmygo.service.ActivityAdminService;
 import com.tsuk1.itsmygo.service.LotteryAdminService;
 import jakarta.validation.Valid;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -87,6 +88,23 @@ public class AdminActivityController {
     public Result<LotteryPrizeView> addPrize(@PathVariable Long id,
                                              @Valid @RequestBody LotteryPrizeRequest request) {
         return Result.ok(lotteryAdminService.addPrize(id, request));
+    }
+
+    @PutMapping("/{id}/prizes/{prizeId}")
+    @PreAuthorize("hasAuthority('admin:activity:manage')")
+    @AdminAudit(action = "LOTTERY_PRIZE_UPDATE", label = "编辑抽奖奖项", targetType = "LOTTERY_PRIZE")
+    public Result<LotteryPrizeView> updatePrize(@PathVariable Long id,
+                                                @PathVariable Long prizeId,
+                                                @Valid @RequestBody LotteryPrizeRequest request) {
+        return Result.ok(lotteryAdminService.updatePrize(id, prizeId, request));
+    }
+
+    @DeleteMapping("/{id}/prizes/{prizeId}")
+    @PreAuthorize("hasAuthority('admin:activity:manage')")
+    @AdminAudit(action = "LOTTERY_PRIZE_DELETE", label = "删除抽奖奖项", targetType = "LOTTERY_PRIZE")
+    public Result<Void> deletePrize(@PathVariable Long id, @PathVariable Long prizeId) {
+        lotteryAdminService.deletePrize(id, prizeId);
+        return Result.ok();
     }
 
     @GetMapping("/{id}/records")
